@@ -100,11 +100,11 @@
   background: #1d4ed8 !important;
 }
 
-/* 固定高度菜单盒子：切换子菜单或跳转态时尺寸恒定 */
+/* 固定高度菜单盒子：切换子菜单或跳转态时尺寸恒定，容纳直达、子菜单与自定义三行 */
 .mathslot-menu-box {
-  height: 88px;
-  min-height: 88px;
-  max-height: 88px;
+  height: 114px;
+  min-height: 114px;
+  max-height: 114px;
   overflow-y: auto;
   background: #1e293b;
   border: 1.5px solid #334155;

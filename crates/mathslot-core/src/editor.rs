@@ -112,6 +112,10 @@ pub struct StreamEditor {
     pub library: UserLibrary,
     /// 记录最近一次跳转前的光标字符位置（并在后续编辑时自动平移偏移量，支持 `Esc -` / `Alt+Left` 来回切换！）
     pub jump_back_pos: Option<usize>,
+    /// 完整历史跳转序列（如 d -> c -> b -> e，按 Esc p 后退、Esc n 前进）
+    pub jump_history: Vec<usize>,
+    /// 当前在历史跳转序列中的位置游标
+    pub jump_history_idx: usize,
     last_synced_source: String,
     undo_stack: Vec<Snapshot>,
     redo_stack: Vec<Snapshot>,
@@ -138,6 +142,8 @@ impl StreamEditor {
             esc_nav: None,
             library,
             jump_back_pos: None,
+            jump_history: Vec::new(),
+            jump_history_idx: 0,
             last_synced_source: String::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -160,6 +166,8 @@ impl StreamEditor {
             esc_nav: None,
             library,
             jump_back_pos: None,
+            jump_history: Vec::new(),
+            jump_history_idx: 0,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
         }
@@ -175,7 +183,13 @@ impl StreamEditor {
     }
 
     pub fn prefix_menu_state(&self) -> PrefixMenuState {
-        detect_prefix_menu_state(&self.source, self.cursor_char)
+        let state = detect_prefix_menu_state(&self.source, self.cursor_char);
+        if let PrefixMenuState::InvalidPrefix(ch) = state {
+            if self.library.lookup_custom(ch).is_some() {
+                return PrefixMenuState::Idle;
+            }
+        }
+        state
     }
 
     /// 返回当前导航视图应当展开的复合路径与过滤前缀：
@@ -532,11 +546,19 @@ impl StreamEditor {
 
     pub fn feed_esc_jump_char(&mut self, ch: char) -> String {
         if matches!(ch, '-' | '`') {
-            self.esc_nav = None;
             return self.jump_to_previous_pos();
         }
-        if ch == '0' {
+        if matches!(ch, 'p' | 'P') {
+            return self.jump_history_back();
+        }
+        if matches!(ch, 'n' | 'N') {
+            return self.jump_history_forward();
+        }
+        if matches!(ch, 'h' | 'H' | '0') {
             return self.feed_esc_jump_char('a');
+        }
+        if matches!(ch, 't' | 'T') {
+            return self.feed_esc_jump_char(';');
         }
         let mapped = if matches!(ch, ';' | '.' | '$') {
             ';'
@@ -544,7 +566,7 @@ impl StreamEditor {
             ch.to_ascii_lowercase()
         };
         if !mapped.is_ascii_lowercase() && mapped != ';' {
-            return "请按导航图字母，或 `;`/`.` 跳行尾、`-` 回上一位置（Esc 取消）。".to_owned();
+            return "请按导航图字母（h 行首，t 行尾，p 历史后退，n 历史前进，Esc 取消）。".to_owned();
         }
         let Some(mut esc) = self.esc_nav.take() else {
             return String::new();
@@ -564,7 +586,7 @@ impl StreamEditor {
                     self.push_current_to_undo();
                 }
                 self.apply_jump(target_char, missing_semis);
-                format!("已直达 [{path_str}] {desc}，可直接输入修改（按 Esc - 可返回原位）。")
+                format!("已直达 [{path_str}] {desc}，可直接输入修改（按 Esc p 可返回原位）。")
             }
             NavSeqResolution::InScope {
                 path,
@@ -594,13 +616,76 @@ impl StreamEditor {
                 esc.partial.clear();
                 self.esc_nav = Some(esc);
                 format!(
-                    "当前层级没有标签 `{mapped}`，请对照导航图按键（`;` 行尾，`-` 回上一位置，Backspace 返回上层）。"
+                    "当前层级没有标签 `{mapped}`，请对照导航图按键（h/a 行首，t/; 行尾，p/n 历史跳转，Backspace 返回上层）。"
                 )
             }
         }
     }
 
-    /// 返回上一个跳转前的位置（支持来回乒乓切换！）
+    /// 记录一次跳转前的坐标到跳转历史栈中
+    pub fn record_jump(&mut self, prev_pos: usize) {
+        if self.jump_history_idx < self.jump_history.len() {
+            self.jump_history.truncate(self.jump_history_idx);
+        }
+        if self.jump_history.last() != Some(&prev_pos) {
+            self.jump_history.push(prev_pos);
+        }
+        self.jump_history_idx = self.jump_history.len();
+        self.jump_back_pos = Some(prev_pos);
+    }
+
+    /// 沿历史跳转序列后退（Previous，快捷键 Esc p、Esc - 或 Alt+←）
+    pub fn jump_history_back(&mut self) -> String {
+        self.esc_nav = None;
+        if self.jump_history.is_empty() {
+            return self.jump_to_previous_pos();
+        }
+        if self.jump_history_idx == self.jump_history.len() {
+            let cur = self.cursor_char;
+            if self.jump_history.last() != Some(&cur) {
+                self.jump_history.push(cur);
+            }
+        }
+        if self.jump_history_idx > 0 {
+            self.jump_history_idx -= 1;
+            let target = self.jump_history[self.jump_history_idx].min(self.source.chars().count());
+            let current = self.cursor_char;
+            self.cursor_char = target;
+            self.jump_back_pos = Some(current);
+            self.reparse();
+            format!(
+                "已后退至历史位置 (序号 {}/{})：可按 Esc p 继续后退，或按 Esc n 前进。",
+                self.jump_history_idx + 1,
+                self.jump_history.len()
+            )
+        } else {
+            let target = self.jump_history[0].min(self.source.chars().count());
+            self.cursor_char = target;
+            self.reparse();
+            "已到达历史跳转记录最早起点（按 Esc n 可向前恢复）。".to_owned()
+        }
+    }
+
+    /// 沿历史跳转序列前进（Next，快捷键 Esc n）
+    pub fn jump_history_forward(&mut self) -> String {
+        self.esc_nav = None;
+        if self.jump_history.is_empty() || self.jump_history_idx + 1 >= self.jump_history.len() {
+            return "已在最新跳转位置，无法继续前进（按 Esc p 可向后回溯）。".to_owned();
+        }
+        self.jump_history_idx += 1;
+        let target = self.jump_history[self.jump_history_idx].min(self.source.chars().count());
+        let current = self.cursor_char;
+        self.cursor_char = target;
+        self.jump_back_pos = Some(current);
+        self.reparse();
+        format!(
+            "已前进至历史位置 (序号 {}/{})：可按 Esc n 继续前进，或按 Esc p 后退。",
+            self.jump_history_idx + 1,
+            self.jump_history.len()
+        )
+    }
+
+    /// 返回上一个跳转前的位置（支持单步乒乓切换！）
     pub fn jump_to_previous_pos(&mut self) -> String {
         self.esc_nav = None;
         let Some(prev) = self.jump_back_pos else {
@@ -702,7 +787,7 @@ impl StreamEditor {
             let prev = self.cursor_char;
             self.cursor_char = target;
             if prev != target {
-                self.jump_back_pos = Some(prev);
+                self.record_jump(prev);
             }
             return Some(format!(
                 "已定位锚点 [{label}] {desc}（Enter 确认，↓ 展开复合槽，Esc 退出）。"
@@ -863,6 +948,8 @@ impl StreamEditor {
         self.cursor_char = 0;
         self.esc_nav = None;
         self.jump_back_pos = None;
+        self.jump_history.clear();
+        self.jump_history_idx = 0;
         self.reparse();
         "已清空输入栏（可按 Ctrl+Z 撤销）。".to_owned()
     }
@@ -873,6 +960,8 @@ impl StreamEditor {
         self.cursor_char = self.source.chars().count();
         self.esc_nav = None;
         self.jump_back_pos = None;
+        self.jump_history.clear();
+        self.jump_history_idx = 0;
         self.reparse();
         format!(
             "已加载示例「{name}」：试试按 Esc a 跳行首、Esc ; 跳行尾、↑/↓ 上下穿槽，或 +存片段 复用！"
@@ -905,19 +994,21 @@ impl StreamEditor {
             self.cursor_char = target_char_idx.min(self.source.chars().count());
         }
         if prev != self.cursor_char {
-            self.jump_back_pos = Some(prev);
+            self.record_jump(prev);
         }
         self.reparse();
     }
 
     fn adjust_jump_back_for_edit(&mut self, old_src: &str, new_src: &str) {
-        let Some(pos) = self.jump_back_pos else {
-            return;
-        };
         if old_src == new_src {
             return;
         }
-        self.jump_back_pos = Some(adjust_pos_for_edit(pos, old_src, new_src));
+        if let Some(pos) = self.jump_back_pos {
+            self.jump_back_pos = Some(adjust_pos_for_edit(pos, old_src, new_src));
+        }
+        for pos in &mut self.jump_history {
+            *pos = adjust_pos_for_edit(*pos, old_src, new_src);
+        }
     }
 
     fn close_unclosed_in_str(&self, raw: &str) -> String {
@@ -1024,6 +1115,20 @@ impl StreamEditor {
                 kind.arity(),
                 body,
                 roles,
+            )
+        } else if end >= 2
+            && chars[end - 2] == CMD_PREFIX
+            && chars[end - 1].is_ascii_alphabetic()
+            && SubCategory::from_key(chars[end - 1].to_ascii_lowercase()).is_none()
+            && let Some(fmt) = self.library.lookup_custom(chars[end - 1].to_ascii_lowercase())
+        {
+            let body = fmt.wrap_body_slot_index()?;
+            (
+                end - 2,
+                fmt.label.clone(),
+                fmt.arity(),
+                body,
+                fmt.slot_roles.clone(),
             )
         } else if end >= 3
             && chars[end - 3] == CMD_PREFIX
@@ -1218,6 +1323,15 @@ impl StreamEditor {
                     "已识别「{} ({CMD_PREFIX}{})」：当前填 [{first_role}]，按 Enter(;) 推进下一槽。",
                     kind.label(),
                     kind.code()
+                ));
+            }
+            if SubCategory::from_key(c1).is_none()
+                && let Some(fmt) = self.library.lookup_custom(c1)
+            {
+                let first_role = fmt.slot_roles.first().map(|s| s.as_str()).unwrap_or("内容");
+                return Some(format!(
+                    "已识别自定义「{} ({CMD_PREFIX}{})」：当前填 [{first_role}]，按 Enter(;) 推进下一槽。",
+                    fmt.label, fmt.item_key
                 ));
             }
             if let Some(sub) = SubCategory::from_key(c1) {

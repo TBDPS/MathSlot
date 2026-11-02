@@ -34,8 +34,8 @@ const RED: Color32 = Color32::from_rgb(248, 113, 113);
 const AMBER: Color32 = Color32::from_rgb(251, 191, 36);
 const CYAN: Color32 = Color32::from_rgb(56, 189, 248);
 
-const TOP_PANEL_EXACT_HEIGHT: f32 = 148.0;
-const MENU_CARD_INNER_HEIGHT: f32 = 82.0;
+const TOP_PANEL_EXACT_HEIGHT: f32 = 174.0;
+const MENU_CARD_INNER_HEIGHT: f32 = 108.0;
 const PREVIEW_MAX_WIDTH: f32 = 760.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -634,6 +634,7 @@ impl MathSlotApp {
                                         None,
                                         &mut clicked_card_code,
                                         &mut clicked_sub_key,
+                                        &mut open_custom_mgr,
                                     );
                                 }
                                 PrefixMenuState::Root => {
@@ -643,6 +644,7 @@ impl MathSlotApp {
                                         None,
                                         &mut clicked_card_code,
                                         &mut clicked_sub_key,
+                                        &mut open_custom_mgr,
                                     );
                                 }
                                 PrefixMenuState::InvalidPrefix(bad) => {
@@ -652,6 +654,7 @@ impl MathSlotApp {
                                         Some(bad),
                                         &mut clicked_card_code,
                                         &mut clicked_sub_key,
+                                        &mut open_custom_mgr,
                                     );
                                 }
                                 PrefixMenuState::SubMenu(sub) => {
@@ -754,6 +757,7 @@ impl MathSlotApp {
         invalid_key: Option<char>,
         clicked_code: &mut Option<String>,
         clicked_sub: &mut Option<char>,
+        open_custom_mgr: &mut bool,
     ) {
         let key_color = if prefix_armed { AMBER } else { CYAN };
 
@@ -880,11 +884,97 @@ impl MathSlotApp {
             if ui
                 .add(jump_btn)
                 .on_hover_text(
-                    "按 Esc（或 Tab+j）：a 行首 · ;/. 行尾 · - 上一位置 · 字母直达槽位 · ↑↓←→ 穿梭",
+                    "按 Esc（或 Tab+j）：a 行首 · ;/. 行尾 · p 上一步历史 · n 下一步历史 · - 上一位置 · 字母直达槽位 · ↑↓←→ 穿梭",
                 )
                 .clicked()
             {
                 *clicked_sub = Some('j');
+            }
+        });
+
+        ui.add_space(4.0);
+
+        // 第三行：自定义结构直达（直接平铺外显，支持未占用单字母与 k+字母）
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(5.0, 4.0);
+            ui.label(
+                RichText::new("自定义/扩展:")
+                    .size(11.5)
+                    .strong()
+                    .color(if prefix_armed { AMBER } else { MUTED }),
+            );
+            if self.editor.library.custom_formats.is_empty() {
+                ui.label(
+                    RichText::new("暂无自定义条目（点击右侧「+新增」可添加任意 LaTeX 格式）")
+                        .size(11.0)
+                        .color(MUTED),
+                );
+            } else {
+                let def_custom_key = self.editor.library.default_custom().map(|d| d.item_key);
+                for item in &self.editor.library.custom_formats {
+                    let is_default = def_custom_key == Some(item.item_key);
+                    let is_free_letter = lookup_direct(item.item_key).is_none()
+                        && SubCategory::from_key(item.item_key).is_none();
+                    let key_str = if is_free_letter {
+                        item.item_key.to_string()
+                    } else {
+                        format!("k{}", item.item_key)
+                    };
+
+                    let mut job = LayoutJob::default();
+                    job.append(
+                        &format!("[{key_str}] "),
+                        0.0,
+                        TextFormat {
+                            font_id: FontId::monospace(11.5),
+                            color: if is_default { GREEN } else { key_color },
+                            ..Default::default()
+                        },
+                    );
+                    job.append(
+                        &item.label,
+                        0.0,
+                        TextFormat {
+                            font_id: FontId::proportional(11.5),
+                            color: TEXT,
+                            ..Default::default()
+                        },
+                    );
+                    if !item.glyph_hint.is_empty() {
+                        job.append(
+                            &format!(" {}", item.glyph_hint),
+                            0.0,
+                            TextFormat {
+                                font_id: FontId::monospace(11.0),
+                                color: CYAN,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                    let mut btn = egui::Button::new(job);
+                    if is_default {
+                        btn = btn.stroke(Stroke::new(1.0, GREEN));
+                    }
+                    if ui
+                        .add(btn)
+                        .on_hover_text(format!(
+                            "自定义结构：Tab + {key_str}  ({})  |  槽数：{}  |  {}",
+                            item.glyph_hint,
+                            item.arity(),
+                            item.latex_template
+                        ))
+                        .clicked()
+                    {
+                        *clicked_code = Some(key_str);
+                    }
+                }
+            }
+            if ui
+                .small_button(RichText::new("+ 新增").size(11.0).color(GREEN))
+                .on_hover_text("打开自定义格式设计器，添加新数学结构")
+                .clicked()
+            {
+                *open_custom_mgr = true;
             }
         });
     }
@@ -1562,6 +1652,15 @@ fn render_direct_pill(
         TextFormat {
             font_id: FontId::proportional(12.0),
             color: TEXT,
+            ..Default::default()
+        },
+    );
+    job.append(
+        &format!(" {}", entry.glyph_hint),
+        0.0,
+        TextFormat {
+            font_id: FontId::monospace(11.5),
+            color: CYAN,
             ..Default::default()
         },
     );

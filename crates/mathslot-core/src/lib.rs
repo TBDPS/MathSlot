@@ -608,4 +608,96 @@ mod tests {
         assert_eq!(ed2.source, "▸kbu + v; = w");
         assert_eq!(ed2.cursor_char, 3);
     }
+
+    #[test]
+    fn test_jump_history_pn_and_no_collision_with_nav_labels() {
+        // 1. 验证生成的所有导航徽标严格不包含 'p' 和 'n'
+        for count in [1, 5, 20, 24, 25, 50, 100, 200] {
+            let labels = generate_nav_labels(count);
+            assert_eq!(labels.len(), count);
+            for l in &labels {
+                assert!(
+                    !l.contains('p') && !l.contains('n'),
+                    "Nav label `{l}` should not contain 'p' or 'n'"
+                );
+            }
+        }
+
+        // 2. 验证真正的跳转历史前进/后退栈 (Jump History pn)
+        let mut ed = StreamEditor::from_source("▸fx+1;y; + ▸fa;b;");
+        ed.set_cursor(0);
+
+        // 用户连续跳到各个位置：0 -> b (3) -> d (11) -> c (7)
+        ed.jump_to_sequence("b").unwrap();
+        let pos_b = ed.cursor_char;
+        ed.jump_to_sequence("d").unwrap();
+        let pos_d = ed.cursor_char;
+        ed.jump_to_sequence("c").unwrap();
+        let pos_c = ed.cursor_char;
+
+        // 连续按 Esc p 沿历史回溯：c -> d -> b -> 0
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('p');
+        assert_eq!(ed.cursor_char, pos_d, "1st Esc p should go back to pos_d");
+
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('p');
+        assert_eq!(ed.cursor_char, pos_b, "2nd Esc p should go back to pos_b");
+
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('p');
+        assert_eq!(ed.cursor_char, 0, "3rd Esc p should go back to 0");
+
+        // 连续按 Esc n 沿历史前进：0 -> b -> d -> c
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('n');
+        assert_eq!(ed.cursor_char, pos_b, "1st Esc n should go forward to pos_b");
+
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('n');
+        assert_eq!(ed.cursor_char, pos_d, "2nd Esc n should go forward to pos_d");
+
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('n');
+        assert_eq!(ed.cursor_char, pos_c, "3rd Esc n should go forward to pos_c");
+
+        // 验证 Esc h (Head 行首) 与 Esc t (Tail 行尾)
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('h');
+        assert_eq!(ed.cursor_char, 0);
+
+        ed.toggle_esc_jump();
+        ed.feed_esc_jump_char('t');
+        assert_eq!(ed.cursor_char, ed.source.chars().count());
+    }
+
+    #[test]
+    fn test_direct_custom_free_letter() {
+        let mut lib = UserLibrary::default_seeded();
+        // 绑定未占用单字母 'w'（无需加 k，直接 Tab w 触发！）
+        lib.upsert_custom(CustomFormat {
+            item_key: 'w',
+            label: "期望算子".to_owned(),
+            glyph_hint: "E[X]".to_owned(),
+            slot_roles: vec!["随机变量".to_owned()],
+            latex_template: "\\mathbb{E}\\left[ $1 \\right]".to_owned(),
+            scheme_a_name: "E".to_owned(),
+            layout: LayoutKind::Linear,
+            auto_join: None,
+        })
+        .unwrap();
+
+        // 1. 直接输入 `▸wx; = 0`，无需前缀 `k`
+        let doc = parse_with_library("▸wx; = 0", &lib);
+        assert_eq!(to_latex(&doc), "\\mathbb{E}\\left[ x \\right] = 0");
+        assert_eq!(to_scheme_a(&doc), "E(x) = 0");
+
+        // 2. 前置智能包裹直接支持单字母直达自定义格式
+        let mut ed = StreamEditor::from_source_with_library("X + Y = Z", lib);
+        ed.set_cursor(0);
+        ed.source.insert_str(0, "▸w");
+        ed.sync_after_edit(2); // 光标在 `▸w` 末尾
+        assert_eq!(ed.source, "▸wX + Y; = Z");
+        assert_eq!(ed.cursor_char, 2);
+    }
 }

@@ -1014,6 +1014,9 @@ class MathSlotModal extends Modal {
       });
       pill.createSpan({ cls: "mathslot-pill-key", text: `[${d.key}]` });
       pill.createSpan({ text: d.label });
+      if (d.glyph) {
+        pill.createSpan({ cls: "mathslot-pill-glyph", text: d.glyph });
+      }
       pill.addEventListener("mousedown", (ev) => {
         ev.preventDefault();
         this.applyState(this.bridge.clickCard(d.key), true);
@@ -1049,13 +1052,57 @@ class MathSlotModal extends Modal {
 
     const jumpPill = row2.createEl("span", {
       cls: "mathslot-pill",
-      attr: { title: "按 Esc（或 Tab + j）再按下方导航图字母，支持多级嵌套如 Esc c b" },
+      attr: { title: "按 Esc（或 Tab + j）：a 行首 · ;/. 行尾 · p 上一步历史 · n 下一步历史 · - 上一位置 · 字母直达槽位 · ↑↓←→ 穿梭" },
     });
     jumpPill.createSpan({ cls: "mathslot-pill-key", text: "[j]" });
-    jumpPill.createSpan({ text: "跳转(或Esc)" });
+    jumpPill.createSpan({ text: "跳转(Esc)" });
     jumpPill.addEventListener("mousedown", (ev) => {
       ev.preventDefault();
       this.applyState(this.bridge.clickSub("j"), true);
+    });
+
+    // 第三行：自定义结构直达（直接外显，支持未占用单字母与 k+单字母）
+    const row3 = box.createDiv({ cls: "mathslot-menu-row" });
+    const l3 = row3.createSpan({
+      cls: "mathslot-row-label",
+      text: "自定义/扩展:",
+    });
+    if (armed) l3.style.color = "#fbbf24";
+
+    const customList = this.catalog.customFormats || [];
+    const directKeys = new Set((this.catalog.directEntries || []).map((d) => d.key));
+    const subKeys = new Set((this.catalog.subCategories || []).map((s) => s.key));
+
+    for (const fmt of customList) {
+      const isFree = !directKeys.has(fmt.key) && !subKeys.has(fmt.key);
+      const keyStr = isFree ? fmt.key : `k${fmt.key}`;
+      const pill = row3.createEl("span", {
+        cls: `mathslot-pill ${armed ? "is-armed" : ""}`,
+        attr: { title: `自定义：Tab + ${keyStr} (${fmt.glyph || ""}) | ${fmt.latex || ""}` },
+      });
+      pill.createSpan({ cls: "mathslot-pill-key", text: `[${keyStr}]` });
+      pill.createSpan({ text: fmt.label });
+      if (fmt.glyph) {
+        pill.createSpan({ cls: "mathslot-pill-glyph", text: fmt.glyph });
+      }
+      pill.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        this.applyState(this.bridge.clickCard(keyStr), true);
+      });
+    }
+
+    const addPill = row3.createEl("span", {
+      cls: "mathslot-pill",
+      attr: { title: "打开自定义格式设计器" },
+    });
+    addPill.createSpan({
+      cls: "mathslot-pill-key",
+      text: "[+ 新增]",
+      attr: { style: "color:#4ade80" },
+    });
+    addPill.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      this.setDrawer("custom");
     });
   }
 

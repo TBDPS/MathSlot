@@ -47,18 +47,20 @@ pub fn count_unclosed_slots(doc: &ParsedDoc) -> usize {
     walk_seq(&doc.root)
 }
 
-/// 生成严格无前缀的小写字母标签序列（支持单层 1..=676 个锚点零回车一步直达）
+/// 生成严格无前缀的小写字母标签序列（严格剔除 `p` 与 `n`，将 p/n 专属保留给跳转历史的前进/后退）
 pub fn generate_nav_labels(count: usize) -> Vec<String> {
     if count == 0 {
         return Vec::new();
     }
-    let alphabet: Vec<char> = ('a'..='z').collect();
-    if count <= 26 {
+    // 严格剔除 'p' 与 'n'，将 p/n 专属保留给跳转历史序列的后退 (Previous) 与前进 (Next)
+    let alphabet: Vec<char> = ('a'..='z').filter(|&c| c != 'p' && c != 'n').collect();
+    let alpha_len = alphabet.len(); // 24
+    if count <= alpha_len {
         return alphabet[..count].iter().map(|c| c.to_string()).collect();
     }
-    let capped = count.min(26 * 26);
-    let expand_groups = (capped - 26 + 24) / 25;
-    let single_count = 26usize.saturating_sub(expand_groups);
+    let capped = count.min(alpha_len * alpha_len);
+    let expand_groups = (capped - alpha_len + (alpha_len - 2)) / (alpha_len - 1);
+    let single_count = alpha_len.saturating_sub(expand_groups);
 
     let mut out = Vec::with_capacity(capped);
     for &c in &alphabet[..single_count] {
@@ -445,6 +447,19 @@ impl<'a> Parser<'a> {
                 end: cmd_end,
             };
             return self.parse_struct_expr(kind, cmd_start, cmd_span);
+        }
+
+        // 2.1 用户自定义单字母直达（未占用字母如 'w', 'y', 'z', 'h' 等直接 1 键触发，免挤在 k 组）
+        if SubCategory::from_key(k1).is_none() {
+            if let Some(fmt) = self.lib.lookup_custom(k1) {
+                self.idx += 1;
+                let cmd_end = self.current_pos();
+                let cmd_span = Span {
+                    start: cmd_start,
+                    end: cmd_end,
+                };
+                return self.parse_custom_struct_expr(fmt.clone(), cmd_start, cmd_span);
+            }
         }
 
         // 3. 二级子菜单（静态 c / m / a / g / o + 动态自定义 k + 动态片段模版 t）
