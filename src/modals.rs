@@ -320,6 +320,11 @@ impl LibraryModalState {
                             .filter(|s| !s.is_empty())
                             .map(str::to_owned)
                             .collect();
+                        let (layout, auto_join) = if let Some(old) = editor.library.lookup_custom(key_ch) {
+                            (old.layout.clone(), old.auto_join.clone())
+                        } else {
+                            (mathslot_core::library::LayoutKind::Linear, None)
+                        };
                         let fmt = CustomFormat {
                             item_key: key_ch,
                             label: self.custom_label.clone(),
@@ -327,8 +332,8 @@ impl LibraryModalState {
                             slot_roles: roles,
                             latex_template: self.custom_latex.clone(),
                             scheme_a_name: self.custom_scheme_a.clone(),
-                            layout: mathslot_core::library::LayoutKind::Linear,
-                            auto_join: None,
+                            layout,
+                            auto_join,
                         };
                         match editor.library.upsert_custom(fmt) {
                             Ok(saved_k) => {

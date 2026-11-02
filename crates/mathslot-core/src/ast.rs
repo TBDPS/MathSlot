@@ -1,5 +1,5 @@
 use crate::command::{StructKind, SymbolCmd};
-use crate::library::CustomFormat;
+use crate::library::{CustomFormat, LayoutKind};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Pos {
@@ -326,8 +326,32 @@ impl ParsedDoc {
                 return Some(child_hit);
             }
 
-            if let Some(kind) = ctx.kind
-                && let Some(partner_idx) = vertical_partner_slot(kind, ctx.slot_idx, go_up)
+            let partner_idx = if let Some(kind) = ctx.kind {
+                vertical_partner_slot(kind, ctx.slot_idx, go_up)
+            } else if let Some(fmt) = ctx.custom_format {
+                match &fmt.layout {
+                    LayoutKind::Env { cols, .. } => {
+                        let cols = (*cols).max(1);
+                        let total = ctx.slots.len();
+                        if go_up {
+                            if ctx.slot_idx >= cols {
+                                Some(ctx.slot_idx - cols)
+                            } else {
+                                None
+                            }
+                        } else if ctx.slot_idx + cols < total {
+                            Some(ctx.slot_idx + cols)
+                        } else {
+                            None
+                        }
+                    }
+                    LayoutKind::Linear => None,
+                }
+            } else {
+                None
+            };
+
+            if let Some(partner_idx) = partner_idx
                 && let Some(target_slot) = ctx.slots.get(partner_idx)
             {
                 let desc = format!("{}·{}", ctx.label, target_slot.role_hint);
@@ -446,6 +470,7 @@ impl ParsedDoc {
 
 struct EnclosingStruct<'a> {
     kind: Option<StructKind>,
+    custom_format: Option<&'a CustomFormat>,
     label: String,
     slots: &'a [SlotNode],
     slot_idx: usize,
@@ -461,7 +486,7 @@ fn collect_enclosing_structs<'a>(
         if !item.span().contains_cursor(cursor) {
             continue;
         }
-        let (kind, label, cmd_span, slots, full_span) = match item {
+        let (kind, custom_format, label, cmd_span, slots, full_span) = match item {
             Expr::Struct {
                 kind,
                 cmd_span,
@@ -469,6 +494,7 @@ fn collect_enclosing_structs<'a>(
                 full_span,
             } => (
                 Some(*kind),
+                None,
                 kind.label().to_owned(),
                 *cmd_span,
                 slots.as_slice(),
@@ -482,6 +508,7 @@ fn collect_enclosing_structs<'a>(
                 ..
             } if !slots.is_empty() => (
                 None,
+                Some(format),
                 format.label.clone(),
                 *cmd_span,
                 slots.as_slice(),
@@ -493,6 +520,7 @@ fn collect_enclosing_structs<'a>(
         if cmd_span.start.char_idx < cursor && cursor < cmd_span.end.char_idx {
             out.push(EnclosingStruct {
                 kind,
+                custom_format,
                 label,
                 slots,
                 slot_idx: 0,
@@ -504,6 +532,7 @@ fn collect_enclosing_structs<'a>(
             if slot.seq.missing_semis_at_eof == 0 && slot.seq.span.contains_cursor(cursor) {
                 out.push(EnclosingStruct {
                     kind,
+                    custom_format,
                     label,
                     slots,
                     slot_idx: idx,

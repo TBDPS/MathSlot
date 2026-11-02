@@ -180,6 +180,11 @@ pub unsafe extern "C" fn library_upsert_custom(
             .filter(|r| !r.is_empty())
             .map(str::to_owned)
             .collect();
+        let (layout, auto_join) = if let Some(old) = s.editor.library.lookup_custom(item_key) {
+            (old.layout.clone(), old.auto_join.clone())
+        } else {
+            (mathslot_core::library::LayoutKind::Linear, None)
+        };
         let fmt = CustomFormat {
             item_key,
             label: label.clone(),
@@ -187,8 +192,8 @@ pub unsafe extern "C" fn library_upsert_custom(
             slot_roles,
             latex_template: latex,
             scheme_a_name: scheme,
-            layout: mathslot_core::library::LayoutKind::Linear,
-            auto_join: None,
+            layout,
+            auto_join,
         };
         let mut lib = s.editor.library.clone();
         match lib.upsert_custom(fmt) {

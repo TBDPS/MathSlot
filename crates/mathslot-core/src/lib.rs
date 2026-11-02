@@ -13,7 +13,7 @@ mod tests {
     use crate::command::{PrefixMenuState, SubCategory, detect_prefix_menu_state};
     use crate::editor::StreamEditor;
     use crate::latex::{text_to_latex, to_latex};
-    use crate::library::{CustomFormat, UserLibrary};
+    use crate::library::{CustomFormat, LayoutKind, UserLibrary};
     use crate::parser::{generate_nav_labels, parse, parse_with_library};
     use crate::scheme_a::to_scheme_a;
     use crate::visual::{VisualDialect, build_preview_latex};
@@ -551,5 +551,61 @@ mod tests {
         // 深嵌套输入受递归深度上限保护（不 panic、不栈溢出）
         let deep: String = "▸f".repeat(5000);
         let _ = parse(&deep);
+    }
+
+    #[test]
+    fn test_custom_env_2d_arrow_navigation_and_smart_prepend() {
+        let mut lib = UserLibrary::default_seeded();
+        // 注册 2×3 矩阵自定义格式 (item_key: 'm')
+        lib.upsert_custom(CustomFormat {
+            item_key: 'm',
+            label: "3列矩阵".to_owned(),
+            glyph_hint: "2x3".to_owned(),
+            slot_roles: vec![
+                "r1c1".to_owned(),
+                "r1c2".to_owned(),
+                "r1c3".to_owned(),
+                "r2c1".to_owned(),
+                "r2c2".to_owned(),
+                "r2c3".to_owned(),
+            ],
+            latex_template: String::new(),
+            scheme_a_name: "m3".to_owned(),
+            layout: LayoutKind::Env {
+                env: "pmatrix".to_owned(),
+                cols: 3,
+            },
+            auto_join: None,
+        })
+        .unwrap();
+
+        // 1. 验证 2D 上下方向键穿槽在自定义 Env 矩阵中正常按列对齐跨行
+        // 构造：▸kma;b;c;d;e;f;
+        // slot0=a, slot1=b, slot2=c (行0)
+        // slot3=d, slot4=e, slot5=f (行1)
+        let mut ed = StreamEditor::from_source_with_library("▸kma;b;c;d;e;f;", lib.clone());
+        // 定位到 slot4 (e) 末尾
+        let e_pos = ed.source.find('e').unwrap() + 1;
+        ed.cursor_char = e_pos;
+        // 按 Up：跨行向上应到达 slot1 (b)
+        let res_up = ed.arrow_vertical(true);
+        assert!(res_up.is_some(), "Up arrow should navigate in Env matrix");
+        let b_pos = ed.source.find('b').unwrap() + 1;
+        assert_eq!(ed.cursor_char, b_pos, "ArrowUp from slot4 should jump to slot1");
+        // 从 slot1 按 Down：跨行向下应回到 slot4 (e)
+        let res_down = ed.arrow_vertical(false);
+        assert!(res_down.is_some());
+        assert_eq!(ed.cursor_char, e_pos, "ArrowDown from slot1 should jump back to slot4");
+
+        // 2. 验证自定义单槽格式的前置智能包裹 (Smart Prepend)
+        // 预置的 kb 为双线范数 `\Vert $1 \Vert` (单槽)
+        let mut ed2 = StreamEditor::from_source_with_library("u + v = w", lib);
+        ed2.cursor_char = 0;
+        // 在行首插入 `▸kb`
+        ed2.source.insert_str(0, "▸kb");
+        ed2.sync_after_edit(3); // 模拟在位置 3 完成输入
+        // 自动吞并 `u + v` 为范数参数，等号保留在外，光标位于结构内部开头
+        assert_eq!(ed2.source, "▸kbu + v; = w");
+        assert_eq!(ed2.cursor_char, 3);
     }
 }

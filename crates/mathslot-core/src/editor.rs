@@ -1034,14 +1034,12 @@ impl StreamEditor {
             let c2 = chars[end - 1].to_ascii_lowercase();
             if c1 == 'k' {
                 let fmt = self.library.lookup_custom(c2)?;
-                if fmt.arity() != 1 {
-                    return None;
-                }
+                let body = fmt.wrap_body_slot_index()?;
                 (
                     end - 3,
                     fmt.label.clone(),
-                    1,
-                    0,
+                    fmt.arity(),
+                    body,
                     fmt.slot_roles.clone(),
                 )
             } else if let Some(CommandTarget::Struct(kind)) = lookup_sub_command(c1, c2) {

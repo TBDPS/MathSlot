@@ -76,6 +76,35 @@ impl CustomFormat {
         }
     }
 
+    /// 测定前置智能包裹时应当吞并已有表达式的「主体槽位」下标（0-based）
+    /// - 若为 Env 矩阵环境：不自动吞并整行公式，返回 None；
+    /// - 若为单槽结构（如算子、范数、括号）：返回 Some(0)；
+    /// - 若定义了 auto_join（如条件长箭头、三槽位极限式）：
+    ///   - 3 槽结构（如变量;目标;主体）吞入主体第 2 槽（光标留在第 0 槽）；
+    ///   - 2 槽结构（如条件;标注）吞入第 0 槽；
+    /// - 若为双槽结构（如分式、上下标式）：返回 Some(0)（让已有式子作为第 0 槽，光标推入下一槽）；
+    pub fn wrap_body_slot_index(&self) -> Option<usize> {
+        if matches!(self.layout, LayoutKind::Env { .. }) {
+            return None;
+        }
+        let a = self.arity();
+        if a == 1 {
+            return Some(0);
+        }
+        if self.auto_join.is_some() {
+            if a == 3 {
+                return Some(2);
+            }
+            if a == 2 {
+                return Some(0);
+            }
+        }
+        if a == 2 {
+            return Some(0);
+        }
+        None
+    }
+
     /// 应用 autoJoin：cond 槽内容非空时将 `macro + cond` 拼接到 base 槽后，cond 槽自身置空。
     pub fn prepare_joined_slots(&self, rendered_slots: &[String]) -> Vec<String> {
         let mut slots: Vec<String> = rendered_slots.to_vec();
