@@ -1,0 +1,32 @@
+[workspace]
+members = [".", "crates/mathslot-core", "crates/mathslot-wasm"]
+resolver = "2"
+
+[package]
+name = "mathslot"
+version = "0.4.0"
+edition = "2024"
+description = "Ultra-lightweight stream-first math formula editor exporting LaTeX (shared core with Obsidian WASM plugin)"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = [
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "links",
+    "wayland",
+    "x11",
+] }
+latex-rust = { version = "3.0.1", features = ["png"] }
+mathslot-core = { path = "crates/mathslot-core" }
+tiny-skia = "0.11"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

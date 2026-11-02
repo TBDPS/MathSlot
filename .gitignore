@@ -1,0 +1,22 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock.backup
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Local logs
+*.log
