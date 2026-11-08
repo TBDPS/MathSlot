@@ -273,7 +273,7 @@ mod tests {
         ed.type_text("e^{-x^2}");
         assert_eq!(
             to_latex(&ed.parsed),
-            "\\int_{-\\infty}^{\\infty} e^{-x^{2}} dx"
+            "\\int_{-\\infty}^{\\infty} e^{-x^{2}} \\mathrm{d}x"
         );
     }
 
@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(to_scheme_a(&doc), "alpha x + oo + iint(D, f(x,y) dx dy)");
         assert_eq!(
             to_latex(&doc),
-            "\\alpha x + \\infty + \\iint_{D} f(x,y) dx dy"
+            "\\alpha x + \\infty + \\iint_{D} f(x,y) \\,\\mathrm{d}x \\,\\mathrm{d}y"
         );
     }
 
@@ -519,6 +519,28 @@ mod tests {
         let q = parse("x = ▸f-b +- ▸rb^2 - 4ac;;2a;");
         assert_eq!(to_scheme_a(&q), "x = frac(-b +- sqrt(b^2 - 4ac), 2a)");
         assert_eq!(to_latex(&q), "x = \\frac{-b \\pm \\sqrt{b^{2} - 4ac}}{2a}");
+
+        // 验证全部 12 项预置数学公式均能完整解析且生成合规 LaTeX
+        let presets = [
+            "x = ▸f-b +- ▸rb^2 - 4ac;;2a;",
+            "▸i-oo;oo;e▸u-x^2;;dx = ▸r▸gp;;",
+            "e▸ui▸gp;; + 1 = 0",
+            "▸lx;0;▸fsin x;x;; = 1",
+            "▸p▸s1;n;a_k b_k;;^2 <= ▸p▸s1;n;a_k^2;; ▸p▸s1;n;b_k^2;;",
+            "P(A|B) = ▸fP(B|A) P(A);P(B);",
+            "f(x) = ▸s0;n;▸ff^(k)(x_0);k!;(x - x_0)^k; + R_n(x)",
+            "i▸ol ▸cg▸gy;t; = ▸aaH; ▸gy",
+            "▸od xx E = -▸cgB;t;",
+            "▸mc▸gl - a;-b;-c;▸gl - d; = 0",
+            "▸mg1;0;0;0;1;0;0;0;1;",
+            "▸ia;b;f'(x) dx = ▸kgf(x);a;b; = f(b) - f(a)",
+        ];
+        let lib = UserLibrary::default_seeded();
+        for preset in presets {
+            let doc = parse_with_library(preset, &lib);
+            let tex = to_latex(&doc);
+            assert!(!tex.is_empty(), "Preset `{preset}` produced empty latex");
+        }
     }
 
     #[test]
@@ -699,5 +721,35 @@ mod tests {
         ed.sync_after_edit(2); // 光标在 `▸w` 末尾
         assert_eq!(ed.source, "▸wX + Y; = Z");
         assert_eq!(ed.cursor_char, 2);
+    }
+
+    #[test]
+    fn test_latex_to_mathslot_converter_and_grouping() {
+        use crate::latex::latex_to_mathslot;
+
+        // 1. 分数、根号、极限反向转换
+        let s1 = latex_to_mathslot(r"\frac{a + 1}{b - 1}");
+        assert_eq!(s1, "▸fa + 1;b - 1;");
+
+        let s2 = latex_to_mathslot(r"\sqrt{x^2 + y^2}");
+        assert_eq!(s2, "▸rx^2 + y^2;");
+
+        let s3 = latex_to_mathslot(r"\lim_{x \to 0} \frac{\sin x}{x}");
+        assert_eq!(s3, "▸lx;0;▸fsin x;x;;");
+
+        // 2. 定积分、求和
+        let s4 = latex_to_mathslot(r"\int_{0}^{1} x^2 dx");
+        assert_eq!(s4, "▸i0;1;x^2 dx;");
+
+        let s5 = latex_to_mathslot(r"\sum_{k=1}^{n} k");
+        assert_eq!(s5, "▸sk=1;n;k;");
+
+        // 3. 剥离外围定界符 $$...$$ 与 $...$
+        let s6 = latex_to_mathslot(r"$$ \frac{1}{2} $$");
+        assert_eq!(s6, "▸f1;2;");
+
+        // 4. 标准 LaTeX 文本花括号分组透传
+        let doc = parse("x + {a + b} + \\mathbf{v}");
+        assert_eq!(to_latex(&doc), "x + {a + b} + \\mathbf{v}");
     }
 }

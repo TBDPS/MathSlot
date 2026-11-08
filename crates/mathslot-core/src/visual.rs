@@ -820,6 +820,33 @@ fn render_struct_skeleton(
             let c3 = s(5);
             format!("\\begin{{cases}} {v1} & {c1} \\\\ {v2} & {c2} \\\\ {v3} & {c3} \\end{{cases}}")
         }
+        StructKind::TripleIntegral => {
+            let reg = s(0);
+            let body = s(1);
+            format!("\\iiint_{{{reg}}} {body}")
+        }
+        StructKind::PartialFrac => {
+            let num = s(0);
+            let den = s(1);
+            format!("\\frac{{\\partial {num}}}{{\\partial {den}}}")
+        }
+        StructKind::TotalFrac => {
+            let num = s(0);
+            let den = s(1);
+            format!("\\frac{{\\mathrm{{d}}{num}}}{{\\mathrm{{d}}{den}}}")
+        }
+        StructKind::BMatrix3 => matrix_skeleton("bmatrix", 3, 3, &mut s),
+        StructKind::Det3 => matrix_skeleton("vmatrix", 3, 3, &mut s),
+        StructKind::DDot => format!("\\ddot{{{}}}", s(0)),
+        StructKind::Underline => format!("\\underline{{{}}}", s(0)),
+        StructKind::Overbrace => format!("\\overbrace{{{}}}^{{{}}}", s(0), s(1)),
+        StructKind::Underbrace => format!("\\underbrace{{{}}}_{{{}}}", s(0), s(1)),
+        StructKind::Bracket => format!("\\left[ {} \\right]", s(0)),
+        StructKind::Brace => format!("\\left\\{{ {} \\right\\}}", s(0)),
+        StructKind::Angle => format!("\\left\\langle {} \\right\\rangle", s(0)),
+        StructKind::Floor => format!("\\left\\lfloor {} \\right\\rfloor", s(0)),
+        StructKind::Ceil => format!("\\left\\lceil {} \\right\\rceil", s(0)),
+        StructKind::EvalBar => format!("\\left. {} \\right|_{{{}}}^{{{}}}", s(0), s(1), s(2)),
     }
 }
 
@@ -893,6 +920,37 @@ fn preview_range(
                 out.push('}');
                 i = next;
             }
+            '{' => {
+                if !caret_emitted && cursor_idx == Some(i) {
+                    append_math_piece(&mut out, &caret);
+                    caret_emitted = true;
+                }
+                let open_idx = i;
+                let close = matching_delim(chars, open_idx, end, '{', '}');
+                let inner_end = close.unwrap_or(end);
+                let inner_cur = cursor_idx.and_then(|c| {
+                    if c > open_idx && c <= inner_end {
+                        Some(c)
+                    } else {
+                        None
+                    }
+                });
+                let inner = preview_range(chars, open_idx + 1, inner_end, inner_cur, dialect);
+                if inner_cur.is_some() {
+                    caret_emitted = true;
+                }
+                out.push('{');
+                out.push_str(&inner);
+                out.push('}');
+                i = if let Some(c) = close { c + 1 } else { end };
+            }
+            '}' => {
+                if !caret_emitted && cursor_idx == Some(i) {
+                    append_math_piece(&mut out, &caret);
+                    caret_emitted = true;
+                }
+                i += 1;
+            }
             '\\' => {
                 if !caret_emitted && cursor_idx == Some(i) {
                     append_math_piece(&mut out, &caret);
@@ -955,8 +1013,15 @@ fn preview_range(
                     caret_emitted = true;
                 } else {
                     let word: String = chars[word_start..i].iter().collect();
-                    let piece = word_to_latex(&word);
-                    push_preview_piece(&mut out, &piece, chars.get(i).copied());
+                    if let Some(diff_macro) = crate::latex::is_differential_token(&word) {
+                        if crate::latex::needs_diff_thin_space(&out) {
+                            out.push_str("\\,");
+                        }
+                        push_preview_piece(&mut out, diff_macro, chars.get(i).copied());
+                    } else {
+                        let piece = word_to_latex(&word);
+                        push_preview_piece(&mut out, &piece, chars.get(i).copied());
+                    }
                 }
             }
             _ => {

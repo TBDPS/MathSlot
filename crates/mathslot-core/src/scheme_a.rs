@@ -96,6 +96,43 @@ fn render_struct(kind: StructKind, slots: &[SlotNode]) -> String {
             s(4),
             s(5)
         ),
+        StructKind::TripleIntegral => format!("iiint({}, {})", s(0), s(1)),
+        StructKind::PartialFrac => format!("pfrac({}, {})", s(0), s(1)),
+        StructKind::TotalFrac => format!("dfrac({}, {})", s(0), s(1)),
+        StructKind::BMatrix3 => format!(
+            "mat3[{}, {}, {}; {}, {}, {}; {}, {}, {}]",
+            s(0),
+            s(1),
+            s(2),
+            s(3),
+            s(4),
+            s(5),
+            s(6),
+            s(7),
+            s(8)
+        ),
+        StructKind::Det3 => format!(
+            "det3({}, {}, {}; {}, {}, {}; {}, {}, {})",
+            s(0),
+            s(1),
+            s(2),
+            s(3),
+            s(4),
+            s(5),
+            s(6),
+            s(7),
+            s(8)
+        ),
+        StructKind::DDot => format!("ddot({})", s(0)),
+        StructKind::Underline => format!("underline({})", s(0)),
+        StructKind::Overbrace => format!("overbrace({}, {})", s(0), s(1)),
+        StructKind::Underbrace => format!("underbrace({}, {})", s(0), s(1)),
+        StructKind::Bracket => format!("bracket({})", s(0)),
+        StructKind::Brace => format!("brace({})", s(0)),
+        StructKind::Angle => format!("angle({})", s(0)),
+        StructKind::Floor => format!("floor({})", s(0)),
+        StructKind::Ceil => format!("ceil({})", s(0)),
+        StructKind::EvalBar => format!("eval({}, {}, {})", s(0), s(1), s(2)),
     }
 }
 

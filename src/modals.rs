@@ -5,25 +5,27 @@ use mathslot_core::command::CMD_PREFIX;
 use mathslot_core::editor::StreamEditor;
 use mathslot_core::library::{CustomFormat, FormulaSnippet, UserLibrary};
 
-const BG: Color32 = Color32::from_rgb(15, 23, 42);
-const CARD: Color32 = Color32::from_rgb(30, 41, 59);
-const CARD_BORDER: Color32 = Color32::from_rgb(51, 65, 85);
-const TEXT: Color32 = Color32::from_rgb(241, 245, 249);
+const BG: Color32 = Color32::from_rgb(11, 15, 23);
+const CARD: Color32 = Color32::from_rgb(24, 29, 42);
+const CARD_BORDER: Color32 = Color32::from_rgb(38, 45, 61);
+const TEXT: Color32 = Color32::from_rgb(243, 244, 246);
 const MUTED: Color32 = Color32::from_rgb(148, 163, 184);
 const ACCENT: Color32 = Color32::from_rgb(96, 165, 250);
-const GREEN: Color32 = Color32::from_rgb(74, 222, 128);
+const GREEN: Color32 = Color32::from_rgb(52, 211, 153);
 const RED: Color32 = Color32::from_rgb(248, 113, 113);
 const AMBER: Color32 = Color32::from_rgb(251, 191, 36);
 const CYAN: Color32 = Color32::from_rgb(56, 189, 248);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryTab {
+    LatexConverter,
     CustomFormats,
     Snippets,
 }
 
 pub enum ModalAction {
     InsertCode(String),
+    ReplaceCode(String),
     QuickSaveSnippet { prefer_inner: bool },
     LibraryChanged(String),
 }
@@ -47,16 +49,20 @@ pub struct LibraryModalState {
     pub snip_key: String,
     pub snip_label: String,
     pub snip_source: String,
+
+    // LaTeX 逆向反编译器 / 转换器
+    pub latex_input: String,
+    pub latex_converted_mathslot: String,
 }
 
 impl LibraryModalState {
     pub fn new(lib: &UserLibrary, config_path_hint: String) -> Self {
         let next_k = lib.next_free_custom_key().unwrap_or('g');
         let next_t = lib.next_free_snippet_key().unwrap_or('d');
-        Self {
+        let mut s = Self {
             show_library: false,
             show_help: false,
-            tab: LibraryTab::CustomFormats,
+            tab: LibraryTab::LatexConverter,
             config_path_hint,
             feedback: None,
             custom_key: next_k.to_string(),
@@ -68,7 +74,11 @@ impl LibraryModalState {
             snip_key: next_t.to_string(),
             snip_label: String::new(),
             snip_source: String::new(),
-        }
+            latex_input: r"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}".to_owned(),
+            latex_converted_mathslot: String::new(),
+        };
+        s.update_latex_conversion();
+        s
     }
 
     pub fn any_open(&self) -> bool {
@@ -95,16 +105,27 @@ impl LibraryModalState {
         self.show_library = true;
     }
 
+    pub fn open_latex_tab(&mut self) {
+        self.tab = LibraryTab::LatexConverter;
+        self.update_latex_conversion();
+        self.show_library = true;
+    }
+
+    pub fn update_latex_conversion(&mut self) {
+        self.latex_converted_mathslot =
+            mathslot_core::latex::latex_to_mathslot(&self.latex_input);
+    }
+
     pub fn show(&mut self, ctx: &egui::Context, editor: &mut StreamEditor) -> Option<ModalAction> {
         let mut action = None;
 
         if self.show_library {
             let mut open = self.show_library;
-            egui::Window::new("扩展中心 · 自定义数学格式 & 公式片段库")
+            egui::Window::new("MathSlot 扩展中心 · LaTeX 导入与公式模版库")
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(true)
-                .default_width(680.0)
+                .default_width(700.0)
                 .min_width(560.0)
                 .show(ctx, |ui| {
                     if let Some(act) = self.render_library_body(ui, editor) {
@@ -120,7 +141,7 @@ impl LibraryModalState {
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(true)
-                .default_width(690.0)
+                .default_width(700.0)
                 .min_width(540.0)
                 .show(ctx, |ui| {
                     render_help_body(ui);
@@ -140,6 +161,16 @@ impl LibraryModalState {
         let mut reset_defaults = false;
 
         ui.horizontal(|ui| {
+            if ui
+                .selectable_label(
+                    self.tab == LibraryTab::LatexConverter,
+                    RichText::new("⇄ LaTeX 逆向导入").strong().color(ACCENT),
+                )
+                .clicked()
+            {
+                self.tab = LibraryTab::LatexConverter;
+                self.update_latex_conversion();
+            }
             if ui
                 .selectable_label(
                     self.tab == LibraryTab::CustomFormats,
@@ -205,6 +236,11 @@ impl LibraryModalState {
         ui.separator();
 
         match self.tab {
+            LibraryTab::LatexConverter => {
+                if let Some(act) = self.render_latex_tab(ui, editor) {
+                    action = Some(act);
+                }
+            }
             LibraryTab::CustomFormats => {
                 if let Some(act) = self.render_custom_tab(ui, editor) {
                     action = Some(act);
@@ -216,6 +252,152 @@ impl LibraryModalState {
                 }
             }
         }
+
+        action
+    }
+
+    fn render_latex_tab(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor: &mut StreamEditor,
+    ) -> Option<ModalAction> {
+        let mut action = None;
+
+        ui.label(
+            RichText::new(
+                "粘贴现有 LaTeX 公式（支持 $..$、$$..$$ 或裸代码），自动将其智能反编译为 MathSlot 极速简码流，即刻插入或替换编辑！",
+            )
+            .size(11.5)
+            .color(MUTED),
+        );
+        ui.add_space(4.0);
+
+        // 快捷预置示例
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("常用示例:").size(11.5).color(MUTED));
+            const EXAMPLES: &[(&str, &str)] = &[
+                ("求根公式", r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"),
+                ("高斯积分", r"\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}"),
+                ("重要极限", r"\lim_{x \to 0} \frac{\sin x}{x} = 1"),
+                ("贝叶斯定理", r"P(A|B) = \frac{P(B|A) P(A)}{P(B)}"),
+                ("薛定谔方程", r"i\hbar \frac{\partial \psi}{\partial t} = \hat{H}\psi"),
+                ("二阶矩阵", r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}"),
+            ];
+            for (title, latex) in EXAMPLES {
+                if ui.small_button(*title).clicked() {
+                    self.latex_input = (*latex).to_owned();
+                    self.update_latex_conversion();
+                }
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 输入区域
+        egui::Frame::NONE
+            .fill(CARD)
+            .stroke(Stroke::new(1.0, CARD_BORDER))
+            .corner_radius(CornerRadius::same(7))
+            .inner_margin(Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("LaTeX 源代码输入:").size(12.5).strong().color(ACCENT));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.small_button("清空").clicked() {
+                            self.latex_input.clear();
+                            self.update_latex_conversion();
+                        }
+                    });
+                });
+                ui.add_space(3.0);
+                let edit_resp = ui.add(
+                    egui::TextEdit::multiline(&mut self.latex_input)
+                        .font(FontId::monospace(13.5))
+                        .desired_rows(3)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(r"粘贴 LaTeX，如 \frac{a+b}{c} 或 \sum_{k=1}^n k^2"),
+                );
+                if edit_resp.changed() {
+                    self.update_latex_conversion();
+                }
+            });
+
+        ui.add_space(6.0);
+
+        // 转换结果展示区域
+        egui::Frame::NONE
+            .fill(CARD)
+            .stroke(Stroke::new(1.0, CARD_BORDER))
+            .corner_radius(CornerRadius::same(7))
+            .inner_margin(Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("MathSlot 简码流生成结果:")
+                            .size(12.5)
+                            .strong()
+                            .color(AMBER),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.small_button("复制简码流").clicked() {
+                            ui.ctx().copy_text(self.latex_converted_mathslot.clone());
+                            self.feedback = Some(("✓ 简码流已复制到剪贴板！".to_owned(), false));
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+
+                // 只读显示结果
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.latex_converted_mathslot.as_str())
+                        .font(FontId::monospace(14.0))
+                        .text_color(CYAN)
+                        .desired_width(f32::INFINITY),
+                );
+
+                ui.add_space(6.0);
+
+                // 反向校验 LaTeX 预览
+                let verified_parsed = mathslot_core::parser::parse_with_library(
+                    &self.latex_converted_mathslot,
+                    &editor.library,
+                );
+                let verified_latex = mathslot_core::latex::to_latex(&verified_parsed);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("校验反推 LaTeX:").size(11.0).color(MUTED));
+                    ui.label(RichText::new(&verified_latex).monospace().size(11.0).color(TEXT));
+                });
+
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(RichText::new("✓ 替换当前编辑器内容").strong().color(GREEN))
+                        .on_hover_text("用转换后的简码流完全覆盖当前编辑器")
+                        .clicked()
+                    {
+                        if !self.latex_converted_mathslot.is_empty() {
+                            action = Some(ModalAction::ReplaceCode(
+                                self.latex_converted_mathslot.clone(),
+                            ));
+                            self.show_library = false;
+                        }
+                    }
+
+                    if ui
+                        .button(RichText::new("+ 插入到当前光标处").color(ACCENT))
+                        .on_hover_text("将转换后的简码流追加到当前光标位置")
+                        .clicked()
+                    {
+                        if !self.latex_converted_mathslot.is_empty() {
+                            action = Some(ModalAction::InsertCode(
+                                self.latex_converted_mathslot.clone(),
+                            ));
+                            self.show_library = false;
+                        }
+                    }
+                });
+            });
 
         action
     }
@@ -751,6 +933,29 @@ fn render_help_body(ui: &mut egui::Ui) {
                     (
                         "+存片段 / [t▸]",
                         "点击「+存片段」(或 Ctrl+Shift+S) 一键把光标处的复杂子式存为模版；留空槽即为填空模版，按 `Tab t 字母` 随时复用！",
+                    ),
+                ],
+            );
+
+            help_section(
+                ui,
+                "6. 标准 LaTeX 语法对齐与逆向导入转换",
+                &[
+                    (
+                        "标准大括号分组",
+                        "文本中直接输入 `{...}` 作为标准 LaTeX 分组原生保留，不再强转 `\\{...\\}`；标准函数如 `\\sin`, `\\cos`, `\\mathbf` 原生支持！",
+                    ),
+                    (
+                        "常用高阶数学结构",
+                        "偏导分式 `Tab c g` (`\\frac{\\partial}{\\partial}`) · 全导分式 `Tab c h` · 三重积分 `Tab c a` · 3×3方阵 `Tab m g` · 3×3行列式 `Tab m h` · 上下大括号 `Tab c b/c`",
+                    ),
+                    (
+                        "丰富特殊符号与简记",
+                        "`\\hbar` (`▸ol`) · `\\perp` (`▸ot`) · `\\parallel` (`▸op` 或 `||`) · `\\cong` (`~=`) · `\\ll` (`<<`) · `\\gg` (`>>`) · `\\mathbb{C}` (`▸sc`)",
+                    ),
+                    (
+                        "⇄ LaTeX 逆向导入",
+                        "点击顶部「⇄ LaTeX 导入」，粘贴任意标准 LaTeX 公式，即可自动反编译为 MathSlot 极速简码流，一键替换或插入！",
                     ),
                 ],
             );

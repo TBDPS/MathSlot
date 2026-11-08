@@ -36,12 +36,15 @@ pub enum StructKind {
     Product,         // cb
     DoubleIntegral,  // cc
     ContourIntegral, // cd
+    TripleIntegral,  // ce
+    PartialFrac,     // cg
+    TotalFrac,       // ci
     // 矩阵与分段子菜单 (m*)
     Matrix2, // ma (默认)
     Matrix3, // mb
     Det2,    // mc
     Cases2,  // md
-    // 顶部标注子菜单 (a*)
+    // 顶部标注与定界子菜单 (a*)
     Hat,   // aa (默认)
     Bar,   // ab
     Vec,   // ac
@@ -49,11 +52,23 @@ pub enum StructKind {
     Dot,   // ae
     Norm,     // af
     Overline, // ag
+    DDot,     // ah
+    Underline,// ai
+    Overbrace,// aj
+    Underbrace,// ak
+    Bracket,  // al
+    Brace,    // am
+    Angle,    // an
+    Floor,    // ao
+    Ceil,     // ap
+    EvalBar,  // aq
     // 二项式系数（单字母直达 e）
     Binom, // e
     // 矩阵与分段子菜单扩展 (m*)
     BMatrix2, // me
     Cases3,   // mf
+    BMatrix3, // mg
+    Det3,     // mh
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -85,6 +100,11 @@ pub enum SymbolCmd {
     NotIn,    // oi
     SubsetEq, // oj
     ForAll,   // ok
+    Hbar,     // ol
+    Ell,      // om
+    Circ,     // on
+    Parallel, // oo
+    Perp,     // op
     // 关系符与箭头子菜单 (x*)
     Equiv,      // xa (默认)
     Approx,     // xb
@@ -95,6 +115,10 @@ pub enum SymbolCmd {
     Mapsto,     // xg
     Therefore,  // xh
     Because,    // xi
+    Cong,       // xj
+    Ll,         // xk
+    Gg,         // xl
+    Simeq,      // xm
     // 集合与逻辑子菜单 (q*)
     Cup,        // qa (默认)
     Cap,        // qb
@@ -108,6 +132,8 @@ pub enum SymbolCmd {
     NatSet,     // qj
     IntSet,     // qk
     RatSet,     // ql
+    SetMinus,   // qm
+    ComplexSet, // qn
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -270,6 +296,33 @@ const CALCULUS_MORE_ENTRIES: &[SubEntry] = &[
         detail: "积分路径 ; 被积式",
         target: CommandTarget::Struct(StructKind::ContourIntegral),
     },
+    SubEntry {
+        code: "ce",
+        item_key: 'e',
+        is_default: false,
+        label: "三重积分",
+        glyph_hint: "∭",
+        detail: "积分体 ; 被积式",
+        target: CommandTarget::Struct(StructKind::TripleIntegral),
+    },
+    SubEntry {
+        code: "cg",
+        item_key: 'g',
+        is_default: false,
+        label: "偏导分式",
+        glyph_hint: "∂y/∂x",
+        detail: "分子 ; 分母",
+        target: CommandTarget::Struct(StructKind::PartialFrac),
+    },
+    SubEntry {
+        code: "ci",
+        item_key: 'i',
+        is_default: false,
+        label: "全导分式",
+        glyph_hint: "dy/dx",
+        detail: "分子 ; 分母",
+        target: CommandTarget::Struct(StructKind::TotalFrac),
+    },
 ];
 
 const MATRIX_ENTRIES: &[SubEntry] = &[
@@ -326,6 +379,24 @@ const MATRIX_ENTRIES: &[SubEntry] = &[
         glyph_hint: "{cases×3",
         detail: "式1 ; 条件1 ; 式2 ; 条件2 ; 式3 ; 条件3",
         target: CommandTarget::Struct(StructKind::Cases3),
+    },
+    SubEntry {
+        code: "mg",
+        item_key: 'g',
+        is_default: false,
+        label: "3×3 方块阵",
+        glyph_hint: "[3×3]",
+        detail: "按行输入 9 项 (bmatrix)",
+        target: CommandTarget::Struct(StructKind::BMatrix3),
+    },
+    SubEntry {
+        code: "mh",
+        item_key: 'h',
+        is_default: false,
+        label: "3×3 行列式",
+        glyph_hint: "|3×3|",
+        detail: "按行输入 9 项 (vmatrix)",
+        target: CommandTarget::Struct(StructKind::Det3),
     },
 ];
 
@@ -392,6 +463,96 @@ const ACCENT_ENTRIES: &[SubEntry] = &[
         glyph_hint: "overline",
         detail: "\\overline{x}",
         target: CommandTarget::Struct(StructKind::Overline),
+    },
+    SubEntry {
+        code: "ah",
+        item_key: 'h',
+        is_default: false,
+        label: "二阶导点",
+        glyph_hint: "ddot",
+        detail: "\\ddot{x}",
+        target: CommandTarget::Struct(StructKind::DDot),
+    },
+    SubEntry {
+        code: "ai",
+        item_key: 'i',
+        is_default: false,
+        label: "下划线",
+        glyph_hint: "underline",
+        detail: "\\underline{x}",
+        target: CommandTarget::Struct(StructKind::Underline),
+    },
+    SubEntry {
+        code: "aj",
+        item_key: 'j',
+        is_default: false,
+        label: "上花括号",
+        glyph_hint: "overbrace",
+        detail: "\\overbrace{主体}^{标注}",
+        target: CommandTarget::Struct(StructKind::Overbrace),
+    },
+    SubEntry {
+        code: "ak",
+        item_key: 'k',
+        is_default: false,
+        label: "下花括号",
+        glyph_hint: "underbrace",
+        detail: "\\underbrace{主体}_{标注}",
+        target: CommandTarget::Struct(StructKind::Underbrace),
+    },
+    SubEntry {
+        code: "al",
+        item_key: 'l',
+        is_default: false,
+        label: "中括号",
+        glyph_hint: "[x]",
+        detail: "\\left[ x \\right]",
+        target: CommandTarget::Struct(StructKind::Bracket),
+    },
+    SubEntry {
+        code: "am",
+        item_key: 'm',
+        is_default: false,
+        label: "大括号/集合",
+        glyph_hint: "{x}",
+        detail: "\\left\\{ x \\right\\}",
+        target: CommandTarget::Struct(StructKind::Brace),
+    },
+    SubEntry {
+        code: "an",
+        item_key: 'n',
+        is_default: false,
+        label: "尖括号内积",
+        glyph_hint: "⟨x⟩",
+        detail: "\\left\\langle x \\right\\rangle",
+        target: CommandTarget::Struct(StructKind::Angle),
+    },
+    SubEntry {
+        code: "ao",
+        item_key: 'o',
+        is_default: false,
+        label: "向下取整",
+        glyph_hint: "⌊x⌋",
+        detail: "\\left\\lfloor x \\right\\rfloor",
+        target: CommandTarget::Struct(StructKind::Floor),
+    },
+    SubEntry {
+        code: "ap",
+        item_key: 'p',
+        is_default: false,
+        label: "向上取整",
+        glyph_hint: "⌈x⌉",
+        detail: "\\left\\lceil x \\right\\rceil",
+        target: CommandTarget::Struct(StructKind::Ceil),
+    },
+    SubEntry {
+        code: "aq",
+        item_key: 'q',
+        is_default: false,
+        label: "代入求值线",
+        glyph_hint: "F|_a^b",
+        detail: "\\left. F \\right|_a^b (代入线)",
+        target: CommandTarget::Struct(StructKind::EvalBar),
     },
 ];
 
@@ -477,6 +638,42 @@ pub const RELATION_ENTRIES: &[SubEntry] = &[
         glyph_hint: "∵",
         detail: "\\because",
         target: CommandTarget::Symbol(SymbolCmd::Because),
+    },
+    SubEntry {
+        code: "xj",
+        item_key: 'j',
+        is_default: false,
+        label: "全等/同余",
+        glyph_hint: "≅",
+        detail: "\\cong (也可直输 ~=)",
+        target: CommandTarget::Symbol(SymbolCmd::Cong),
+    },
+    SubEntry {
+        code: "xk",
+        item_key: 'k',
+        is_default: false,
+        label: "远小于",
+        glyph_hint: "≪",
+        detail: "\\ll (也可直输 <<)",
+        target: CommandTarget::Symbol(SymbolCmd::Ll),
+    },
+    SubEntry {
+        code: "xl",
+        item_key: 'l',
+        is_default: false,
+        label: "远大于",
+        glyph_hint: "≫",
+        detail: "\\gg (也可直输 >>)",
+        target: CommandTarget::Symbol(SymbolCmd::Gg),
+    },
+    SubEntry {
+        code: "xm",
+        item_key: 'm',
+        is_default: false,
+        label: "渐近相等",
+        glyph_hint: "≃",
+        detail: "\\simeq",
+        target: CommandTarget::Symbol(SymbolCmd::Simeq),
     },
 ];
 
@@ -589,6 +786,24 @@ pub const SET_LOGIC_ENTRIES: &[SubEntry] = &[
         glyph_hint: "ℚ",
         detail: "\\mathbb{Q}",
         target: CommandTarget::Symbol(SymbolCmd::RatSet),
+    },
+    SubEntry {
+        code: "qm",
+        item_key: 'm',
+        is_default: false,
+        label: "差集",
+        glyph_hint: "∖",
+        detail: "\\setminus",
+        target: CommandTarget::Symbol(SymbolCmd::SetMinus),
+    },
+    SubEntry {
+        code: "qn",
+        item_key: 'n',
+        is_default: false,
+        label: "复数集",
+        glyph_hint: "ℂ",
+        detail: "\\mathbb{C}",
+        target: CommandTarget::Symbol(SymbolCmd::ComplexSet),
     },
 ];
 
@@ -821,6 +1036,51 @@ const SYMBOL_ENTRIES: &[SubEntry] = &[
         detail: "\\forall",
         target: CommandTarget::Symbol(SymbolCmd::ForAll),
     },
+    SubEntry {
+        code: "ol",
+        item_key: 'l',
+        is_default: false,
+        label: "约化普朗克",
+        glyph_hint: "ℏ",
+        detail: "\\hbar",
+        target: CommandTarget::Symbol(SymbolCmd::Hbar),
+    },
+    SubEntry {
+        code: "om",
+        item_key: 'm',
+        is_default: false,
+        label: "花体l",
+        glyph_hint: "ℓ",
+        detail: "\\ell",
+        target: CommandTarget::Symbol(SymbolCmd::Ell),
+    },
+    SubEntry {
+        code: "on",
+        item_key: 'n',
+        is_default: false,
+        label: "圈乘/度",
+        glyph_hint: "∘",
+        detail: "\\circ",
+        target: CommandTarget::Symbol(SymbolCmd::Circ),
+    },
+    SubEntry {
+        code: "oo",
+        item_key: 'o',
+        is_default: false,
+        label: "平行",
+        glyph_hint: "∥",
+        detail: "\\parallel (也可直输 ||)",
+        target: CommandTarget::Symbol(SymbolCmd::Parallel),
+    },
+    SubEntry {
+        code: "op",
+        item_key: 'p',
+        is_default: false,
+        label: "垂直",
+        glyph_hint: "⊥",
+        detail: "\\perp (也可直输 _|_)",
+        target: CommandTarget::Symbol(SymbolCmd::Perp),
+    },
 ];
 
 impl SubCategory {
@@ -889,6 +1149,20 @@ impl SubCategory {
         }
     }
 
+    pub fn glyph(self) -> &'static str {
+        match self {
+            SubCategory::CalculusMore => "∫…",
+            SubCategory::Matrix => "[…]",
+            SubCategory::Accent => "x̂",
+            SubCategory::Greek => "αβ",
+            SubCategory::Symbol => "∞∂",
+            SubCategory::Relations => "≡≈",
+            SubCategory::SetLogic => "∪ℝ",
+            SubCategory::Custom => "⚡",
+            SubCategory::Template => "⎘",
+        }
+    }
+
     pub fn entries(self) -> &'static [SubEntry] {
         match self {
             SubCategory::CalculusMore => CALCULUS_MORE_ENTRIES,
@@ -913,7 +1187,7 @@ impl SubCategory {
 }
 
 impl StructKind {
-    pub const ALL: [StructKind; 29] = [
+    pub const ALL: [StructKind; 44] = [
         StructKind::Frac,
         StructKind::Sqrt,
         StructKind::NthRoot,
@@ -929,6 +1203,9 @@ impl StructKind {
         StructKind::Product,
         StructKind::DoubleIntegral,
         StructKind::ContourIntegral,
+        StructKind::TripleIntegral,
+        StructKind::PartialFrac,
+        StructKind::TotalFrac,
         StructKind::Matrix2,
         StructKind::Matrix3,
         StructKind::Det2,
@@ -940,9 +1217,21 @@ impl StructKind {
         StructKind::Dot,
         StructKind::Norm,
         StructKind::Overline,
+        StructKind::DDot,
+        StructKind::Underline,
+        StructKind::Overbrace,
+        StructKind::Underbrace,
+        StructKind::Bracket,
+        StructKind::Brace,
+        StructKind::Angle,
+        StructKind::Floor,
+        StructKind::Ceil,
+        StructKind::EvalBar,
         StructKind::Binom,
         StructKind::BMatrix2,
         StructKind::Cases3,
+        StructKind::BMatrix3,
+        StructKind::Det3,
     ];
 
     pub fn code(self) -> &'static str {
@@ -962,6 +1251,9 @@ impl StructKind {
             StructKind::Product => "cb",
             StructKind::DoubleIntegral => "cc",
             StructKind::ContourIntegral => "cd",
+            StructKind::TripleIntegral => "ce",
+            StructKind::PartialFrac => "cg",
+            StructKind::TotalFrac => "ci",
             StructKind::Matrix2 => "ma",
             StructKind::Matrix3 => "mb",
             StructKind::Det2 => "mc",
@@ -973,9 +1265,21 @@ impl StructKind {
             StructKind::Dot => "ae",
             StructKind::Norm => "af",
             StructKind::Overline => "ag",
+            StructKind::DDot => "ah",
+            StructKind::Underline => "ai",
+            StructKind::Overbrace => "aj",
+            StructKind::Underbrace => "ak",
+            StructKind::Bracket => "al",
+            StructKind::Brace => "am",
+            StructKind::Angle => "an",
+            StructKind::Floor => "ao",
+            StructKind::Ceil => "ap",
+            StructKind::EvalBar => "aq",
             StructKind::Binom => "e",
             StructKind::BMatrix2 => "me",
             StructKind::Cases3 => "mf",
+            StructKind::BMatrix3 => "mg",
+            StructKind::Det3 => "mh",
         }
     }
 
@@ -996,6 +1300,9 @@ impl StructKind {
             StructKind::Product => "连乘",
             StructKind::DoubleIntegral => "二重积分",
             StructKind::ContourIntegral => "环路积分",
+            StructKind::TripleIntegral => "三重积分",
+            StructKind::PartialFrac => "偏导分式",
+            StructKind::TotalFrac => "全导分式",
             StructKind::Matrix2 => "2×2 矩阵",
             StructKind::Matrix3 => "3×3 矩阵",
             StructKind::Det2 => "2×2 行列式",
@@ -1007,9 +1314,21 @@ impl StructKind {
             StructKind::Dot => "导点",
             StructKind::Norm => "范数",
             StructKind::Overline => "上划线",
+            StructKind::DDot => "二阶导点",
+            StructKind::Underline => "下划线",
+            StructKind::Overbrace => "上花括号",
+            StructKind::Underbrace => "下花括号",
+            StructKind::Bracket => "中括号",
+            StructKind::Brace => "大括号/集合",
+            StructKind::Angle => "尖括号内积",
+            StructKind::Floor => "向下取整",
+            StructKind::Ceil => "向上取整",
+            StructKind::EvalBar => "代入求值线",
             StructKind::Binom => "二项式系数",
             StructKind::BMatrix2 => "方括号矩阵",
             StructKind::Cases3 => "三分段函数",
+            StructKind::BMatrix3 => "3×3 方块阵",
+            StructKind::Det3 => "3×3 行列式",
         }
     }
 
@@ -1027,11 +1346,14 @@ impl StructKind {
             StructKind::IndefIntegral => &["被积式"],
             StructKind::DoubleIntegral => &["积分区域", "被积式"],
             StructKind::ContourIntegral => &["积分路径", "被积式"],
+            StructKind::TripleIntegral => &["积分体", "被积式"],
+            StructKind::PartialFrac => &["分子", "分母"],
+            StructKind::TotalFrac => &["分子", "分母"],
             StructKind::Sum => &["下限", "上限", "求和项"],
             StructKind::Product => &["下限", "上限", "连乘项"],
             StructKind::Limit => &["趋近变量", "趋近目标", "主体"],
             StructKind::Matrix2 | StructKind::Det2 => &["(1,1)", "(1,2)", "(2,1)", "(2,2)"],
-            StructKind::Matrix3 => &[
+            StructKind::Matrix3 | StructKind::BMatrix3 | StructKind::Det3 => &[
                 "(1,1)", "(1,2)", "(1,3)", "(2,1)", "(2,2)", "(2,3)", "(3,1)", "(3,2)", "(3,3)",
             ],
             StructKind::Cases2 => &["表达式1", "条件1", "表达式2", "条件2"],
@@ -1042,6 +1364,16 @@ impl StructKind {
             StructKind::Dot => &["导点内"],
             StructKind::Norm => &["范数内"],
             StructKind::Overline => &["上划线内"],
+            StructKind::DDot => &["二阶导点内"],
+            StructKind::Underline => &["下划线内"],
+            StructKind::Overbrace => &["主体", "标注"],
+            StructKind::Underbrace => &["主体", "标注"],
+            StructKind::Bracket => &["中括号内"],
+            StructKind::Brace => &["大括号内"],
+            StructKind::Angle => &["尖括号内"],
+            StructKind::Floor => &["向下取整内"],
+            StructKind::Ceil => &["向上取整内"],
+            StructKind::EvalBar => &["表达式", "下限", "上限"],
             StructKind::Binom => &["上标 n", "下标 k"],
             StructKind::BMatrix2 => &["(1,1)", "(1,2)", "(2,1)", "(2,2)"],
             StructKind::Cases3 => &[
@@ -1056,11 +1388,6 @@ impl StructKind {
 
     /// 当光标位于一段已有表达式前方（如跳回行首 `[a]` 后插入极限/积分/根号/分数）时，
     /// 返回应当自动接收该已有表达式的「主体槽位下标」：
-    /// - 如 `Limit` (`▸l`)、`Integral` (`▸i`)、`Sum` (`▸s`)、`Product` (`▸cb`) -> `Some(2)`（让已有式子成为主体，光标留在第 0 槽填条件/下限！）
-    /// - 如 `NthRoot` (`▸n`)、`DoubleIntegral` (`▸cc`)、`ContourIntegral` (`▸cd`) -> `Some(1)`（让已有式子成为被开方式/被积式，光标留在第 0 槽！）
-    /// - 如 `Frac` (`▸f`)、`Sup` (`▸u`)、`Sub` (`▸d`)、`SubSup` (`▸b`) -> `Some(0)`（让已有式子成为分子/底数，光标直接推进到分母/上下标！）
-    /// - 如 `Sqrt` (`▸r`)、`Paren` (`▸p`) 等单槽包裹 -> `Some(0)`
-    /// - 矩阵/行列式返回 `None`（不自动吞并整行公式）
     pub fn wrap_body_slot_index(self) -> Option<usize> {
         match self {
             StructKind::Limit
@@ -1069,17 +1396,21 @@ impl StructKind {
             | StructKind::Product => Some(2),
             StructKind::NthRoot
             | StructKind::DoubleIntegral
-            | StructKind::ContourIntegral => Some(1),
-            StructKind::Matrix2 | StructKind::Matrix3 | StructKind::Det2 | StructKind::BMatrix2 => {
-                None
-            }
+            | StructKind::ContourIntegral
+            | StructKind::TripleIntegral => Some(1),
+            StructKind::Matrix2
+            | StructKind::Matrix3
+            | StructKind::Det2
+            | StructKind::BMatrix2
+            | StructKind::BMatrix3
+            | StructKind::Det3 => None,
             _ => Some(0),
         }
     }
 }
 
 impl SymbolCmd {
-    pub const ALL: [SymbolCmd; 46] = [
+    pub const ALL: [SymbolCmd; 57] = [
         SymbolCmd::Alpha,
         SymbolCmd::Beta,
         SymbolCmd::Gamma,
@@ -1105,6 +1436,11 @@ impl SymbolCmd {
         SymbolCmd::NotIn,
         SymbolCmd::SubsetEq,
         SymbolCmd::ForAll,
+        SymbolCmd::Hbar,
+        SymbolCmd::Ell,
+        SymbolCmd::Circ,
+        SymbolCmd::Parallel,
+        SymbolCmd::Perp,
         SymbolCmd::Equiv,
         SymbolCmd::Approx,
         SymbolCmd::Sim,
@@ -1114,6 +1450,10 @@ impl SymbolCmd {
         SymbolCmd::Mapsto,
         SymbolCmd::Therefore,
         SymbolCmd::Because,
+        SymbolCmd::Cong,
+        SymbolCmd::Ll,
+        SymbolCmd::Gg,
+        SymbolCmd::Simeq,
         SymbolCmd::Cup,
         SymbolCmd::Cap,
         SymbolCmd::EmptySet,
@@ -1126,6 +1466,8 @@ impl SymbolCmd {
         SymbolCmd::NatSet,
         SymbolCmd::IntSet,
         SymbolCmd::RatSet,
+        SymbolCmd::SetMinus,
+        SymbolCmd::ComplexSet,
     ];
 
     pub fn code(self) -> &'static str {
@@ -1155,6 +1497,11 @@ impl SymbolCmd {
             SymbolCmd::NotIn => "oi",
             SymbolCmd::SubsetEq => "oj",
             SymbolCmd::ForAll => "ok",
+            SymbolCmd::Hbar => "ol",
+            SymbolCmd::Ell => "om",
+            SymbolCmd::Circ => "on",
+            SymbolCmd::Parallel => "oo",
+            SymbolCmd::Perp => "op",
             SymbolCmd::Equiv => "xa",
             SymbolCmd::Approx => "xb",
             SymbolCmd::Sim => "xc",
@@ -1164,6 +1511,10 @@ impl SymbolCmd {
             SymbolCmd::Mapsto => "xg",
             SymbolCmd::Therefore => "xh",
             SymbolCmd::Because => "xi",
+            SymbolCmd::Cong => "xj",
+            SymbolCmd::Ll => "xk",
+            SymbolCmd::Gg => "xl",
+            SymbolCmd::Simeq => "xm",
             SymbolCmd::Cup => "qa",
             SymbolCmd::Cap => "qb",
             SymbolCmd::EmptySet => "qc",
@@ -1176,6 +1527,8 @@ impl SymbolCmd {
             SymbolCmd::NatSet => "qj",
             SymbolCmd::IntSet => "qk",
             SymbolCmd::RatSet => "ql",
+            SymbolCmd::SetMinus => "qm",
+            SymbolCmd::ComplexSet => "qn",
         }
     }
 
@@ -1206,6 +1559,11 @@ impl SymbolCmd {
             SymbolCmd::NotIn => "notin",
             SymbolCmd::SubsetEq => "subseteq",
             SymbolCmd::ForAll => "forall",
+            SymbolCmd::Hbar => "hbar",
+            SymbolCmd::Ell => "ell",
+            SymbolCmd::Circ => "circ",
+            SymbolCmd::Parallel => "parallel",
+            SymbolCmd::Perp => "perp",
             SymbolCmd::Equiv => "equiv",
             SymbolCmd::Approx => "approx",
             SymbolCmd::Sim => "sim",
@@ -1215,6 +1573,10 @@ impl SymbolCmd {
             SymbolCmd::Mapsto => "mapsto",
             SymbolCmd::Therefore => "therefore",
             SymbolCmd::Because => "because",
+            SymbolCmd::Cong => "cong",
+            SymbolCmd::Ll => "ll",
+            SymbolCmd::Gg => "gg",
+            SymbolCmd::Simeq => "simeq",
             SymbolCmd::Cup => "cup",
             SymbolCmd::Cap => "cap",
             SymbolCmd::EmptySet => "emptyset",
@@ -1227,6 +1589,8 @@ impl SymbolCmd {
             SymbolCmd::NatSet => "N",
             SymbolCmd::IntSet => "Z",
             SymbolCmd::RatSet => "Q",
+            SymbolCmd::SetMinus => "setminus",
+            SymbolCmd::ComplexSet => "C",
         }
     }
 
@@ -1257,6 +1621,11 @@ impl SymbolCmd {
             SymbolCmd::NotIn => "\\notin",
             SymbolCmd::SubsetEq => "\\subseteq",
             SymbolCmd::ForAll => "\\forall",
+            SymbolCmd::Hbar => "\\hbar",
+            SymbolCmd::Ell => "\\ell",
+            SymbolCmd::Circ => "\\circ",
+            SymbolCmd::Parallel => "\\parallel",
+            SymbolCmd::Perp => "\\perp",
             SymbolCmd::Equiv => "\\equiv",
             SymbolCmd::Approx => "\\approx",
             SymbolCmd::Sim => "\\sim",
@@ -1266,6 +1635,10 @@ impl SymbolCmd {
             SymbolCmd::Mapsto => "\\mapsto",
             SymbolCmd::Therefore => "\\therefore",
             SymbolCmd::Because => "\\because",
+            SymbolCmd::Cong => "\\cong",
+            SymbolCmd::Ll => "\\ll",
+            SymbolCmd::Gg => "\\gg",
+            SymbolCmd::Simeq => "\\simeq",
             SymbolCmd::Cup => "\\cup",
             SymbolCmd::Cap => "\\cap",
             SymbolCmd::EmptySet => "\\varnothing",
@@ -1278,6 +1651,8 @@ impl SymbolCmd {
             SymbolCmd::NatSet => "\\mathbb{N}",
             SymbolCmd::IntSet => "\\mathbb{Z}",
             SymbolCmd::RatSet => "\\mathbb{Q}",
+            SymbolCmd::SetMinus => "\\setminus",
+            SymbolCmd::ComplexSet => "\\mathbb{C}",
         }
     }
 
@@ -1308,6 +1683,11 @@ impl SymbolCmd {
             SymbolCmd::NotIn => "∉",
             SymbolCmd::SubsetEq => "⊆",
             SymbolCmd::ForAll => "∀",
+            SymbolCmd::Hbar => "ℏ",
+            SymbolCmd::Ell => "ℓ",
+            SymbolCmd::Circ => "∘",
+            SymbolCmd::Parallel => "∥",
+            SymbolCmd::Perp => "⊥",
             SymbolCmd::Equiv => "≡",
             SymbolCmd::Approx => "≈",
             SymbolCmd::Sim => "∼",
@@ -1317,6 +1697,10 @@ impl SymbolCmd {
             SymbolCmd::Mapsto => "↦",
             SymbolCmd::Therefore => "∴",
             SymbolCmd::Because => "∵",
+            SymbolCmd::Cong => "≅",
+            SymbolCmd::Ll => "≪",
+            SymbolCmd::Gg => "≫",
+            SymbolCmd::Simeq => "≃",
             SymbolCmd::Cup => "∪",
             SymbolCmd::Cap => "∩",
             SymbolCmd::EmptySet => "∅",
@@ -1329,6 +1713,8 @@ impl SymbolCmd {
             SymbolCmd::NatSet => "ℕ",
             SymbolCmd::IntSet => "ℤ",
             SymbolCmd::RatSet => "ℚ",
+            SymbolCmd::SetMinus => "∖",
+            SymbolCmd::ComplexSet => "ℂ",
         }
     }
 }

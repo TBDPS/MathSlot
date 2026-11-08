@@ -547,22 +547,22 @@ fn collect_enclosing_structs<'a>(
 
 fn vertical_partner_slot(kind: StructKind, cur_idx: usize, go_up: bool) -> Option<usize> {
     match kind {
-        StructKind::Frac => match (cur_idx, go_up) {
+        StructKind::Frac | StructKind::PartialFrac | StructKind::TotalFrac => match (cur_idx, go_up) {
             (0, false) => Some(1),
             (1, true) => Some(0),
             _ => None,
         },
-        StructKind::Sup => match (cur_idx, go_up) {
+        StructKind::Sup | StructKind::Overbrace => match (cur_idx, go_up) {
             (0, true) => Some(1),
             (1, false) => Some(0),
             _ => None,
         },
-        StructKind::Sub => match (cur_idx, go_up) {
+        StructKind::Sub | StructKind::Underbrace => match (cur_idx, go_up) {
             (0, false) => Some(1),
             (1, true) => Some(0),
             _ => None,
         },
-        StructKind::SubSup => match (cur_idx, go_up) {
+        StructKind::SubSup | StructKind::EvalBar => match (cur_idx, go_up) {
             (2, false) => Some(0),
             (0, false) => Some(1),
             (1, true) => Some(0),
@@ -576,7 +576,7 @@ fn vertical_partner_slot(kind: StructKind, cur_idx: usize, go_up: bool) -> Optio
             (2, false) => Some(0),
             _ => None,
         },
-        StructKind::DoubleIntegral | StructKind::ContourIntegral => match (cur_idx, go_up) {
+        StructKind::DoubleIntegral | StructKind::ContourIntegral | StructKind::TripleIntegral => match (cur_idx, go_up) {
             (1, false) => Some(0),
             (0, true) => Some(1),
             _ => None,
@@ -602,7 +602,7 @@ fn vertical_partner_slot(kind: StructKind, cur_idx: usize, go_up: bool) -> Optio
                 None
             }
         }
-        StructKind::Matrix3 => {
+        StructKind::Matrix3 | StructKind::BMatrix3 | StructKind::Det3 => {
             let r = cur_idx / 3;
             let c = cur_idx % 3;
             if !go_up && r < 2 {
