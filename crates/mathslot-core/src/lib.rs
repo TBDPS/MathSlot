@@ -491,6 +491,13 @@ mod tests {
             to_latex(&doc),
             "\\alpha x + \\infty + \\iint_{D} f(x,y) \\,\\mathrm{d}x \\,\\mathrm{d}y"
         );
+
+        // 验证完整希腊字母表解析：小写与大写字母精确区分
+        let full_greek_doc = parse("▸ga ▸gb ▸gz ▸gh ▸gu ▸gv ▸gq ▸gy ▸go ▸gC ▸gD ▸gT ▸gL ▸gX ▸gP ▸gS ▸gU ▸gF ▸gY ▸gO");
+        assert_eq!(
+            to_latex(&full_greek_doc),
+            "\\alpha \\beta \\zeta \\eta \\tau \\upsilon \\chi \\psi \\omega \\Gamma \\Delta \\Theta \\Lambda \\Xi \\Pi \\Sigma \\Upsilon \\Phi \\Psi \\Omega"
+        );
     }
 
     #[test]

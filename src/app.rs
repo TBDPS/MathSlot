@@ -39,11 +39,10 @@ const PREVIEW_MAX_WIDTH: f32 = 880.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaletteCategory {
-    Basic,     // 常用基础 (12个单字母直达结构)
+    Greek,     // 希腊字母 (g▸)
     Calculus,  // 微积分 (c▸)
     Matrix,    // 矩阵定界 (m▸)
     Accent,    // 标注向量 (a▸)
-    Greek,     // 希腊字母 (g▸)
     Operator,  // 常用算子 (o▸)
     Relation,  // 关系逻辑 (x▸ / q▸)
     Custom,    // 自定义与模版 (k▸ / t▸)
@@ -123,7 +122,7 @@ impl MathSlotApp {
             copy_feedback_until: None,
             show_nav_card: false,
             show_scheme_a: false,
-            palette_tab: PaletteCategory::Basic,
+            palette_tab: PaletteCategory::Greek,
             modals,
         }
     }
@@ -515,12 +514,7 @@ impl MathSlotApp {
                     .strong()
                     .color(ACCENT),
             );
-            ui.label(
-                RichText::new("极速流式数学公式编辑器")
-                    .size(11.5)
-                    .color(MUTED),
-            );
-            ui.add_space(4.0);
+            ui.add_space(6.0);
 
             // 状态徽标
             let (state_text, state_color) = if let Some(esc) = &self.editor.esc_nav {
@@ -798,9 +792,14 @@ impl MathSlotApp {
                         ui.add_space(2.0);
                     }
 
-                    if let Some(target_char) = self.pending_cursor_sync.take() {
-                        if let Some(mut state) = egui::TextEdit::load_state(&ctx, self.input_id) {
+                    let explicit_sync = self.pending_cursor_sync.take();
+                    if let Some(mut state) = egui::TextEdit::load_state(&ctx, self.input_id) {
+                        if let Some(target_char) = explicit_sync {
                             let c = CCursor::new(target_char.min(self.editor.source.chars().count()));
+                            state.cursor.set_char_range(Some(CCursorRange::one(c)));
+                            state.store(&ctx, self.input_id);
+                        } else if state.cursor.char_range().is_none() {
+                            let c = CCursor::new(self.editor.cursor_char.min(self.editor.source.chars().count()));
                             state.cursor.set_char_range(Some(CCursorRange::one(c)));
                             state.store(&ctx, self.input_id);
                         }
@@ -985,37 +984,35 @@ impl MathSlotApp {
                             ui.add_space(8.0);
                         }
 
-                        // 2. 格式陈列面板标题行
+                        // 2. 常驻常用结构分块 (12 项单键直达，始终常驻可见)
                         ui.horizontal(|ui| {
                             let (dot_color, title_text) = if prefix_armed {
-                                (AMBER, "快捷提示陈列 · ⚡ Tab 已就绪：按对应单键直接上屏！")
+                                (AMBER, "常用结构 · Tab 就绪")
                             } else {
-                                (CYAN, "数学结构与符号格式陈列面板")
+                                (CYAN, "常用结构 (12)")
                             };
                             section_dot(ui, dot_color);
                             ui.label(
                                 RichText::new(title_text)
-                                    .size(13.0)
+                                    .size(12.5)
                                     .strong()
                                     .color(if prefix_armed { AMBER } else { TEXT }),
                             );
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.label(
-                                    RichText::new("无需记忆语法 · 点击卡片或按键即选")
-                                        .size(11.0)
-                                        .color(MUTED),
-                                );
-                            });
                         });
+
+                        ui.add_space(6.0);
+                        self.render_direct_cards(ui, prefix_armed, clicked_code);
+
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(6.0);
+
+                        // 3. 扩展分类标签页切换区
+                        self.render_palette_tabs(ui, prefix_armed);
 
                         ui.add_space(8.0);
 
-                        // 3. 分类标签页栏 (Category Tabs)
-                        self.render_palette_tabs(ui, prefix_armed);
-
-                        ui.add_space(10.0);
-
-                        // 4. 大而精美的卡片展示网格 (Format Cards Grid)
+                        // 4. 当前分类格式展示网格
                         self.render_palette_cards(
                             ui,
                             prefix_armed,
@@ -1029,6 +1026,35 @@ impl MathSlotApp {
         });
     }
 
+    /// 常驻展示的 12 项高频单键直达基础结构
+    fn render_direct_cards(
+        &self,
+        ui: &mut egui::Ui,
+        prefix_armed: bool,
+        clicked_code: &mut Option<String>,
+    ) {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
+            for entry in DIRECT_ENTRIES {
+                let hover = format!(
+                    "{}{} (快捷键: {}) | 槽位: {}",
+                    entry.label, entry.glyph_hint, entry.key, entry.detail
+                );
+                if render_palette_card(
+                    ui,
+                    &entry.key.to_string(),
+                    entry.glyph_hint,
+                    entry.label,
+                    false,
+                    prefix_armed,
+                    &hover,
+                ) {
+                    *clicked_code = Some(entry.key.to_string());
+                }
+            }
+        });
+    }
+
     /// 分类标签页选择器
     fn render_palette_tabs(&mut self, ui: &mut egui::Ui, _prefix_armed: bool) {
         ui.horizontal_wrapped(|ui| {
@@ -1036,9 +1062,9 @@ impl MathSlotApp {
 
             let tabs = [
                 (
-                    PaletteCategory::Basic,
-                    "常用基础 (12)",
-                    "单字母极速直达结构 (Tab + 单字母)",
+                    PaletteCategory::Greek,
+                    "希腊字母 (g▸)",
+                    "希腊字母全集：23个小写 + 11个大写 (Tab + g)",
                 ),
                 (
                     PaletteCategory::Calculus,
@@ -1056,11 +1082,6 @@ impl MathSlotApp {
                     "帽子、横线、向量、一阶导、二阶导 (Tab + a)",
                 ),
                 (
-                    PaletteCategory::Greek,
-                    "希腊字母 (g▸)",
-                    "α, β, γ, δ, θ, λ, μ, π, σ, ω, Δ, Ω... (Tab + g)",
-                ),
-                (
                     PaletteCategory::Operator,
                     "常用算子 (o▸)",
                     "无穷、偏导、梯度、叉乘、点乘、属于、平行 (Tab + o)",
@@ -1073,19 +1094,19 @@ impl MathSlotApp {
                 (
                     PaletteCategory::Custom,
                     "自定义/模版 (k/t)",
-                    "用户自定义 LaTeX 格式与片段模版库 (Tab + k/t)",
+                    "自定义 LaTeX 格式与片段模版库 (Tab + k/t)",
                 ),
             ];
 
             for (cat, title, tip) in tabs {
                 let is_selected = self.palette_tab == cat;
                 let is_active_sub = match self.editor.prefix_menu_state() {
+                    PrefixMenuState::SubMenu(SubCategory::Greek) => cat == PaletteCategory::Greek,
                     PrefixMenuState::SubMenu(SubCategory::CalculusMore) => {
                         cat == PaletteCategory::Calculus
                     }
                     PrefixMenuState::SubMenu(SubCategory::Matrix) => cat == PaletteCategory::Matrix,
                     PrefixMenuState::SubMenu(SubCategory::Accent) => cat == PaletteCategory::Accent,
-                    PrefixMenuState::SubMenu(SubCategory::Greek) => cat == PaletteCategory::Greek,
                     PrefixMenuState::SubMenu(SubCategory::Symbol) => {
                         cat == PaletteCategory::Operator
                     }
@@ -1097,7 +1118,6 @@ impl MathSlotApp {
                     | PrefixMenuState::SubMenu(SubCategory::Template) => {
                         cat == PaletteCategory::Custom
                     }
-                    PrefixMenuState::Root => cat == PaletteCategory::Basic,
                     _ => false,
                 };
 
@@ -1132,6 +1152,7 @@ impl MathSlotApp {
 
                 if ui.add(btn).on_hover_text(tip).clicked() {
                     self.palette_tab = cat;
+                    self.pending_cursor_sync = Some(self.editor.cursor_char);
                     self.request_input_focus = true;
                 }
             }
@@ -1148,30 +1169,64 @@ impl MathSlotApp {
         open_snip_mgr: &mut bool,
         quick_save_snip: &mut bool,
     ) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-
-            match self.palette_tab {
-                PaletteCategory::Basic => {
-                    for entry in DIRECT_ENTRIES {
-                        let hover = format!(
-                            "{}{} (Tab + {}) | 槽位: {}",
-                            entry.label, entry.glyph_hint, entry.key, entry.detail
-                        );
-                        if render_palette_card(
-                            ui,
-                            &entry.key.to_string(),
-                            entry.glyph_hint,
-                            entry.label,
-                            false,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.key.to_string());
+        match self.palette_tab {
+            PaletteCategory::Greek => {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("小写希腊字母 (23)").size(11.0).color(MUTED));
+                    ui.add_space(2.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
+                        for entry in SubCategory::Greek.entries() {
+                            if !entry.item_key.is_ascii_uppercase() {
+                                let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
+                                let badge = if entry.is_default {
+                                    format!("★{}", entry.item_key)
+                                } else {
+                                    format!("g{}", entry.item_key)
+                                };
+                                if render_palette_card(
+                                    ui,
+                                    &badge,
+                                    entry.glyph_hint,
+                                    entry.label,
+                                    entry.is_default,
+                                    prefix_armed,
+                                    &hover,
+                                ) {
+                                    *clicked_code = Some(entry.code.to_owned());
+                                }
+                            }
                         }
-                    }
-                }
-                PaletteCategory::Calculus => {
+                    });
+
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("大写希腊字母 (11)").size(11.0).color(MUTED));
+                    ui.add_space(2.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
+                        for entry in SubCategory::Greek.entries() {
+                            if entry.item_key.is_ascii_uppercase() {
+                                let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
+                                let badge = format!("g{}", entry.item_key);
+                                if render_palette_card(
+                                    ui,
+                                    &badge,
+                                    entry.glyph_hint,
+                                    entry.label,
+                                    entry.is_default,
+                                    prefix_armed,
+                                    &hover,
+                                ) {
+                                    *clicked_code = Some(entry.code.to_owned());
+                                }
+                            }
+                        }
+                    });
+                });
+            }
+            PaletteCategory::Calculus => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
                     for entry in SubCategory::CalculusMore.entries() {
                         let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
                         let badge = if entry.is_default {
@@ -1191,8 +1246,11 @@ impl MathSlotApp {
                             *clicked_code = Some(entry.code.to_owned());
                         }
                     }
-                }
-                PaletteCategory::Matrix => {
+                });
+            }
+            PaletteCategory::Matrix => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
                     for entry in SubCategory::Matrix.entries() {
                         let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
                         let badge = if entry.is_default {
@@ -1212,8 +1270,11 @@ impl MathSlotApp {
                             *clicked_code = Some(entry.code.to_owned());
                         }
                     }
-                }
-                PaletteCategory::Accent => {
+                });
+            }
+            PaletteCategory::Accent => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
                     for entry in SubCategory::Accent.entries() {
                         let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
                         let badge = if entry.is_default {
@@ -1233,29 +1294,11 @@ impl MathSlotApp {
                             *clicked_code = Some(entry.code.to_owned());
                         }
                     }
-                }
-                PaletteCategory::Greek => {
-                    for entry in SubCategory::Greek.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = if entry.is_default {
-                            format!("★{}", entry.item_key)
-                        } else {
-                            format!("g{}", entry.item_key)
-                        };
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                }
-                PaletteCategory::Operator => {
+                });
+            }
+            PaletteCategory::Operator => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
                     for entry in SubCategory::Symbol.entries() {
                         let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
                         let badge = if entry.is_default {
@@ -1275,8 +1318,11 @@ impl MathSlotApp {
                             *clicked_code = Some(entry.code.to_owned());
                         }
                     }
-                }
-                PaletteCategory::Relation => {
+                });
+            }
+            PaletteCategory::Relation => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
                     for entry in SubCategory::Relations.entries() {
                         let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
                         let badge = format!("x{}", entry.item_key);
@@ -1307,8 +1353,11 @@ impl MathSlotApp {
                             *clicked_code = Some(entry.code.to_owned());
                         }
                     }
-                }
-                PaletteCategory::Custom => {
+                });
+            }
+            PaletteCategory::Custom => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
                     let def_custom_key = self.editor.library.default_custom().map(|d| d.item_key);
                     for fmt in &self.editor.library.custom_formats {
                         let is_def = def_custom_key == Some(fmt.item_key);
@@ -1374,9 +1423,9 @@ impl MathSlotApp {
                     {
                         *quick_save_snip = true;
                     }
-                }
+                });
             }
-        });
+        }
     }
 
     fn render_jump_menu_content(
@@ -1781,9 +1830,8 @@ impl eframe::App for MathSlotApp {
             self.request_input_focus = true;
         }
 
-        if self.request_input_focus
-            || (!self.modals.any_open() && ctx.memory(|m| m.focused().is_none()))
-        {
+        if !self.modals.any_open() {
+            // 当无模态弹出框时，输入框保持永久活跃焦点；点击标签页、卡片或任意功能按钮均不发生失焦
             ctx.memory_mut(|m| m.request_focus(self.input_id));
             self.request_input_focus = false;
         }
@@ -1968,7 +2016,8 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
 
                 if SubCategory::from_key(c1).is_some() {
                     if i + 2 < chars.len() && chars[i + 2].1.is_ascii_alphabetic() {
-                        let c2 = chars[i + 2].1.to_ascii_lowercase();
+                        let orig_c2 = chars[i + 2].1;
+                        let c2 = orig_c2.to_ascii_lowercase();
                         let byte_end = chars
                             .get(i + 3)
                             .map(|(b, _)| *b)
@@ -1976,7 +2025,9 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
                         let valid = match c1 {
                             'k' => lib.lookup_custom(c2).is_some(),
                             't' => lib.lookup_snippet(c2).is_some(),
-                            _ => lookup_sub_command(c1, c2).is_some(),
+                            _ => lookup_sub_command(c1, orig_c2)
+                                .or_else(|| lookup_sub_command(c1, c2))
+                                .is_some(),
                         };
                         let color = if valid { AMBER } else { RED };
                         job.append(

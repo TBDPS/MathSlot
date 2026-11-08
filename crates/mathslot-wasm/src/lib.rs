@@ -932,12 +932,15 @@ fn tokenize_stream<'a>(source: &'a str, lib: &UserLibrary) -> Vec<(&'a str, &'st
                 }
                 if SubCategory::from_key(c1).is_some() {
                     if i + 2 < chars.len() && chars[i + 2].1.is_ascii_alphabetic() {
-                        let c2 = chars[i + 2].1.to_ascii_lowercase();
+                        let orig_c2 = chars[i + 2].1;
+                        let c2 = orig_c2.to_ascii_lowercase();
                         let byte_end = chars.get(i + 3).map(|(b, _)| *b).unwrap_or(source.len());
                         let valid = match c1 {
                             'k' => lib.lookup_custom(c2).is_some(),
                             't' => lib.lookup_snippet(c2).is_some(),
-                            _ => lookup_sub_command(c1, c2).is_some(),
+                            _ => lookup_sub_command(c1, orig_c2)
+                                .or_else(|| lookup_sub_command(c1, c2))
+                                .is_some(),
                         };
                         let tag = if valid { "cmd" } else { "invalid" };
                         out.push((&source[byte_start..byte_end], tag));

@@ -10,10 +10,10 @@ use mathslot_core::visual::{
 };
 use tiny_skia::Pixmap;
 
-pub const PIXELS_PER_POINT: f32 = 2.4;
-const SURFACE_RGBA: [u8; 4] = [248, 250, 252, 255];
-const PAD_X_PX: usize = 20;
-const PAD_Y_PX: usize = 12;
+pub const PIXELS_PER_POINT: f32 = 3.0;
+const SURFACE_RGBA: [u8; 4] = [255, 255, 255, 255];
+const PAD_X_PX: usize = 24;
+const PAD_Y_PX: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -117,10 +117,10 @@ impl Renderer {
             color_preamble.push_str(&format!("\\definecolor{{{name}}}{{HTML}}{{{hex}}}"));
         }
         let png_opts = PngOptions {
-            font_size_pt: Dim::from_i64(17),
-            dpi: Dim::from_i64(172),
+            font_size_pt: Dim::from_i64(18),
+            dpi: Dim::from_i64(216),
             color: Color::rgb(15, 23, 42),
-            background: PngBackground::Color(Color::rgb(248, 250, 252)),
+            background: PngBackground::Color(Color::rgb(255, 255, 255)),
             display: true,
         };
         Self {

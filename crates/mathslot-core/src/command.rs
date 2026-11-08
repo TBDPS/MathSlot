@@ -73,21 +73,42 @@ pub enum StructKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SymbolCmd {
-    // 希腊字母子菜单 (g*)
-    Alpha,    // ga (默认)
-    Beta,     // gb
-    Gamma,    // gc
-    Delta,    // gd
-    Epsilon,  // ge
-    Theta,    // gt
-    Lambda,   // gl
-    Mu,       // gm
-    Pi,       // gp
-    Sigma,    // gs
-    Phi,      // gf
-    Omega,    // go
-    CapDelta, // gx
-    CapOmega, // gz
+    // 希腊字母子菜单 (g*) - 完整 24 个小写希腊字母 + 11 个大写希腊字母
+    Alpha,      // ga (默认)
+    Beta,       // gb
+    Gamma,      // gc
+    Delta,      // gd
+    Epsilon,    // ge
+    Zeta,       // gz
+    Eta,        // gh
+    Theta,      // gt
+    Iota,       // gi
+    Kappa,      // gk
+    Lambda,     // gl
+    Mu,         // gm
+    Nu,         // gn
+    Xi,         // gx
+    Pi,         // gp
+    Rho,        // gr
+    Sigma,      // gs
+    Tau,        // gu
+    Upsilon,    // gv
+    Phi,        // gf
+    Chi,        // gq
+    Psi,        // gy
+    Omega,      // go
+    // 大写希腊字母
+    CapGamma,   // gC
+    CapDelta,   // gD
+    CapTheta,   // gT
+    CapLambda,  // gL
+    CapXi,      // gX
+    CapPi,      // gP
+    CapSigma,   // gS
+    CapUpsilon, // gU
+    CapPhi,     // gF
+    CapPsi,     // gY
+    CapOmega,   // gO
     // 常用符号子菜单 (o*)
     Infty,    // oa (默认)
     To,       // ob (趋向箭头 →，也可直接输入 ->)
@@ -854,6 +875,24 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         target: CommandTarget::Symbol(SymbolCmd::Epsilon),
     },
     SubEntry {
+        code: "gz",
+        item_key: 'z',
+        is_default: false,
+        label: "zeta",
+        glyph_hint: "ζ",
+        detail: "\\zeta",
+        target: CommandTarget::Symbol(SymbolCmd::Zeta),
+    },
+    SubEntry {
+        code: "gh",
+        item_key: 'h',
+        is_default: false,
+        label: "eta",
+        glyph_hint: "η",
+        detail: "\\eta",
+        target: CommandTarget::Symbol(SymbolCmd::Eta),
+    },
+    SubEntry {
         code: "gt",
         item_key: 't',
         is_default: false,
@@ -861,6 +900,24 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         glyph_hint: "θ",
         detail: "\\theta",
         target: CommandTarget::Symbol(SymbolCmd::Theta),
+    },
+    SubEntry {
+        code: "gi",
+        item_key: 'i',
+        is_default: false,
+        label: "iota",
+        glyph_hint: "ι",
+        detail: "\\iota",
+        target: CommandTarget::Symbol(SymbolCmd::Iota),
+    },
+    SubEntry {
+        code: "gk",
+        item_key: 'k',
+        is_default: false,
+        label: "kappa",
+        glyph_hint: "κ",
+        detail: "\\kappa",
+        target: CommandTarget::Symbol(SymbolCmd::Kappa),
     },
     SubEntry {
         code: "gl",
@@ -881,6 +938,24 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         target: CommandTarget::Symbol(SymbolCmd::Mu),
     },
     SubEntry {
+        code: "gn",
+        item_key: 'n',
+        is_default: false,
+        label: "nu",
+        glyph_hint: "ν",
+        detail: "\\nu",
+        target: CommandTarget::Symbol(SymbolCmd::Nu),
+    },
+    SubEntry {
+        code: "gx",
+        item_key: 'x',
+        is_default: false,
+        label: "xi",
+        glyph_hint: "ξ",
+        detail: "\\xi",
+        target: CommandTarget::Symbol(SymbolCmd::Xi),
+    },
+    SubEntry {
         code: "gp",
         item_key: 'p',
         is_default: false,
@@ -888,6 +963,15 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         glyph_hint: "π",
         detail: "\\pi",
         target: CommandTarget::Symbol(SymbolCmd::Pi),
+    },
+    SubEntry {
+        code: "gr",
+        item_key: 'r',
+        is_default: false,
+        label: "rho",
+        glyph_hint: "ρ",
+        detail: "\\rho",
+        target: CommandTarget::Symbol(SymbolCmd::Rho),
     },
     SubEntry {
         code: "gs",
@@ -899,6 +983,24 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         target: CommandTarget::Symbol(SymbolCmd::Sigma),
     },
     SubEntry {
+        code: "gu",
+        item_key: 'u',
+        is_default: false,
+        label: "tau",
+        glyph_hint: "τ",
+        detail: "\\tau",
+        target: CommandTarget::Symbol(SymbolCmd::Tau),
+    },
+    SubEntry {
+        code: "gv",
+        item_key: 'v',
+        is_default: false,
+        label: "upsilon",
+        glyph_hint: "υ",
+        detail: "\\upsilon",
+        target: CommandTarget::Symbol(SymbolCmd::Upsilon),
+    },
+    SubEntry {
         code: "gf",
         item_key: 'f',
         is_default: false,
@@ -906,6 +1008,24 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         glyph_hint: "φ",
         detail: "\\phi",
         target: CommandTarget::Symbol(SymbolCmd::Phi),
+    },
+    SubEntry {
+        code: "gq",
+        item_key: 'q',
+        is_default: false,
+        label: "chi",
+        glyph_hint: "χ",
+        detail: "\\chi",
+        target: CommandTarget::Symbol(SymbolCmd::Chi),
+    },
+    SubEntry {
+        code: "gy",
+        item_key: 'y',
+        is_default: false,
+        label: "psi",
+        glyph_hint: "ψ",
+        detail: "\\psi",
+        target: CommandTarget::Symbol(SymbolCmd::Psi),
     },
     SubEntry {
         code: "go",
@@ -917,8 +1037,17 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         target: CommandTarget::Symbol(SymbolCmd::Omega),
     },
     SubEntry {
-        code: "gx",
-        item_key: 'x',
+        code: "gC",
+        item_key: 'C',
+        is_default: false,
+        label: "Gamma",
+        glyph_hint: "Γ",
+        detail: "\\Gamma",
+        target: CommandTarget::Symbol(SymbolCmd::CapGamma),
+    },
+    SubEntry {
+        code: "gD",
+        item_key: 'D',
         is_default: false,
         label: "Delta",
         glyph_hint: "Δ",
@@ -926,8 +1055,80 @@ const GREEK_ENTRIES: &[SubEntry] = &[
         target: CommandTarget::Symbol(SymbolCmd::CapDelta),
     },
     SubEntry {
-        code: "gz",
-        item_key: 'z',
+        code: "gT",
+        item_key: 'T',
+        is_default: false,
+        label: "Theta",
+        glyph_hint: "Θ",
+        detail: "\\Theta",
+        target: CommandTarget::Symbol(SymbolCmd::CapTheta),
+    },
+    SubEntry {
+        code: "gL",
+        item_key: 'L',
+        is_default: false,
+        label: "Lambda",
+        glyph_hint: "Λ",
+        detail: "\\Lambda",
+        target: CommandTarget::Symbol(SymbolCmd::CapLambda),
+    },
+    SubEntry {
+        code: "gX",
+        item_key: 'X',
+        is_default: false,
+        label: "Xi",
+        glyph_hint: "Ξ",
+        detail: "\\Xi",
+        target: CommandTarget::Symbol(SymbolCmd::CapXi),
+    },
+    SubEntry {
+        code: "gP",
+        item_key: 'P',
+        is_default: false,
+        label: "Pi",
+        glyph_hint: "Π",
+        detail: "\\Pi",
+        target: CommandTarget::Symbol(SymbolCmd::CapPi),
+    },
+    SubEntry {
+        code: "gS",
+        item_key: 'S',
+        is_default: false,
+        label: "Sigma",
+        glyph_hint: "Σ",
+        detail: "\\Sigma",
+        target: CommandTarget::Symbol(SymbolCmd::CapSigma),
+    },
+    SubEntry {
+        code: "gU",
+        item_key: 'U',
+        is_default: false,
+        label: "Upsilon",
+        glyph_hint: "Υ",
+        detail: "\\Upsilon",
+        target: CommandTarget::Symbol(SymbolCmd::CapUpsilon),
+    },
+    SubEntry {
+        code: "gF",
+        item_key: 'F',
+        is_default: false,
+        label: "Phi",
+        glyph_hint: "Φ",
+        detail: "\\Phi",
+        target: CommandTarget::Symbol(SymbolCmd::CapPhi),
+    },
+    SubEntry {
+        code: "gY",
+        item_key: 'Y',
+        is_default: false,
+        label: "Psi",
+        glyph_hint: "Ψ",
+        detail: "\\Psi",
+        target: CommandTarget::Symbol(SymbolCmd::CapPsi),
+    },
+    SubEntry {
+        code: "gO",
+        item_key: 'O',
         is_default: false,
         label: "Omega",
         glyph_hint: "Ω",
@@ -1410,20 +1611,40 @@ impl StructKind {
 }
 
 impl SymbolCmd {
-    pub const ALL: [SymbolCmd; 57] = [
+    pub const ALL: [SymbolCmd; 77] = [
         SymbolCmd::Alpha,
         SymbolCmd::Beta,
         SymbolCmd::Gamma,
         SymbolCmd::Delta,
         SymbolCmd::Epsilon,
+        SymbolCmd::Zeta,
+        SymbolCmd::Eta,
         SymbolCmd::Theta,
+        SymbolCmd::Iota,
+        SymbolCmd::Kappa,
         SymbolCmd::Lambda,
         SymbolCmd::Mu,
+        SymbolCmd::Nu,
+        SymbolCmd::Xi,
         SymbolCmd::Pi,
+        SymbolCmd::Rho,
         SymbolCmd::Sigma,
+        SymbolCmd::Tau,
+        SymbolCmd::Upsilon,
         SymbolCmd::Phi,
+        SymbolCmd::Chi,
+        SymbolCmd::Psi,
         SymbolCmd::Omega,
+        SymbolCmd::CapGamma,
         SymbolCmd::CapDelta,
+        SymbolCmd::CapTheta,
+        SymbolCmd::CapLambda,
+        SymbolCmd::CapXi,
+        SymbolCmd::CapPi,
+        SymbolCmd::CapSigma,
+        SymbolCmd::CapUpsilon,
+        SymbolCmd::CapPhi,
+        SymbolCmd::CapPsi,
         SymbolCmd::CapOmega,
         SymbolCmd::Infty,
         SymbolCmd::To,
@@ -1477,15 +1698,35 @@ impl SymbolCmd {
             SymbolCmd::Gamma => "gc",
             SymbolCmd::Delta => "gd",
             SymbolCmd::Epsilon => "ge",
+            SymbolCmd::Zeta => "gz",
+            SymbolCmd::Eta => "gh",
             SymbolCmd::Theta => "gt",
+            SymbolCmd::Iota => "gi",
+            SymbolCmd::Kappa => "gk",
             SymbolCmd::Lambda => "gl",
             SymbolCmd::Mu => "gm",
+            SymbolCmd::Nu => "gn",
+            SymbolCmd::Xi => "gx",
             SymbolCmd::Pi => "gp",
+            SymbolCmd::Rho => "gr",
             SymbolCmd::Sigma => "gs",
+            SymbolCmd::Tau => "gu",
+            SymbolCmd::Upsilon => "gv",
             SymbolCmd::Phi => "gf",
+            SymbolCmd::Chi => "gq",
+            SymbolCmd::Psi => "gy",
             SymbolCmd::Omega => "go",
-            SymbolCmd::CapDelta => "gx",
-            SymbolCmd::CapOmega => "gz",
+            SymbolCmd::CapGamma => "gC",
+            SymbolCmd::CapDelta => "gD",
+            SymbolCmd::CapTheta => "gT",
+            SymbolCmd::CapLambda => "gL",
+            SymbolCmd::CapXi => "gX",
+            SymbolCmd::CapPi => "gP",
+            SymbolCmd::CapSigma => "gS",
+            SymbolCmd::CapUpsilon => "gU",
+            SymbolCmd::CapPhi => "gF",
+            SymbolCmd::CapPsi => "gY",
+            SymbolCmd::CapOmega => "gO",
             SymbolCmd::Infty => "oa",
             SymbolCmd::To => "ob",
             SymbolCmd::Partial => "oc",
@@ -1539,14 +1780,34 @@ impl SymbolCmd {
             SymbolCmd::Gamma => "gamma",
             SymbolCmd::Delta => "delta",
             SymbolCmd::Epsilon => "epsilon",
+            SymbolCmd::Zeta => "zeta",
+            SymbolCmd::Eta => "eta",
             SymbolCmd::Theta => "theta",
+            SymbolCmd::Iota => "iota",
+            SymbolCmd::Kappa => "kappa",
             SymbolCmd::Lambda => "lambda",
             SymbolCmd::Mu => "mu",
+            SymbolCmd::Nu => "nu",
+            SymbolCmd::Xi => "xi",
             SymbolCmd::Pi => "pi",
+            SymbolCmd::Rho => "rho",
             SymbolCmd::Sigma => "sigma",
+            SymbolCmd::Tau => "tau",
+            SymbolCmd::Upsilon => "upsilon",
             SymbolCmd::Phi => "phi",
+            SymbolCmd::Chi => "chi",
+            SymbolCmd::Psi => "psi",
             SymbolCmd::Omega => "omega",
+            SymbolCmd::CapGamma => "Gamma",
             SymbolCmd::CapDelta => "Delta",
+            SymbolCmd::CapTheta => "Theta",
+            SymbolCmd::CapLambda => "Lambda",
+            SymbolCmd::CapXi => "Xi",
+            SymbolCmd::CapPi => "Pi",
+            SymbolCmd::CapSigma => "Sigma",
+            SymbolCmd::CapUpsilon => "Upsilon",
+            SymbolCmd::CapPhi => "Phi",
+            SymbolCmd::CapPsi => "Psi",
             SymbolCmd::CapOmega => "Omega",
             SymbolCmd::Infty => "oo",
             SymbolCmd::To => "->",
@@ -1601,14 +1862,34 @@ impl SymbolCmd {
             SymbolCmd::Gamma => "\\gamma",
             SymbolCmd::Delta => "\\delta",
             SymbolCmd::Epsilon => "\\varepsilon",
+            SymbolCmd::Zeta => "\\zeta",
+            SymbolCmd::Eta => "\\eta",
             SymbolCmd::Theta => "\\theta",
+            SymbolCmd::Iota => "\\iota",
+            SymbolCmd::Kappa => "\\kappa",
             SymbolCmd::Lambda => "\\lambda",
             SymbolCmd::Mu => "\\mu",
+            SymbolCmd::Nu => "\\nu",
+            SymbolCmd::Xi => "\\xi",
             SymbolCmd::Pi => "\\pi",
+            SymbolCmd::Rho => "\\rho",
             SymbolCmd::Sigma => "\\sigma",
+            SymbolCmd::Tau => "\\tau",
+            SymbolCmd::Upsilon => "\\upsilon",
             SymbolCmd::Phi => "\\phi",
+            SymbolCmd::Chi => "\\chi",
+            SymbolCmd::Psi => "\\psi",
             SymbolCmd::Omega => "\\omega",
+            SymbolCmd::CapGamma => "\\Gamma",
             SymbolCmd::CapDelta => "\\Delta",
+            SymbolCmd::CapTheta => "\\Theta",
+            SymbolCmd::CapLambda => "\\Lambda",
+            SymbolCmd::CapXi => "\\Xi",
+            SymbolCmd::CapPi => "\\Pi",
+            SymbolCmd::CapSigma => "\\Sigma",
+            SymbolCmd::CapUpsilon => "\\Upsilon",
+            SymbolCmd::CapPhi => "\\Phi",
+            SymbolCmd::CapPsi => "\\Psi",
             SymbolCmd::CapOmega => "\\Omega",
             SymbolCmd::Infty => "\\infty",
             SymbolCmd::To => "\\to",
@@ -1663,14 +1944,34 @@ impl SymbolCmd {
             SymbolCmd::Gamma => "γ",
             SymbolCmd::Delta => "δ",
             SymbolCmd::Epsilon => "ε",
+            SymbolCmd::Zeta => "ζ",
+            SymbolCmd::Eta => "η",
             SymbolCmd::Theta => "θ",
+            SymbolCmd::Iota => "ι",
+            SymbolCmd::Kappa => "κ",
             SymbolCmd::Lambda => "λ",
             SymbolCmd::Mu => "μ",
+            SymbolCmd::Nu => "ν",
+            SymbolCmd::Xi => "ξ",
             SymbolCmd::Pi => "π",
+            SymbolCmd::Rho => "ρ",
             SymbolCmd::Sigma => "σ",
+            SymbolCmd::Tau => "τ",
+            SymbolCmd::Upsilon => "υ",
             SymbolCmd::Phi => "φ",
+            SymbolCmd::Chi => "χ",
+            SymbolCmd::Psi => "ψ",
             SymbolCmd::Omega => "ω",
+            SymbolCmd::CapGamma => "Γ",
             SymbolCmd::CapDelta => "Δ",
+            SymbolCmd::CapTheta => "Θ",
+            SymbolCmd::CapLambda => "Λ",
+            SymbolCmd::CapXi => "Ξ",
+            SymbolCmd::CapPi => "Π",
+            SymbolCmd::CapSigma => "Σ",
+            SymbolCmd::CapUpsilon => "Υ",
+            SymbolCmd::CapPhi => "Φ",
+            SymbolCmd::CapPsi => "Ψ",
             SymbolCmd::CapOmega => "Ω",
             SymbolCmd::Infty => "∞",
             SymbolCmd::To => "→",

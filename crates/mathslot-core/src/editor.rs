@@ -1147,7 +1147,7 @@ impl StreamEditor {
                     body,
                     fmt.slot_roles.clone(),
                 )
-            } else if let Some(CommandTarget::Struct(kind)) = lookup_sub_command(c1, c2) {
+            } else if let Some(CommandTarget::Struct(kind)) = lookup_sub_command(c1, c2).or_else(|| lookup_sub_command(c1, c2.to_ascii_lowercase())) {
                 let body = kind.wrap_body_slot_index()?;
                 let roles: Vec<String> =
                     kind.slot_roles().iter().map(|r| (*r).to_owned()).collect();
@@ -1403,7 +1403,7 @@ impl StreamEditor {
                 };
             }
             if SubCategory::from_key(c1).is_some() {
-                return match lookup_sub_command(c1, c2) {
+                return match lookup_sub_command(c1, c2).or_else(|| lookup_sub_command(c1, c2.to_ascii_lowercase())) {
                     Some(CommandTarget::Struct(kind)) => {
                         let first_role = kind.slot_roles().first().copied().unwrap_or("内容");
                         Some(format!(

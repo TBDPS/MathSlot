@@ -551,7 +551,7 @@ impl<'a> Parser<'a> {
                             start: cmd_start,
                             end: cmd_end,
                         };
-                        return match lookup_sub_command(k1, c2.to_ascii_lowercase()) {
+                        return match lookup_sub_command(k1, c2).or_else(|| lookup_sub_command(k1, c2.to_ascii_lowercase())) {
                             Some(CommandTarget::Symbol(sym)) => Expr::Symbol {
                                 cmd: sym,
                                 span: cmd_span,
