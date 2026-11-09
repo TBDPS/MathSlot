@@ -741,6 +741,28 @@ impl StreamEditor {
                     ));
                 }
             }
+
+            if let Some((target_char, missing_semis, desc)) =
+                self.parsed.vertical_arrow_target(self.cursor_char, go_up)
+            {
+                if missing_semis > 0 {
+                    self.push_current_to_undo();
+                }
+                let prev = self.cursor_char;
+                self.apply_jump(target_char, missing_semis);
+                if prev != self.cursor_char {
+                    self.record_jump(prev);
+                }
+                self.esc_nav = Some(esc);
+                return Some(format!("已跳转至 {desc}（Enter 确认，Esc 退出）。"));
+            }
+
+            self.esc_nav = Some(esc);
+            return if go_up {
+                Some("已在最顶层导航（按 ←/→ 选择锚点，Esc 退出）。".to_owned())
+            } else {
+                Some("当前槽位无可展开的子结构（按 ←/→ 选择锚点，Esc 退出）。".to_owned())
+            };
         }
 
         let (target_char, missing_semis, desc) =
@@ -1245,10 +1267,21 @@ impl StreamEditor {
             return None;
         }
         let seq_str: String = chars[(p_pos + 2)..end].iter().collect();
-        if seq_str.is_empty()
-            || !seq_str
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || matches!(c, '.' | '$' | '-'))
+        if seq_str.is_empty() {
+            let mut clean_chars = chars.clone();
+            clean_chars.drain(p_pos..end);
+            let clean_source: String = clean_chars.iter().collect();
+            let old_src = self.source.clone();
+            self.source = clean_source;
+            self.cursor_char = p_pos;
+            self.adjust_jump_back_for_edit(&old_src, &self.source.clone());
+            self.reparse();
+            self.toggle_esc_jump();
+            return Some("⚡ 槽位直达导航已开启（按对应字母跳转，按 CapsLock / Tab j / Esc 退出）".to_owned());
+        }
+        if !seq_str
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || matches!(c, '.' | '$' | '-'))
             || seq_str.len() > 6
         {
             return None;

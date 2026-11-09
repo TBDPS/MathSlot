@@ -1,5 +1,5 @@
 [package]
 name = "mathslot-core"
-version = "0.3.0"
+version = "0.5.0"
 edition = "2024"
 description = "Platform-agnostic stream parser, navigation tree, and LaTeX engine for MathSlot"

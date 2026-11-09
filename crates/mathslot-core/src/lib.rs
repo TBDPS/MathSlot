@@ -332,6 +332,26 @@ mod tests {
         root_ed.set_cursor(7); // 内层 `x|`
         root_ed.arrow_vertical(true);
         assert_eq!(root_ed.cursor_char, 8); // 外层 `▸r1+▸rx;|;`
+
+        // 导航模式 (esc_nav) 下方向键不丢失导航态
+        let mut nav_ed = StreamEditor::from_source("▸fnum;den;");
+        nav_ed.set_cursor(5);
+        nav_ed.toggle_esc_jump();
+        assert!(nav_ed.esc_nav.is_some());
+        // 在导航模式下按 Down -> 应垂直跳至分母并保持 esc_nav
+        let res_down = nav_ed.arrow_vertical(false);
+        assert!(res_down.is_some());
+        assert_eq!(nav_ed.cursor_char, 9);
+        assert!(nav_ed.esc_nav.is_some(), "arrow_vertical(false) must not clear esc_nav");
+        // 在导航模式下按 Up -> 应垂直回到分子并保持 esc_nav
+        let res_up = nav_ed.arrow_vertical(true);
+        assert!(res_up.is_some());
+        assert_eq!(nav_ed.cursor_char, 5);
+        assert!(nav_ed.esc_nav.is_some(), "arrow_vertical(true) must not clear esc_nav");
+        // 已经在最顶层再按 Up -> 不会闪退退出导航模式
+        let res_top_up = nav_ed.arrow_vertical(true);
+        assert!(res_top_up.is_some());
+        assert!(nav_ed.esc_nav.is_some(), "Up at root in esc_nav must preserve esc_nav");
     }
 
     #[test]
@@ -452,6 +472,25 @@ mod tests {
         assert!(msg.is_some());
         assert_eq!(ed.source, "▸i0;▸i1;t;g(u) du;;f(x) dx");
         assert_eq!(ed.cursor_char, 9);
+    }
+
+    #[test]
+    fn test_tab_j_triggers_navigation_mode() {
+        let mut ed = StreamEditor::from_source("▸fx+1;y;");
+        ed.set_cursor(ed.source.chars().count());
+        // 用户顺序键入 Tab 然后 j（在单行输入流中表现为追加 "▸j"）
+        ed.source.push_str("▸j");
+        let len = ed.source.chars().count();
+        let msg = ed.sync_after_edit(len);
+        assert!(msg.is_some());
+        // ▸j 被自动剥除，源公式无污染
+        assert_eq!(ed.source, "▸fx+1;y;");
+        // esc_nav 成功激活进入导航态
+        assert!(ed.esc_nav.is_some());
+        // 键入字母直达目标槽位并退出导航态
+        ed.feed_esc_jump_char('b');
+        assert!(ed.esc_nav.is_none());
+        assert_eq!(ed.cursor_char, 5);
     }
 
     #[test]

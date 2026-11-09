@@ -1,7 +1,7 @@
 {
   "id": "mathslot",
   "name": "MathSlot Formula Editor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "minAppVersion": "1.4.0",
   "description": "流式简码数学公式编辑器（Rust WASM 同源内核）：单字母高频直达、智能分号推进、嵌套层级高亮与多级无鼠标槽位导航。",
   "author": "MathSlot",

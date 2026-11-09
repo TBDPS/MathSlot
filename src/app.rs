@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Id,
-    Key, Layout, Margin, Modifiers, RichText, Stroke, Vec2,
+    Key, Layout, Margin, Modifiers, Rect, RichText, Sense, Stroke, StrokeKind, Vec2,
 };
 
 use mathslot_core::ast::NavEntryKind;
@@ -19,31 +19,22 @@ use mathslot_core::library::UserLibrary;
 use mathslot_core::scheme_a;
 use crate::modals::{LibraryModalState, ModalAction, load_library_from_disk, save_library_to_disk};
 use crate::render::{PIXELS_PER_POINT, RenderJob, RenderWorker};
+use crate::theme::*;
 
-const BG: Color32 = Color32::from_rgb(11, 15, 23);
-const PANEL: Color32 = Color32::from_rgb(18, 23, 34);
-const CARD: Color32 = Color32::from_rgb(24, 29, 42);
-const CARD_BORDER: Color32 = Color32::from_rgb(38, 45, 61);
-const PREVIEW_SURFACE: Color32 = Color32::from_rgb(255, 255, 255);
-const TEXT: Color32 = Color32::from_rgb(243, 244, 246);
-const MUTED: Color32 = Color32::from_rgb(148, 163, 184);
-const ACCENT: Color32 = Color32::from_rgb(96, 165, 250);
-const VIOLET: Color32 = Color32::from_rgb(167, 139, 250);
-const GREEN: Color32 = Color32::from_rgb(52, 211, 153);
-const RED: Color32 = Color32::from_rgb(248, 113, 113);
-const AMBER: Color32 = Color32::from_rgb(251, 191, 36);
-const CYAN: Color32 = Color32::from_rgb(56, 189, 248);
-
-const TOP_PANEL_EXACT_HEIGHT: f32 = 42.0;
-const PREVIEW_MAX_WIDTH: f32 = 880.0;
+const TOP_BAR_HEIGHT: f32 = 48.0;
+const STATUS_BAR_HEIGHT: f32 = 26.0;
+const LEFT_PANEL_DEFAULT_WIDTH: f32 = 460.0;
+const PREVIEW_BOX_HEIGHT: f32 = 100.0;
+const NAV_BOX_HEIGHT: f32 = 96.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaletteCategory {
-    Greek,     // 希腊字母 (g▸)
+    Direct,    // 常用结构 (12项单键直达)
     Calculus,  // 微积分 (c▸)
     Matrix,    // 矩阵定界 (m▸)
     Accent,    // 标注向量 (a▸)
     Operator,  // 常用算子 (o▸)
+    Greek,     // 希腊字母 (g▸)
     Relation,  // 关系逻辑 (x▸ / q▸)
     Custom,    // 自定义与模版 (k▸ / t▸)
 }
@@ -89,10 +80,9 @@ pub struct MathSlotApp {
     delimiter_style: DelimiterStyle,
     preview_scale: f32,
     copy_feedback_until: Option<Instant>,
-    show_nav_card: bool,
-    show_scheme_a: bool,
     palette_tab: PaletteCategory,
     modals: LibraryModalState,
+    devshot: Option<crate::devshot::DevShot>,
 }
 
 impl MathSlotApp {
@@ -100,13 +90,32 @@ impl MathSlotApp {
         install_fonts(&cc.egui_ctx);
         install_style(&cc.egui_ctx);
         let (library, config_path_hint) = load_library_from_disk();
-        let modals = LibraryModalState::new(&library, config_path_hint);
+        let mut modals = LibraryModalState::new(&library, config_path_hint);
+        let devshot = crate::devshot::DevShot::from_env();
+        let mut editor = StreamEditor::with_library(library);
+        if let Some(shot) = &devshot {
+            if let Some(src) = &shot.source {
+                editor.source = src.clone();
+                editor.cursor_char = editor.source.chars().count();
+                editor.sync_after_edit(editor.cursor_char);
+            }
+            match shot.modal.as_deref() {
+                Some("help") => modals.show_help = true,
+                Some("latex") => modals.open_latex_tab(),
+                Some("custom") => modals.open_custom_tab(&editor.library),
+                Some("snippets") => modals.open_snippets_tab(&editor.library),
+                Some("esc") => {
+                    editor.toggle_esc_jump();
+                }
+                _ => {}
+            }
+        }
 
         Self {
-            editor: StreamEditor::with_library(library),
+            pending_cursor_sync: Some(editor.cursor_char),
+            editor,
             preset_index: 0,
             input_id: Id::unique("mathslot-stream-input"),
-            pending_cursor_sync: Some(0),
             request_input_focus: true,
             last_typing_undo: Instant::now() - Duration::from_secs(5),
             worker: RenderWorker::spawn(),
@@ -120,10 +129,9 @@ impl MathSlotApp {
             delimiter_style: DelimiterStyle::Inline,
             preview_scale: 1.25,
             copy_feedback_until: None,
-            show_nav_card: false,
-            show_scheme_a: false,
-            palette_tab: PaletteCategory::Greek,
+            palette_tab: PaletteCategory::Direct,
             modals,
+            devshot,
         }
     }
 
@@ -199,7 +207,10 @@ impl MathSlotApp {
         }
 
         if self.modals.any_open() {
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            if ctx.input_mut(|i| {
+                i.consume_key(Modifiers::NONE, Key::Escape)
+                    || i.consume_key(Modifiers::NONE, Key::CapsLock)
+            }) {
                 if self.modals.show_help {
                     self.modals.show_help = false;
                 } else {
@@ -267,16 +278,36 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+        let toggle_nav = ctx.input_mut(|i| {
+            i.consume_key(Modifiers::NONE, Key::CapsLock)
+                || i.consume_key(Modifiers::NONE, Key::Escape)
+                || i.consume_key(Modifiers::CTRL, Key::J)
+                || i.consume_key(Modifiers::COMMAND, Key::J)
+                || i.consume_key(Modifiers::ALT, Key::J)
+        });
+        if toggle_nav {
             self.status = self.editor.toggle_esc_jump();
+            self.pending_cursor_sync = Some(self.editor.cursor_char);
             self.request_input_focus = true;
             self.mark_dirty();
             return;
         }
 
         if self.editor.esc_nav.is_some() {
+            if ctx.input_mut(|i| {
+                i.consume_key(Modifiers::NONE, Key::CapsLock)
+                    || i.consume_key(Modifiers::NONE, Key::Escape)
+            }) {
+                self.editor.esc_nav = None;
+                self.status = "已退出导航模式。".to_owned();
+                self.pending_cursor_sync = Some(self.editor.cursor_char);
+                self.request_input_focus = true;
+                self.mark_dirty();
+                return;
+            }
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Backspace)) {
                 self.status = self.editor.esc_backspace();
+                self.pending_cursor_sync = Some(self.editor.cursor_char);
                 self.request_input_focus = true;
                 self.mark_dirty();
                 return;
@@ -294,6 +325,7 @@ impl MathSlotApp {
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
                 self.editor.esc_nav = None;
                 self.status = "已退出导航模式。".to_owned();
+                self.pending_cursor_sync = Some(self.editor.cursor_char);
                 self.request_input_focus = true;
                 self.mark_dirty();
                 return;
@@ -489,8 +521,29 @@ impl MathSlotApp {
     }
 
     // -----------------------------------------------------------------------
-    // 顶部纯功能菜单栏 (42px)：专注软件功能，绝不挤占公式格式
+    // 顶栏 (52px)：品牌标识 · 模式胶囊 · 分组工具按钮
     // -----------------------------------------------------------------------
+
+    /// 当前编辑模式的文字与配色（顶栏胶囊 / 输入框描边共用）
+    fn mode_badge(&self) -> (String, Color32) {
+        if let Some(esc) = &self.editor.esc_nav {
+            if esc.path.is_empty() {
+                ("槽位导航".to_owned(), ACCENT)
+            } else {
+                (format!("子式导航 {}", esc.path.join(" › ")), VIOLET)
+            }
+        } else {
+            match self.editor.prefix_menu_state() {
+                PrefixMenuState::Idle => ("流式书写".to_owned(), GREEN),
+                PrefixMenuState::Root => ("Tab 就绪 · 按单键插入".to_owned(), AMBER),
+                PrefixMenuState::SubMenu(sub) => {
+                    (format!("子菜单 {CMD_PREFIX}{} · {}", sub.key(), sub.title()), AMBER)
+                }
+                PrefixMenuState::Jump(seq) => (format!("内联跳转 {CMD_PREFIX}j{seq}"), CYAN),
+                PrefixMenuState::InvalidPrefix(c) => (format!("未知按键 {CMD_PREFIX}{c}"), RED),
+            }
+        }
+    }
 
     fn top_ui(&mut self, ui: &mut egui::Ui) {
         let mut action_undo = false;
@@ -499,115 +552,110 @@ impl MathSlotApp {
         let mut action_preset = false;
         let mut action_jump_back = false;
         let mut action_quick_save = false;
+        let mut action_toggle_nav = false;
         let mut open_latex_tab = false;
         let mut open_custom_mgr = false;
         let mut open_help = false;
 
-        let prefix_state = self.editor.prefix_menu_state();
+        let (mode_text, mode_color) = self.mode_badge();
+        let in_nav = self.editor.esc_nav.is_some();
 
-        ui.horizontal(|ui| {
+        ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
 
+            brand_mark(ui);
+            ui.label(RichText::new("MathSlot").size(16.0).strong().color(TEXT));
             ui.label(
-                RichText::new("∑ MathSlot")
-                    .size(17.5)
-                    .strong()
-                    .color(ACCENT),
+                RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                    .size(11.0)
+                    .color(MUTED),
             );
             ui.add_space(6.0);
+            status_pill(ui, &mode_text, mode_color);
 
-            // 状态徽标
-            let (state_text, state_color) = if let Some(esc) = &self.editor.esc_nav {
-                if esc.path.is_empty() {
-                    ("● 导航直达态 (Esc)".to_owned(), ACCENT)
-                } else {
-                    (format!("● 子式导航 [{}]", esc.path.join(" › ")), VIOLET)
-                }
+            let (nav_label, nav_color) = if in_nav {
+                ("⚡ 退出导航 [CapsLock / Tab j]", ACCENT)
             } else {
-                match &prefix_state {
-                    PrefixMenuState::Idle => ("● 流式书写中".to_owned(), GREEN),
-                    PrefixMenuState::Root => ("● Tab 快捷就绪 (按单键即插)".to_owned(), AMBER),
-                    PrefixMenuState::SubMenu(sub) => (format!("● 子菜单 ▸{} · {}", sub.key(), sub.title()), AMBER),
-                    PrefixMenuState::Jump(seq) => (format!("● 内联跳转 ▸j{seq}"), CYAN),
-                    PrefixMenuState::InvalidPrefix(c) => (format!("● 未知按键 ▸{c}"), RED),
-                }
+                ("⚡ 导航 [CapsLock / Tab j]", TEXT_DIM)
             };
-            ui.label(RichText::new(state_text).size(11.5).strong().color(state_color));
+            if tool_button(ui, RichText::new(nav_label).size(12.5).color(nav_color), true)
+                .on_hover_text("开启/退出槽位快速导航模式 (CapsLock / Tab j / Esc)")
+                .clicked()
+            {
+                action_toggle_nav = true;
+            }
 
-            // 右侧纯应用级功能按键
+            // 右侧应用级按钮（从右往左排列）
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.spacing_mut().item_spacing.x = 2.0;
 
-                if ui
-                    .button(RichText::new("? 帮助").size(12.0).color(CYAN))
+                if tool_button(ui, RichText::new("帮助").size(13.0).color(TEXT_DIM), true)
                     .on_hover_text("完整快捷键与操作指南 (F1)")
                     .clicked()
                 {
                     open_help = true;
                 }
+                vsep(ui, 22.0);
+                if tool_button(ui, RichText::new("清空").size(13.0).color(TEXT_DIM), true)
+                    .on_hover_text("清空输入栏内容（可撤销）")
+                    .clicked()
+                {
+                    action_clear = true;
+                }
                 let next_preset_name = PRESETS[self.preset_index % PRESETS.len()].0;
-                if ui
-                    .button(RichText::new("↻ 示例").size(12.0))
+                if tool_button(ui, RichText::new("↻ 示例").size(13.0).color(TEXT_DIM), true)
                     .on_hover_text(format!("载入数学范例：{next_preset_name}"))
                     .clicked()
                 {
                     action_preset = true;
                 }
-                if ui
-                    .button(RichText::new("🗑 清空").size(12.0))
-                    .on_hover_text("清空输入栏内容")
-                    .clicked()
-                {
-                    action_clear = true;
-                }
-                if ui
-                    .add_enabled(self.editor.can_redo(), egui::Button::new("↷ 重做"))
-                    .on_hover_text("重做 (Ctrl+Y / Ctrl+Shift+Z)")
-                    .clicked()
-                {
-                    action_redo = true;
-                }
-                if ui
-                    .add_enabled(self.editor.can_undo(), egui::Button::new("↶ 撤销"))
-                    .on_hover_text("撤销 (Ctrl+Z)")
-                    .clicked()
-                {
-                    action_undo = true;
-                }
-                if ui
-                    .add_enabled(
-                        self.editor.can_jump_back(),
-                        egui::Button::new("⇤ 回原位"),
-                    )
-                    .on_hover_text("返回上一个跳转位置 (Esc - 或 Alt+←)")
-                    .clicked()
-                {
-                    action_jump_back = true;
-                }
-                if ui
-                    .button(RichText::new("+ 存片段").size(12.0).color(GREEN))
+                vsep(ui, 22.0);
+                if tool_button(ui, RichText::new("+ 存片段").size(13.0).color(GREEN), true)
                     .on_hover_text("将当前式子或光标处子结构存为片段模版 (Ctrl+Shift+S)")
                     .clicked()
                 {
                     action_quick_save = true;
                 }
-                if ui
-                    .button(RichText::new("⚡ 自定义/模版").size(12.0).color(AMBER))
-                    .on_hover_text("无需改源码：扩展任意 LaTeX 宏与管理模版库")
+                if tool_button(ui, RichText::new("格式库").size(13.0).color(AMBER), true)
+                    .on_hover_text("无需改源码：扩展任意 LaTeX 宏与管理片段模版库")
                     .clicked()
                 {
                     open_custom_mgr = true;
                 }
-                if ui
-                    .button(RichText::new("⇄ LaTeX 导入").size(12.0).color(ACCENT))
+                if tool_button(ui, RichText::new("⇄ 导入 LaTeX").size(13.0).color(ACCENT), true)
                     .on_hover_text("从标准 LaTeX 语法一键反编译并导入为简码流")
                     .clicked()
                 {
                     open_latex_tab = true;
                 }
+                vsep(ui, 22.0);
+                if tool_button(ui, RichText::new("⇤").size(18.0), self.editor.can_jump_back())
+                    .on_hover_text("返回上一个跳转位置 (Esc - 或 Alt+←)")
+                    .clicked()
+                {
+                    action_jump_back = true;
+                }
+                if tool_button(ui, RichText::new("↷").size(18.0), self.editor.can_redo())
+                    .on_hover_text("重做 (Ctrl+Y / Ctrl+Shift+Z)")
+                    .clicked()
+                {
+                    action_redo = true;
+                }
+                if tool_button(ui, RichText::new("↶").size(18.0), self.editor.can_undo())
+                    .on_hover_text("撤销 (Ctrl+Z)")
+                    .clicked()
+                {
+                    action_undo = true;
+                }
             });
         });
 
+        if action_toggle_nav {
+            self.status = self.editor.toggle_esc_jump();
+            self.pending_cursor_sync = Some(self.editor.cursor_char);
+            self.request_input_focus = true;
+            self.mark_dirty();
+        }
         if open_help {
             self.modals.show_help = true;
         }
@@ -655,980 +703,211 @@ impl MathSlotApp {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 中部核心区：1. 纯白公式主角画布  2. 极简流输入卡片  3. 大而精美的格式提示陈列面板
-    // -----------------------------------------------------------------------
-
-    fn formula_card(&mut self, ui: &mut egui::Ui) {
-        let total_w = ui.available_width();
-        let target_w = total_w.min(PREVIEW_MAX_WIDTH);
-        let pad_x = ((total_w - target_w) * 0.5).max(0.0);
-
-        ui.horizontal(|ui| {
-            ui.add_space(pad_x);
-            ui.vertical(|ui| {
-                ui.set_width(target_w);
-
-                surface_card(Stroke::new(1.0, CARD_BORDER)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-
-                    // 右上角浮动微缩工具条
-                    ui.horizontal(|ui| {
-                        if let Some(err) = &self.render_error {
-                            ui.label(RichText::new(err).size(11.0).color(AMBER));
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let nav_btn_color = if self.show_nav_card { ACCENT } else { MUTED };
-                            if ui
-                                .small_button(RichText::new("◎ 结构图").color(nav_btn_color))
-                                .on_hover_text("展开/收起 AST 槽位分层导航图")
-                                .clicked()
-                            {
-                                self.show_nav_card = !self.show_nav_card;
-                            }
-                            ui.separator();
-                            if ui
-                                .small_button("🔍+")
-                                .on_hover_text("放大预览公式")
-                                .clicked()
-                            {
-                                self.preview_scale = (self.preview_scale + 0.15).min(2.5);
-                            }
-                            if ui
-                                .small_button(format!("{:.0}%", self.preview_scale * 80.0))
-                                .on_hover_text("恢复 100% 标准缩放")
-                                .clicked()
-                            {
-                                self.preview_scale = 1.25;
-                            }
-                            if ui
-                                .small_button("🔍−")
-                                .on_hover_text("缩小预览公式")
-                                .clicked()
-                            {
-                                self.preview_scale = (self.preview_scale - 0.15).max(0.7);
-                            }
-                        });
-                    });
-
-                    ui.add_space(6.0);
-
-                    if let Some(texture) = &self.formula_tex {
-                        let max_w = (ui.available_width() - 8.0).max(120.0);
-                        let size = fitted_size(
-                            texture,
-                            max_w,
-                            145.0 * (self.preview_scale / 1.22),
-                            self.preview_scale,
-                        );
-                        let avail = ui.available_width();
-                        ui.horizontal(|ui| {
-                            ui.add_space(((avail - size.x) * 0.5).max(0.0));
-                            ui.add(egui::Image::new(texture).fit_to_exact_size(size));
-                        });
-                    } else {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(20.0);
-                            ui.label(
-                                RichText::new("MathSlot 原生排版引擎就绪")
-                                    .size(12.5)
-                                    .color(Color32::from_rgb(148, 163, 184)),
-                            );
-                            ui.add_space(20.0);
-                        });
-                    }
-                    ui.add_space(6.0);
-                });
-            });
-        });
-    }
-
-    fn input_card(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        let breadcrumbs = self.editor.parsed.breadcrumbs_at(self.editor.cursor_char);
-        let total_w = ui.available_width();
-        let target_w = total_w.min(PREVIEW_MAX_WIDTH);
-        let pad_x = ((total_w - target_w) * 0.5).max(0.0);
-
-        ui.horizontal(|ui| {
-            ui.add_space(pad_x);
-            ui.vertical(|ui| {
-                ui.set_width(target_w);
-
-                card_frame().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-
-                    // 仅当嵌套于子结构内时展现紧凑面包屑
-                    if !breadcrumbs.is_empty() {
-                        ui.horizontal(|ui| {
-                            for (depth, bc) in breadcrumbs.iter().enumerate() {
-                                if depth > 0 {
-                                    ui.label(RichText::new("›").size(11.0).color(MUTED));
-                                }
-                                ui.label(
-                                    RichText::new(format!("{CMD_PREFIX}{}", bc.code))
-                                        .size(11.5)
-                                        .strong()
-                                        .color(AMBER),
-                                );
-                                ui.label(RichText::new("[").size(11.0).color(MUTED));
-                                for (s_idx, role) in bc.slot_roles.iter().enumerate() {
-                                    if s_idx > 0 {
-                                        ui.label(RichText::new(";").size(10.5).color(CYAN));
-                                    }
-                                    let is_cur = s_idx == bc.slot_index;
-                                    let color = if is_cur { GREEN } else { MUTED };
-                                    let text = format!("{}.{role}", s_idx + 1);
-                                    let rt = if is_cur {
-                                        RichText::new(text).size(11.0).strong().color(color)
-                                    } else {
-                                        RichText::new(text).size(10.5).color(color)
-                                    };
-                                    ui.label(rt);
-                                }
-                                ui.label(RichText::new("]").size(11.0).color(MUTED));
-                            }
-                        });
-                        ui.add_space(2.0);
-                    }
-
-                    let explicit_sync = self.pending_cursor_sync.take();
-                    if let Some(mut state) = egui::TextEdit::load_state(&ctx, self.input_id) {
-                        if let Some(target_char) = explicit_sync {
-                            let c = CCursor::new(target_char.min(self.editor.source.chars().count()));
-                            state.cursor.set_char_range(Some(CCursorRange::one(c)));
-                            state.store(&ctx, self.input_id);
-                        } else if state.cursor.char_range().is_none() {
-                            let c = CCursor::new(self.editor.cursor_char.min(self.editor.source.chars().count()));
-                            state.cursor.set_char_range(Some(CCursorRange::one(c)));
-                            state.store(&ctx, self.input_id);
-                        }
-                    }
-
-                    let prev_snap = Snapshot {
-                        source: self.editor.source.clone(),
-                        cursor_char: self.editor.cursor_char,
-                    };
-
-                    let lib_ref = self.editor.library.clone();
-                    let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                        let mut job = highlight_stream_source(text.as_str(), &lib_ref);
-                        job.wrap.max_width = wrap_width;
-                        ui.fonts_mut(|f| f.layout_job(job))
-                    };
-
-                    let mut output = egui::TextEdit::singleline(&mut self.editor.source)
-                        .id(self.input_id)
-                        .font(FontId::monospace(18.5))
-                        .text_color(TEXT)
-                        .background_color(BG)
-                        .margin(Margin::symmetric(10, 8))
-                        .hint_text("直接键入公式；按 Tab+单字母 插入下方结构，Enter 推进下一槽…")
-                        .lock_focus(true)
-                        .return_key(None)
-                        .desired_width(f32::INFINITY)
-                        .layouter(&mut layouter)
-                        .show(ui);
-
-                    if output.response.changed() {
-                        let char_delta = prev_snap
-                            .source
-                            .chars()
-                            .count()
-                            .abs_diff(self.editor.source.chars().count());
-                        if self.last_typing_undo.elapsed() > Duration::from_millis(450) || char_delta > 1 {
-                            self.editor.save_undo_snapshot(prev_snap);
-                            self.last_typing_undo = Instant::now();
-                        }
-
-                        let raw_cursor: usize = output
-                            .cursor_range
-                            .map(|r| usize::from(r.primary.index))
-                            .unwrap_or_else(|| self.editor.source.chars().count());
-                        let before_sync = self.editor.source.clone();
-                        if let Some(hint) = self.editor.sync_after_edit(raw_cursor) {
-                            self.status = hint;
-                        } else {
-                            self.status = "流式书写中…".to_owned();
-                        }
-
-                        if self.editor.source != before_sync || self.editor.cursor_char != raw_cursor {
-                            let c = CCursor::new(self.editor.cursor_char);
-                            output
-                                .state
-                                .cursor
-                                .set_char_range(Some(CCursorRange::one(c)));
-                            output.state.store(&ctx, output.response.id);
-                        }
-
-                        self.mark_dirty();
-                    } else if let Some(range) = output.cursor_range {
-                        let cur_idx: usize = range.primary.index.into();
-                        if self.editor.esc_nav.is_none() && cur_idx != self.editor.cursor_char {
-                            self.editor.set_cursor(cur_idx);
-                            self.mark_dirty();
-                        }
-                    }
-
-                    if !self.status.is_empty() {
-                        ui.add_space(2.0);
-                        ui.label(RichText::new(&self.status).size(11.0).color(MUTED));
-                    }
-                });
-            });
-        });
-    }
+// 新版 UI 核心实现：
+// 左栏三框常驻（预览框、导航结构框、输入输出框，无标题、零跳变、固定高度、一键无痛复制）
+// 中间全宽主体为结构提示（大卡片、直观数学符号、中文名称、快捷键提示、一键点击即插）
 
     // -----------------------------------------------------------------------
-    // 大而精美的格式提示陈列面板 (The Grand Format Palette & Showcase)
-    // 视觉核心：醒目、直观、精美卡片陈列，彻底免除死记语法，点击或按键均可流畅输入！
+    // 左栏：三框常驻工作台（无标题、固定高度、零跳动、不突兀多出卡片）
     // -----------------------------------------------------------------------
 
-    fn palette_card(
-        &mut self,
-        ui: &mut egui::Ui,
-        clicked_code: &mut Option<String>,
-        clicked_jump: &mut Option<String>,
-        open_custom_mgr: &mut bool,
-        open_snip_mgr: &mut bool,
-        quick_save_snip: &mut bool,
-    ) {
-        let prefix_state = self.editor.prefix_menu_state();
-        let prefix_armed = matches!(
-            prefix_state,
-            PrefixMenuState::Root | PrefixMenuState::SubMenu(_) | PrefixMenuState::InvalidPrefix(_)
-        );
+fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    add_contents(&mut child)
+}
 
-        // 智能同步活动 Tab：当用户在流式输入中敲入 `▸c`、`▸g`、`▸m` 等子菜单时，陈列面板自动切至对应专区！
-        match prefix_state {
-            PrefixMenuState::SubMenu(SubCategory::CalculusMore) => {
-                self.palette_tab = PaletteCategory::Calculus;
-            }
-            PrefixMenuState::SubMenu(SubCategory::Matrix) => {
-                self.palette_tab = PaletteCategory::Matrix;
-            }
-            PrefixMenuState::SubMenu(SubCategory::Accent) => {
-                self.palette_tab = PaletteCategory::Accent;
-            }
-            PrefixMenuState::SubMenu(SubCategory::Greek) => {
-                self.palette_tab = PaletteCategory::Greek;
-            }
-            PrefixMenuState::SubMenu(SubCategory::Symbol) => {
-                self.palette_tab = PaletteCategory::Operator;
-            }
-            PrefixMenuState::SubMenu(SubCategory::Relations)
-            | PrefixMenuState::SubMenu(SubCategory::SetLogic) => {
-                self.palette_tab = PaletteCategory::Relation;
-            }
-            PrefixMenuState::SubMenu(SubCategory::Custom)
-            | PrefixMenuState::SubMenu(SubCategory::Template) => {
-                self.palette_tab = PaletteCategory::Custom;
-            }
-            _ => {}
-        }
-
-        let total_w = ui.available_width();
-        let target_w = total_w.min(PREVIEW_MAX_WIDTH);
-        let pad_x = ((total_w - target_w) * 0.5).max(0.0);
-
-        ui.horizontal(|ui| {
-            ui.add_space(pad_x);
-            ui.vertical(|ui| {
-                ui.set_width(target_w);
-
-                let frame_stroke = if self.editor.esc_nav.is_some() {
-                    Stroke::new(1.5, ACCENT)
-                } else if prefix_armed {
-                    Stroke::new(1.5, AMBER)
-                } else {
-                    Stroke::new(1.0, CARD_BORDER)
-                };
-
-                egui::Frame::NONE
-                    .fill(CARD)
-                    .stroke(frame_stroke)
-                    .corner_radius(CornerRadius::same(9))
-                    .inner_margin(Margin::symmetric(14, 10))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-
-                        // 1. 若处于 Esc 导航态，顶部直接渲染高亮导航靶点直达条！
-                        if let Some(esc) = self.editor.esc_nav.clone() {
-                            ui.horizontal(|ui| {
-                                section_dot(ui, ACCENT);
-                                ui.label(
-                                    RichText::new("槽位直达导航 · 按字母直接跳改 (Esc / Tab 退出)")
-                                        .size(12.5)
-                                        .strong()
-                                        .color(ACCENT),
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui
-                                        .button(RichText::new("Esc 退出").size(11.5).color(MUTED))
-                                        .clicked()
-                                    {
-                                        *clicked_jump = Some("Esc".to_owned());
-                                    }
-                                });
-                            });
-                            ui.add_space(4.0);
-                            self.render_jump_menu_content(
-                                ui,
-                                true,
-                                &esc.path,
-                                &esc.partial,
-                                clicked_jump,
-                            );
-                            ui.add_space(8.0);
-                            ui.separator();
-                            ui.add_space(8.0);
-                        }
-
-                        // 2. 常驻常用结构分块 (12 项单键直达，始终常驻可见)
-                        ui.horizontal(|ui| {
-                            let (dot_color, title_text) = if prefix_armed {
-                                (AMBER, "常用结构 · Tab 就绪")
-                            } else {
-                                (CYAN, "常用结构 (12)")
-                            };
-                            section_dot(ui, dot_color);
-                            ui.label(
-                                RichText::new(title_text)
-                                    .size(12.5)
-                                    .strong()
-                                    .color(if prefix_armed { AMBER } else { TEXT }),
-                            );
-                        });
-
-                        ui.add_space(6.0);
-                        self.render_direct_cards(ui, prefix_armed, clicked_code);
-
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(6.0);
-
-                        // 3. 扩展分类标签页切换区
-                        self.render_palette_tabs(ui, prefix_armed);
-
-                        ui.add_space(8.0);
-
-                        // 4. 当前分类格式展示网格
-                        self.render_palette_cards(
-                            ui,
-                            prefix_armed,
-                            clicked_code,
-                            open_custom_mgr,
-                            open_snip_mgr,
-                            quick_save_snip,
-                        );
-                    });
-            });
-        });
-    }
-
-    /// 常驻展示的 12 项高频单键直达基础结构
-    fn render_direct_cards(
-        &self,
-        ui: &mut egui::Ui,
-        prefix_armed: bool,
-        clicked_code: &mut Option<String>,
-    ) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-            for entry in DIRECT_ENTRIES {
-                let hover = format!(
-                    "{}{} (快捷键: {}) | 槽位: {}",
-                    entry.label, entry.glyph_hint, entry.key, entry.detail
-                );
-                if render_palette_card(
-                    ui,
-                    &entry.key.to_string(),
-                    entry.glyph_hint,
-                    entry.label,
-                    false,
-                    prefix_armed,
-                    &hover,
-                ) {
-                    *clicked_code = Some(entry.key.to_string());
-                }
-            }
-        });
-    }
-
-    /// 分类标签页选择器
-    fn render_palette_tabs(&mut self, ui: &mut egui::Ui, _prefix_armed: bool) {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
-
-            let tabs = [
-                (
-                    PaletteCategory::Greek,
-                    "希腊字母 (g▸)",
-                    "希腊字母全集：23个小写 + 11个大写 (Tab + g)",
-                ),
-                (
-                    PaletteCategory::Calculus,
-                    "微积分 (c▸)",
-                    "导数、积分、极限、连乘、大括号 (Tab + c)",
-                ),
-                (
-                    PaletteCategory::Matrix,
-                    "矩阵定界 (m▸)",
-                    "方阵、行列式、分段函数、向量 (Tab + m)",
-                ),
-                (
-                    PaletteCategory::Accent,
-                    "标注向量 (a▸)",
-                    "帽子、横线、向量、一阶导、二阶导 (Tab + a)",
-                ),
-                (
-                    PaletteCategory::Operator,
-                    "常用算子 (o▸)",
-                    "无穷、偏导、梯度、叉乘、点乘、属于、平行 (Tab + o)",
-                ),
-                (
-                    PaletteCategory::Relation,
-                    "关系逻辑 (x/q)",
-                    "恒等、约等、充要、并集、交集、实数集 (Tab + x/q)",
-                ),
-                (
-                    PaletteCategory::Custom,
-                    "自定义/模版 (k/t)",
-                    "自定义 LaTeX 格式与片段模版库 (Tab + k/t)",
-                ),
-            ];
-
-            for (cat, title, tip) in tabs {
-                let is_selected = self.palette_tab == cat;
-                let is_active_sub = match self.editor.prefix_menu_state() {
-                    PrefixMenuState::SubMenu(SubCategory::Greek) => cat == PaletteCategory::Greek,
-                    PrefixMenuState::SubMenu(SubCategory::CalculusMore) => {
-                        cat == PaletteCategory::Calculus
-                    }
-                    PrefixMenuState::SubMenu(SubCategory::Matrix) => cat == PaletteCategory::Matrix,
-                    PrefixMenuState::SubMenu(SubCategory::Accent) => cat == PaletteCategory::Accent,
-                    PrefixMenuState::SubMenu(SubCategory::Symbol) => {
-                        cat == PaletteCategory::Operator
-                    }
-                    PrefixMenuState::SubMenu(SubCategory::Relations)
-                    | PrefixMenuState::SubMenu(SubCategory::SetLogic) => {
-                        cat == PaletteCategory::Relation
-                    }
-                    PrefixMenuState::SubMenu(SubCategory::Custom)
-                    | PrefixMenuState::SubMenu(SubCategory::Template) => {
-                        cat == PaletteCategory::Custom
-                    }
-                    _ => false,
-                };
-
-                let stroke = if is_active_sub {
-                    Stroke::new(1.5, AMBER)
-                } else if is_selected {
-                    Stroke::new(1.0, ACCENT)
-                } else {
-                    Stroke::NONE
-                };
-
-                let bg = if is_selected {
-                    Color32::from_rgb(32, 45, 75)
-                } else {
-                    Color32::from_rgb(18, 23, 36)
-                };
-
-                let text_color = if is_active_sub {
-                    AMBER
-                } else if is_selected {
-                    Color32::WHITE
-                } else {
-                    MUTED
-                };
-
-                let btn = egui::Button::new(
-                    RichText::new(title).size(12.0).strong().color(text_color),
-                )
-                .fill(bg)
-                .stroke(stroke)
-                .corner_radius(CornerRadius::same(6));
-
-                if ui.add(btn).on_hover_text(tip).clicked() {
-                    self.palette_tab = cat;
-                    self.pending_cursor_sync = Some(self.editor.cursor_char);
-                    self.request_input_focus = true;
-                }
-            }
-        });
-    }
-
-    /// 各标签页的大卡片陈列网格
-    fn render_palette_cards(
-        &self,
-        ui: &mut egui::Ui,
-        prefix_armed: bool,
-        clicked_code: &mut Option<String>,
-        open_custom_mgr: &mut bool,
-        open_snip_mgr: &mut bool,
-        quick_save_snip: &mut bool,
-    ) {
-        match self.palette_tab {
-            PaletteCategory::Greek => {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new("小写希腊字母 (23)").size(11.0).color(MUTED));
-                    ui.add_space(2.0);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                        for entry in SubCategory::Greek.entries() {
-                            if !entry.item_key.is_ascii_uppercase() {
-                                let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                                let badge = if entry.is_default {
-                                    format!("★{}", entry.item_key)
-                                } else {
-                                    format!("g{}", entry.item_key)
-                                };
-                                if render_palette_card(
-                                    ui,
-                                    &badge,
-                                    entry.glyph_hint,
-                                    entry.label,
-                                    entry.is_default,
-                                    prefix_armed,
-                                    &hover,
-                                ) {
-                                    *clicked_code = Some(entry.code.to_owned());
-                                }
-                            }
-                        }
-                    });
-
-                    ui.add_space(6.0);
-                    ui.label(RichText::new("大写希腊字母 (11)").size(11.0).color(MUTED));
-                    ui.add_space(2.0);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                        for entry in SubCategory::Greek.entries() {
-                            if entry.item_key.is_ascii_uppercase() {
-                                let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                                let badge = format!("g{}", entry.item_key);
-                                if render_palette_card(
-                                    ui,
-                                    &badge,
-                                    entry.glyph_hint,
-                                    entry.label,
-                                    entry.is_default,
-                                    prefix_armed,
-                                    &hover,
-                                ) {
-                                    *clicked_code = Some(entry.code.to_owned());
-                                }
-                            }
-                        }
-                    });
-                });
-            }
-            PaletteCategory::Calculus => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                    for entry in SubCategory::CalculusMore.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = if entry.is_default {
-                            format!("★{}", entry.item_key)
-                        } else {
-                            format!("c{}", entry.item_key)
-                        };
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                });
-            }
-            PaletteCategory::Matrix => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                    for entry in SubCategory::Matrix.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = if entry.is_default {
-                            format!("★{}", entry.item_key)
-                        } else {
-                            format!("m{}", entry.item_key)
-                        };
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                });
-            }
-            PaletteCategory::Accent => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                    for entry in SubCategory::Accent.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = if entry.is_default {
-                            format!("★{}", entry.item_key)
-                        } else {
-                            format!("a{}", entry.item_key)
-                        };
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                });
-            }
-            PaletteCategory::Operator => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                    for entry in SubCategory::Symbol.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = if entry.is_default {
-                            format!("★{}", entry.item_key)
-                        } else {
-                            format!("o{}", entry.item_key)
-                        };
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                });
-            }
-            PaletteCategory::Relation => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                    for entry in SubCategory::Relations.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = format!("x{}", entry.item_key);
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                    for entry in SubCategory::SetLogic.entries() {
-                        let hover = format!("{CMD_PREFIX}{} | {} ({})", entry.code, entry.label, entry.detail);
-                        let badge = format!("q{}", entry.item_key);
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            entry.glyph_hint,
-                            entry.label,
-                            entry.is_default,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(entry.code.to_owned());
-                        }
-                    }
-                });
-            }
-            PaletteCategory::Custom => {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(7.0, 7.0);
-                    let def_custom_key = self.editor.library.default_custom().map(|d| d.item_key);
-                    for fmt in &self.editor.library.custom_formats {
-                        let is_def = def_custom_key == Some(fmt.item_key);
-                        let badge = if is_def {
-                            format!("★k{}", fmt.item_key)
-                        } else {
-                            format!("k{}", fmt.item_key)
-                        };
-                        let glyph = if fmt.glyph_hint.is_empty() {
-                            &fmt.label
-                        } else {
-                            &fmt.glyph_hint
-                        };
-                        let hover = format!("{CMD_PREFIX}{} | {} | {}", fmt.code(), fmt.label, fmt.latex_template);
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            glyph,
-                            &fmt.label,
-                            is_def,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(fmt.code());
-                        }
-                    }
-                    let def_snip_key = self.editor.library.default_snippet().map(|s| s.item_key);
-                    for snip in &self.editor.library.snippets {
-                        let is_def = def_snip_key == Some(snip.item_key);
-                        let badge = if is_def {
-                            format!("★t{}", snip.item_key)
-                        } else {
-                            format!("t{}", snip.item_key)
-                        };
-                        let hover = format!("{CMD_PREFIX}{} → `{}`", snip.code(), snip.stream_source);
-                        if render_palette_card(
-                            ui,
-                            &badge,
-                            "⎘",
-                            &snip.label,
-                            is_def,
-                            prefix_armed,
-                            &hover,
-                        ) {
-                            *clicked_code = Some(snip.code());
-                        }
-                    }
-                    if ui
-                        .button(RichText::new("+ 新增自定义格式").size(12.0).color(GREEN))
-                        .clicked()
-                    {
-                        *open_custom_mgr = true;
-                    }
-                    if ui
-                        .button(RichText::new("⚙ 管理模版库").size(12.0).color(CYAN))
-                        .clicked()
-                    {
-                        *open_snip_mgr = true;
-                    }
-                    if ui
-                        .button(RichText::new("+ 存当前为片段").size(12.0).color(AMBER))
-                        .clicked()
-                    {
-                        *quick_save_snip = true;
-                    }
-                });
-            }
-        }
-    }
-
-    fn render_jump_menu_content(
-        &self,
-        ui: &mut egui::Ui,
-        is_esc_mode: bool,
-        path: &[String],
-        partial: &str,
-        clicked_seq: &mut Option<String>,
-    ) {
-        let chain = self.editor.parsed.resolve_scope_chain(path);
-        let active_stage = chain.last().expect("root stage always exists");
-        let path_prefix = path.join("");
-
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(5.0, 4.0);
-
-            if is_esc_mode {
-                if ui
-                    .button(RichText::new("Esc ‹").size(11.5).strong().color(MUTED))
-                    .on_hover_text("退出导航模式 (Esc / Tab)")
-                    .clicked()
-                {
-                    *clicked_seq = Some("Esc".to_owned());
-                }
-            }
-
-            if !path.is_empty() {
-                ui.label(
-                    RichText::new(format!("[{}]", path.join(" › ")))
-                        .size(11.5)
-                        .strong()
-                        .color(VIOLET),
-                );
-                ui.separator();
-            }
-
-            if partial.is_empty() && self.editor.can_jump_back() {
-                if ui
-                    .button(
-                        RichText::new("[-] ↶ 回原位")
-                            .monospace()
-                            .size(11.5)
-                            .color(AMBER),
-                    )
-                    .on_hover_text("回上一位置 (按 `-` 或 Alt+←)")
-                    .clicked()
-                {
-                    *clicked_seq = Some("-".to_owned());
-                }
-            }
-
-            for entry in &active_stage.scope.entries {
-                if !partial.is_empty() && !entry.label.starts_with(partial) {
-                    continue;
-                }
-                let (glyph, color, hover) = match &entry.kind {
-                    NavEntryKind::ScopeStart => ("⇤ 行首", CYAN, "整行或槽位首端"),
-                    NavEntryKind::ScopeEnd => ("⇥ 行尾", CYAN, "整行或槽位末端"),
-                    NavEntryKind::Leaf { is_empty: true, role_hint } => {
-                        let r = role_hint.as_deref().unwrap_or("待填槽位");
-                        ("∅ 待填", RED, r)
-                    }
-                    NavEntryKind::Leaf { role_hint, .. } => {
-                        let r = role_hint.as_deref().unwrap_or("槽位");
-                        ("• 槽位", TEXT, r)
-                    }
-                    NavEntryKind::Composite { role_hint, .. } => ("+ 子式", VIOLET, role_hint.as_str()),
-                };
-
-                let tag = format!("[{}] {glyph}", entry.label);
-                if ui
-                    .button(RichText::new(tag).monospace().size(11.5).color(color))
-                    .on_hover_text(hover)
-                    .clicked()
-                {
-                    *clicked_seq = Some(format!("{path_prefix}{}", entry.label));
-                }
-            }
-        });
-    }
-
-    fn nav_card(&self, ui: &mut egui::Ui) {
-        if !self.show_nav_card {
-            return;
-        }
-
-        let total_w = ui.available_width();
-        let target_w = total_w.min(PREVIEW_MAX_WIDTH);
-        let pad_x = ((total_w - target_w) * 0.5).max(0.0);
-
-        ui.horizontal(|ui| {
-            ui.add_space(pad_x);
-            ui.vertical(|ui| {
-                ui.set_width(target_w);
-
-                card_frame().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new("AST 结构同步导览图").size(12.0).strong().color(ACCENT));
-                    ui.add_space(4.0);
-
-                    surface_card(Stroke::new(1.0, CARD_BORDER)).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        if let Some(texture) = &self.nav_tex {
-                            let max_w = (ui.available_width() - 8.0).max(120.0);
-                            let size = fitted_size(texture, max_w, 100.0, 1.15);
-                            let avail = ui.available_width();
-                            ui.horizontal(|ui| {
-                                ui.add_space(((avail - size.x) * 0.5).max(0.0));
-                                ui.add(egui::Image::new(texture).fit_to_exact_size(size));
-                            });
-                        }
-                    });
-                });
-            });
-        });
-    }
-
-    fn center_ui(&mut self, ui: &mut egui::Ui) {
-        let mut clicked_card_code: Option<String> = None;
-        let mut clicked_jump_seq: Option<String> = None;
-        let mut open_custom_mgr = false;
-        let mut open_snip_mgr = false;
-        let mut quick_save_snip = false;
-
+    fn left_panel_ui(&mut self, ui: &mut egui::Ui, act: &mut UiActions) {
         egui::ScrollArea::vertical()
+            .id_salt("mathslot-left-scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.add_space(6.0);
+                ui.spacing_mut().item_spacing.y = 8.0;
 
-                // 1. 实时公式预览卡片 (Hero)
-                self.formula_card(ui);
+                // 框 1：纯白公式预览框（常驻，固定小尺寸，绝不遮挡公式内容）
+                self.preview_box(ui);
 
-                ui.add_space(8.0);
+                // 框 2：导航结构框（常驻预览正下方，固定高度，无跳动、不突兀多出卡片）
+                self.nav_structure_box(ui, act);
 
-                // 2. 线性流输入卡片
-                self.input_card(ui);
+                // 框 3：输入与输出框（常驻，极简流输入 + 一键无痛复制）
+                self.input_output_box(ui, act);
 
-                ui.add_space(8.0);
-
-                // 3. 醒目、大而精美的格式提示陈列大面板 (The Grand Format Palette & Showcase)
-                self.palette_card(
-                    ui,
-                    &mut clicked_card_code,
-                    &mut clicked_jump_seq,
-                    &mut open_custom_mgr,
-                    &mut open_snip_mgr,
-                    &mut quick_save_snip,
-                );
-
-                // 4. 按需呈现的结构导览图
-                if self.show_nav_card {
-                    ui.add_space(8.0);
-                    self.nav_card(ui);
-                }
-
-                ui.add_space(10.0);
+                ui.add_space(4.0);
             });
-
-        if open_custom_mgr {
-            self.modals.open_custom_tab(&self.editor.library);
-        }
-        if open_snip_mgr {
-            self.modals.open_snippets_tab(&self.editor.library);
-        }
-        if quick_save_snip {
-            self.quick_save_snippet(true);
-            self.request_input_focus = true;
-        }
-        if let Some(code) = clicked_card_code {
-            self.status = self.editor.apply_card_click(&code);
-            self.pending_cursor_sync = Some(self.editor.cursor_char);
-            self.request_input_focus = true;
-            self.mark_dirty();
-        }
-        if let Some(seq_str) = clicked_jump_seq {
-            if seq_str == "Esc" {
-                self.editor.esc_nav = None;
-                self.status = "已退出导航模式。".to_owned();
-                self.pending_cursor_sync = Some(self.editor.cursor_char);
-                self.request_input_focus = true;
-                self.mark_dirty();
-            } else if let Ok(msg) = self.editor.jump_to_sequence(&seq_str) {
-                self.status = msg;
-                self.pending_cursor_sync = Some(self.editor.cursor_char);
-                self.request_input_focus = true;
-                self.mark_dirty();
-            }
-        }
     }
 
-    // -----------------------------------------------------------------------
-    // 底部面板：极简生产力 Dock（48px 格式切换 + 单行滚动输出 + 大号复制按键）
-    // -----------------------------------------------------------------------
+    /// 框 1：预览框（缩小常驻，固定高度，纯白纸张，无标题）
+    /// 关键：无论是否处于导航模式，永远只渲染真实的 formula_tex，绝不替换为抽象导航字母，确保公式具体结构与内容清晰可见！
+    fn preview_box(&mut self, ui: &mut egui::Ui) {
+        paper_frame().show(ui, |ui| {
+            let avail_w = ui.available_width();
+            ui.set_width(avail_w);
+            ui.set_height(PREVIEW_BOX_HEIGHT);
 
-    fn bottom_ui(&mut self, ui: &mut egui::Ui) {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, PREVIEW_BOX_HEIGHT), Sense::hover());
+
+            // 右上角浮动微缩控制（− / 100% / +）
+            let ctrl_rect = Rect::from_min_size(rect.right_top() + Vec2::new(-86.0, 4.0), Vec2::new(82.0, 22.0));
+            Self::allocate_ui_at_rect(ui, ctrl_rect, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    if paper_button(ui, "−", false).on_hover_text("缩小预览").clicked() {
+                        self.preview_scale = (self.preview_scale - 0.15).max(0.7);
+                    }
+                    if paper_button(ui, &format!("{:.0}%", self.preview_scale * 80.0), false)
+                        .on_hover_text("恢复标准缩放 (100%)")
+                        .clicked()
+                    {
+                        self.preview_scale = 1.25;
+                    }
+                    if paper_button(ui, "+", false).on_hover_text("放大预览").clicked() {
+                        self.preview_scale = (self.preview_scale + 0.15).min(2.5);
+                    }
+                });
+            });
+
+            // 核心公式呈现：永远展示真实数学公式！
+            if self.editor.source.is_empty() {
+                ui.painter().text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    "键入简码生成公式",
+                    FontId::proportional(13.5),
+                    PAPER_MUTED,
+                );
+            } else if let Some(texture) = &self.formula_tex {
+                let size = fitted_size(
+                    texture,
+                    (avail_w - 12.0).max(100.0),
+                    PREVIEW_BOX_HEIGHT - 12.0,
+                    self.preview_scale,
+                );
+                egui::Image::new(texture).paint_at(ui, Rect::from_center_size(rect.center(), size));
+            } else {
+                ui.painter().text(
+                    rect.center(),
+                    Align2::CENTER_CENTER,
+                    "排版引擎加载中…",
+                    FontId::proportional(12.5),
+                    PAPER_MUTED,
+                );
+            }
+
+            if let Some(err) = &self.render_error {
+                let err_rect = Rect::from_min_size(rect.left_top() + Vec2::new(6.0, 4.0), Vec2::new(avail_w - 94.0, 18.0));
+                Self::allocate_ui_at_rect(ui, err_rect, |ui| {
+                    ui.label(RichText::new(format!("⚠ {err}")).size(10.5).color(Color32::from_rgb(180, 83, 9)));
+                });
+            }
+        });
+    }
+
+    /// 框 2：导航结构框（常驻预览框正下方，固定高度，无标题）
+    /// 无论是否处于导航模式，高度恒定为 NAV_BOX_HEIGHT，绝不突兀弹出新卡片、不发生界面跳动！
+    fn nav_structure_box(&self, ui: &mut egui::Ui, act: &mut UiActions) {
+        paper_frame().show(ui, |ui| {
+            let avail_w = ui.available_width();
+            ui.set_width(avail_w);
+            ui.set_height(NAV_BOX_HEIGHT);
+
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, NAV_BOX_HEIGHT), Sense::hover());
+            let in_nav = self.editor.esc_nav.is_some();
+
+            if in_nav {
+                // 导航模式中：上方展示带锚点位置的 AST 结构图，下方展示跳转徽章
+                if let Some(texture) = &self.nav_tex {
+                    let img_h = 52.0;
+                    let size = fitted_size(texture, (avail_w - 12.0).max(100.0), img_h, 1.15);
+                    let img_center = egui::pos2(rect.center().x, rect.top() + 29.0);
+                    egui::Image::new(texture).paint_at(ui, Rect::from_center_size(img_center, size));
+                }
+
+                // 下部区域：常驻槽位跳转徽章，按键或点击直接跳改
+                let chip_rect = Rect::from_min_max(
+                    rect.left_bottom() + Vec2::new(4.0, -34.0),
+                    rect.right_bottom() + Vec2::new(-4.0, -3.0),
+                );
+                Self::allocate_ui_at_rect(ui, chip_rect, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
+                        if let Some(esc) = &self.editor.esc_nav {
+                            let chain = self.editor.parsed.resolve_scope_chain(&esc.path);
+                            let active_stage = chain.last().expect("root stage exists");
+                            let path_prefix = esc.path.join("");
+
+                            for entry in &active_stage.scope.entries {
+                                if !esc.partial.is_empty() && !entry.label.starts_with(&esc.partial) {
+                                    continue;
+                                }
+                                let (glyph, color) = match &entry.kind {
+                                    NavEntryKind::ScopeStart => ("⇤首", CYAN),
+                                    NavEntryKind::ScopeEnd => ("⇥尾", CYAN),
+                                    NavEntryKind::Leaf { is_empty: true, .. } => ("∅空", RED),
+                                    NavEntryKind::Leaf { .. } => ("•槽", TEXT),
+                                    NavEntryKind::Composite { .. } => ("+子式", VIOLET),
+                                };
+                                let tag = format!("[{}] {}", entry.label, glyph);
+                                let btn = egui::Button::new(
+                                    RichText::new(tag).size(10.5).monospace().color(color),
+                                )
+                                .fill(FIELD)
+                                .stroke(Stroke::new(1.0, color.gamma_multiply(0.45)))
+                                .corner_radius(CornerRadius::same(5));
+                                if ui.add(btn).clicked() {
+                                    act.clicked_jump = Some(format!("{path_prefix}{}", entry.label));
+                                }
+                            }
+                        }
+
+                        if ghost_button(ui, "退出", MUTED).on_hover_text("退出导航 (CapsLock / Tab j / Esc)").clicked() {
+                            act.clicked_jump = Some("Esc".to_owned());
+                        }
+                    });
+                });
+            } else {
+                // 普通书写模式：完整呈现当前公式的 AST 槽位分层结构图
+                if self.editor.source.is_empty() {
+                    ui.painter().text(
+                        rect.center(),
+                        Align2::CENTER_CENTER,
+                        "AST 槽位分层结构图",
+                        FontId::proportional(13.0),
+                        PAPER_MUTED,
+                    );
+                } else if let Some(texture) = &self.nav_tex {
+                    let size = fitted_size(texture, (avail_w - 12.0).max(100.0), NAV_BOX_HEIGHT - 12.0, 1.15);
+                    egui::Image::new(texture).paint_at(ui, Rect::from_center_size(rect.center(), size));
+                }
+
+                // 右上角提供快捷导航触发
+                let trigger_rect = Rect::from_min_size(rect.right_top() + Vec2::new(-86.0, 5.0), Vec2::new(80.0, 22.0));
+                Self::allocate_ui_at_rect(ui, trigger_rect, |ui| {
+                    if paper_button(ui, "⚡ 导航", false)
+                        .on_hover_text("开启槽位快速跳转导航 (CapsLock / Tab j / Esc)")
+                        .clicked()
+                    {
+                        act.toggle_nav = true;
+                    }
+                });
+            }
+        });
+    }
+
+    /// 框 3：输入与输出框（常驻，流式输入 + 无痛一键复制，无标题）
+    fn input_output_box(&mut self, ui: &mut egui::Ui, act: &mut UiActions) {
         let ctx = ui.ctx().clone();
-        let expanded_a = scheme_a::to_scheme_a(&self.editor.parsed);
-        let latex_str = self.formatted_latex();
-        let mut click_copy_latex = false;
-        let mut click_copy_a = false;
+        let breadcrumbs = self.editor.parsed.breadcrumbs_at(self.editor.cursor_char);
+        let in_nav = self.editor.esc_nav.is_some();
+        let border = if in_nav {
+            ACCENT
+        } else if matches!(self.editor.prefix_menu_state(), PrefixMenuState::Idle) {
+            BORDER
+        } else {
+            self.mode_badge().1
+        };
 
+        let latex_str = self.formatted_latex();
         let copied_recent = self
             .copy_feedback_until
             .is_some_and(|until| Instant::now() < until);
@@ -1636,129 +915,520 @@ impl MathSlotApp {
             ctx.request_repaint_after(Duration::from_millis(200));
         }
 
-        // 若打开了方案 A 结构抽屉，在上方展现折叠抽屉
-        if self.show_scheme_a {
+        card_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+
+            // 1. 槽位面包屑行
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                if in_nav {
+                    ui.label(RichText::new("⚡ 导航直达模式 · 按字母跳改（CapsLock / Tab j 退出）").size(11.5).strong().color(ACCENT));
+                } else if breadcrumbs.is_empty() {
+                    ui.label(RichText::new("键入简码，或点击右侧数学结构直接插入…").size(11.0).color(MUTED));
+                } else {
+                    for (depth, bc) in breadcrumbs.iter().enumerate() {
+                        if depth > 0 {
+                            ui.label(RichText::new("›").size(11.0).color(MUTED));
+                        }
+                        kbd_colored(ui, &format!("{CMD_PREFIX}{}", bc.code), AMBER, AMBER_BG);
+                        for (s_idx, role) in bc.slot_roles.iter().enumerate() {
+                            if s_idx > 0 {
+                                ui.label(RichText::new("·").size(10.5).color(MUTED));
+                            }
+                            if s_idx == bc.slot_index {
+                                ui.label(RichText::new(role).size(11.5).strong().color(GREEN));
+                            } else {
+                                ui.label(RichText::new(role).size(11.0).color(MUTED));
+                            }
+                        }
+                    }
+                }
+            });
+
+            ui.add_space(4.0);
+
+            // 2. 简码输入框
+            let explicit_sync = self.pending_cursor_sync.take();
+            if let Some(mut state) = egui::TextEdit::load_state(&ctx, self.input_id) {
+                if let Some(target_char) = explicit_sync {
+                    let c = CCursor::new(target_char.min(self.editor.source.chars().count()));
+                    state.cursor.set_char_range(Some(CCursorRange::one(c)));
+                    state.store(&ctx, self.input_id);
+                } else if state.cursor.char_range().is_none() {
+                    let c = CCursor::new(self.editor.cursor_char.min(self.editor.source.chars().count()));
+                    state.cursor.set_char_range(Some(CCursorRange::one(c)));
+                    state.store(&ctx, self.input_id);
+                }
+            }
+
+            let prev_snap = Snapshot {
+                source: self.editor.source.clone(),
+                cursor_char: self.editor.cursor_char,
+            };
+
+            let lib_ref = self.editor.library.clone();
+            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                let mut job = highlight_stream_source(text.as_str(), &lib_ref);
+                job.wrap.max_width = wrap_width;
+                ui.fonts_mut(|f| f.layout_job(job))
+            };
+
+            let mut output = egui::TextEdit::singleline(&mut self.editor.source)
+                .id(self.input_id)
+                .font(FontId::monospace(18.0))
+                .text_color(TEXT)
+                .background_color(FIELD)
+                .frame(
+                    egui::Frame::NONE
+                        .fill(FIELD)
+                        .stroke(Stroke::new(1.5, border))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::symmetric(12, 9)),
+                )
+                .hint_text("直接键入简码，或点击右侧结构插入…")
+                .interactive(!in_nav)
+                .lock_focus(true)
+                .return_key(None)
+                .desired_width(f32::INFINITY)
+                .layouter(&mut layouter)
+                .show(ui);
+
+            if output.response.changed() {
+                let char_delta = prev_snap
+                    .source
+                    .chars()
+                    .count()
+                    .abs_diff(self.editor.source.chars().count());
+                if self.last_typing_undo.elapsed() > Duration::from_millis(450) || char_delta > 1 {
+                    self.editor.save_undo_snapshot(prev_snap);
+                    self.last_typing_undo = Instant::now();
+                }
+
+                let raw_cursor: usize = output
+                    .cursor_range
+                    .map(|r| usize::from(r.primary.index))
+                    .unwrap_or_else(|| self.editor.source.chars().count());
+                let before_sync = self.editor.source.clone();
+                if let Some(hint) = self.editor.sync_after_edit(raw_cursor) {
+                    self.status = hint;
+                } else {
+                    self.status = "流式书写中…".to_owned();
+                }
+
+                if self.editor.source != before_sync || self.editor.cursor_char != raw_cursor {
+                    let c = CCursor::new(self.editor.cursor_char);
+                    output
+                        .state
+                        .cursor
+                        .set_char_range(Some(CCursorRange::one(c)));
+                    output.state.store(&ctx, output.response.id);
+                }
+
+                self.mark_dirty();
+            } else if let Some(range) = output.cursor_range {
+                let cur_idx: usize = range.primary.index.into();
+                if self.editor.esc_nav.is_none() && cur_idx != self.editor.cursor_char {
+                    self.editor.set_cursor(cur_idx);
+                    self.mark_dirty();
+                }
+            }
+
+            ui.add_space(6.0);
+
+            // 3. LaTeX 输出与一键无痛复制行
             ui.horizontal(|ui| {
-                ui.label(RichText::new("方案 A 结构展开").size(11.5).strong().color(CYAN));
+                ui.spacing_mut().item_spacing.x = 4.0;
+
+                const DELIMS: [(DelimiterStyle, &str, &str); 4] = [
+                    (DelimiterStyle::None, "LaTeX", "裸代码（无定界符）"),
+                    (DelimiterStyle::Inline, "$…$", "行内公式 $...$"),
+                    (DelimiterStyle::Display, "$$…$$", "行间公式 $$...$$"),
+                    (DelimiterStyle::MarkdownCode, "```", "Markdown 代码块 ```latex"),
+                ];
+                let options: Vec<(&str, &str)> = DELIMS.iter().map(|d| (d.1, d.2)).collect();
+                let selected = DELIMS
+                    .iter()
+                    .position(|d| d.0 == self.delimiter_style)
+                    .unwrap_or(1);
+                if let Some(idx) = segmented(ui, &options, selected) {
+                    self.delimiter_style = DELIMS[idx].0;
+                    self.request_input_focus = true;
+                }
+
+                // 一键复制主按钮（大号醒目，点一次直接完成，绝不啰嗦）
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.small_button("复制").clicked() {
-                        click_copy_a = true;
+                    let copy_btn = if copied_recent {
+                        primary_button(ui, "✓ 已复制", Color32::from_rgb(22, 128, 86))
+                    } else {
+                        primary_button(ui, "复制 LaTeX", ACCENT_STRONG)
+                    };
+                    if copy_btn
+                        .on_hover_text("一键复制 LaTeX 到系统剪贴板 (Ctrl+Enter / 点击框体)")
+                        .clicked()
+                    {
+                        act.copy_latex = true;
                     }
                 });
             });
-            ui.add_space(2.0);
-            output_box(ui, "mathslot-scheme-a-scroll", &expanded_a);
+
             ui.add_space(4.0);
-        }
 
-        // 核心 Dock 底栏行
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
+            // LaTeX 代码框：点击框体本身也能直接一键复制！
+            let is_empty = latex_str.is_empty();
+            let display_tex = if is_empty { "（尚无公式输出）" } else { &latex_str };
+            let tex_color = if is_empty { MUTED } else { TEXT };
 
-            // 定界符选择胶囊
-            if ui
-                .selectable_label(self.delimiter_style == DelimiterStyle::None, "LaTeX")
-                .on_hover_text("裸代码 (无定界符)")
-                .clicked()
-            {
-                self.delimiter_style = DelimiterStyle::None;
-                self.request_input_focus = true;
-            }
-            if ui
-                .selectable_label(self.delimiter_style == DelimiterStyle::Inline, "$…$")
-                .on_hover_text("行内公式 $...$")
-                .clicked()
-            {
-                self.delimiter_style = DelimiterStyle::Inline;
-                self.request_input_focus = true;
-            }
-            if ui
-                .selectable_label(self.delimiter_style == DelimiterStyle::Display, "$$…$$")
-                .on_hover_text("行间公式 $$...$$")
-                .clicked()
-            {
-                self.delimiter_style = DelimiterStyle::Display;
-                self.request_input_focus = true;
-            }
-            if ui
-                .selectable_label(self.delimiter_style == DelimiterStyle::MarkdownCode, "```")
-                .on_hover_text("代码块 ```latex")
-                .clicked()
-            {
-                self.delimiter_style = DelimiterStyle::MarkdownCode;
-                self.request_input_focus = true;
-            }
-
-            let a_color = if self.show_scheme_a { CYAN } else { MUTED };
-            if ui
-                .selectable_label(self.show_scheme_a, RichText::new("[A]").color(a_color))
-                .on_hover_text("展开/收起方案 A 层次展开抽屉")
-                .clicked()
-            {
-                self.show_scheme_a = !self.show_scheme_a;
-                self.request_input_focus = true;
-            }
-
-            ui.separator();
-
-            // LaTeX 输出滚动条
-            let latex_display = if latex_str.is_empty() {
-                "（空白）"
-            } else {
-                &latex_str
-            };
-            let code_color = if latex_str.is_empty() { MUTED } else { TEXT };
-
-            egui::Frame::NONE
-                .fill(BG)
-                .stroke(Stroke::new(1.0, CARD_BORDER))
-                .corner_radius(CornerRadius::same(5))
-                .inner_margin(Margin::symmetric(8, 4))
-                .show(ui, |ui| {
-                    let avail = ui.available_width() - 80.0;
-                    ui.set_width(avail.max(100.0));
-                    egui::ScrollArea::horizontal()
-                        .id_salt("mathslot-latex-dock-scroll")
-                        .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(latex_display)
-                                        .monospace()
-                                        .size(12.5)
-                                        .color(code_color),
-                                )
-                                .selectable(true),
-                            );
-                        });
-                });
-
-            // 右侧一键复制主按键
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let copy_label = if copied_recent {
-                    RichText::new("✓ 已复制").size(12.5).strong().color(GREEN)
-                } else {
-                    RichText::new("📋 复制 LaTeX").size(12.5).strong().color(TEXT)
-                };
-                let btn = egui::Button::new(copy_label)
-                    .fill(if copied_recent { Color32::from_rgb(16, 60, 40) } else { Color32::from_rgb(30, 45, 75) })
-                    .stroke(Stroke::new(1.0, if copied_recent { GREEN } else { ACCENT }));
-                if ui
-                    .add(btn)
-                    .on_hover_text("复制 LaTeX 到剪贴板 (Ctrl+Enter / Ctrl+Shift+C)")
-                    .clicked()
-                {
-                    click_copy_latex = true;
+            field_frame().show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let resp = ui.add(
+                    egui::Label::new(
+                        RichText::new(display_tex).monospace().size(12.5).color(tex_color),
+                    )
+                    .selectable(true)
+                    .wrap(),
+                );
+                if !is_empty && resp.on_hover_text("点击直接复制 LaTeX 代码").clicked() {
+                    act.copy_latex = true;
                 }
             });
         });
+    }
 
-        if click_copy_a {
-            self.copy_scheme_a(&ctx);
+    // -----------------------------------------------------------------------
+    // 右侧核心主体：结构提示主面板（The Grand Structure Guidance HERO）
+    // 视觉核心：大而精美、直观数学符号、中文名称、快捷键提示、一键点击即插！
+    // 专为不熟悉 LaTeX 的用户设计：无需死记语法，点选或看键即用！
+    // -----------------------------------------------------------------------
+
+    fn structure_palette_ui(&mut self, ui: &mut egui::Ui, act: &mut UiActions) {
+        let prefix_state = self.editor.prefix_menu_state();
+        let root_armed = matches!(
+            prefix_state,
+            PrefixMenuState::Root | PrefixMenuState::InvalidPrefix(_)
+        );
+        let active_sub = match &prefix_state {
+            PrefixMenuState::SubMenu(sub) => Some(*sub),
+            _ => None,
+        };
+
+        // 敲入子菜单快捷键时智能切到对应分类
+        if let Some(sub) = active_sub {
+            self.palette_tab = category_of(sub);
+        }
+
+        ui.vertical(|ui| {
+            // 分类胶囊标签切换栏（无多余标题，直接选分类）
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(5.0, 5.0);
+                for (cat, keys, title, tip) in PALETTE_TABS {
+                    let selected = self.palette_tab == cat;
+                    let sub_active = active_sub.is_some_and(|s| category_of(s) == cat);
+                    if category_chip(ui, keys, title, selected, sub_active, root_armed)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.palette_tab = cat;
+                        self.pending_cursor_sync = Some(self.editor.cursor_char);
+                        self.request_input_focus = true;
+                    }
+                }
+            });
+
+            ui.add_space(8.0);
+
+            // 结构与符号陈列网格（大卡片、直观数学符号、中文名称、点击直接插入）
+            egui::ScrollArea::vertical()
+                .id_salt("mathslot-structure-palette-scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    self.render_palette_tiles(ui, root_armed, active_sub, act);
+                    ui.add_space(8.0);
+                });
+        });
+    }
+
+    fn render_palette_tiles(
+        &self,
+        ui: &mut egui::Ui,
+        root_armed: bool,
+        active_sub: Option<SubCategory>,
+        act: &mut UiActions,
+    ) {
+        let sub_tiles = |sub: SubCategory, filter: &dyn Fn(char) -> bool| -> Vec<Tile> {
+            sub.entries()
+                .iter()
+                .filter(|e| filter(e.item_key))
+                .map(|e| Tile {
+                    badge: if e.is_default {
+                        format!("★{}", e.item_key)
+                    } else {
+                        format!("{}{}", sub.key(), e.item_key)
+                    },
+                    glyph: e.glyph_hint.to_owned(),
+                    label: e.label.to_owned(),
+                    is_default: e.is_default,
+                    armed: active_sub == Some(sub),
+                    hover: format!("{} · Tab {} {}\n{}", e.label, sub.key(), e.item_key, e.detail),
+                    code: e.code.to_owned(),
+                })
+                .collect()
+        };
+        let all = |_: char| true;
+
+        match self.palette_tab {
+            PaletteCategory::Direct => {
+                let direct_tiles: Vec<Tile> = DIRECT_ENTRIES
+                    .iter()
+                    .map(|entry| Tile {
+                        badge: entry.key.to_string(),
+                        glyph: entry.glyph_hint.to_owned(),
+                        label: entry.label.to_owned(),
+                        is_default: false,
+                        armed: root_armed,
+                        hover: format!("{} · Tab {}\n槽位：{}", entry.label, entry.key, entry.detail),
+                        code: entry.key.to_string(),
+                    })
+                    .collect();
+                tile_grid(ui, direct_tiles, &mut act.clicked_code);
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("高频数学符号与关系").size(11.5).strong().color(TEXT_DIM));
+                });
+                ui.add_space(3.0);
+
+                let common_symbols = [
+                    Tile { badge: "gp".into(), glyph: "π".into(), label: "圆周率".into(), is_default: false, armed: false, hover: "圆周率 \\pi (Tab g p)".into(), code: "gp".into() },
+                    Tile { badge: "oa".into(), glyph: "∞".into(), label: "无穷".into(), is_default: false, armed: false, hover: "无穷大 \\infty (Tab o a)".into(), code: "oa".into() },
+                    Tile { badge: "ob".into(), glyph: "∂".into(), label: "偏导".into(), is_default: false, armed: false, hover: "偏导算子 \\partial (Tab o b)".into(), code: "ob".into() },
+                    Tile { badge: "+-".into(), glyph: "±".into(), label: "正负号".into(), is_default: false, armed: false, hover: "正负号 \\pm (直输 +-)".into(), code: "+-".into() },
+                    Tile { badge: "<=".into(), glyph: "≤".into(), label: "小于等于".into(), is_default: false, armed: false, hover: "小于等于 \\le (直输 <=)".into(), code: "<=".into() },
+                    Tile { badge: ">=".into(), glyph: "≥".into(), label: "大于等于".into(), is_default: false, armed: false, hover: "大于等于 \\ge (直输 >=)".into(), code: ">=".into() },
+                    Tile { badge: "!=".into(), glyph: "≠".into(), label: "不等于".into(), is_default: false, armed: false, hover: "不等于 \\neq (直输 !=)".into(), code: "!=".into() },
+                    Tile { badge: "xa".into(), glyph: "≈".into(), label: "约等于".into(), is_default: false, armed: false, hover: "约等于 \\approx (Tab x a)".into(), code: "xa".into() },
+                    Tile { badge: "->".into(), glyph: "→".into(), label: "趋向箭头".into(), is_default: false, armed: false, hover: "趋向箭头 \\to (直输 ->)".into(), code: "->".into() },
+                    Tile { badge: "oe".into(), glyph: "·".into(), label: "点乘".into(), is_default: false, armed: false, hover: "点乘 \\cdot (Tab o e)".into(), code: "oe".into() },
+                    Tile { badge: "od".into(), glyph: "×".into(), label: "叉乘".into(), is_default: false, armed: false, hover: "叉乘 \\times (Tab o d)".into(), code: "od".into() },
+                    Tile { badge: "xb".into(), glyph: "≡".into(), label: "恒等于".into(), is_default: false, armed: false, hover: "恒等于 \\equiv (Tab x b)".into(), code: "xb".into() },
+                ];
+                tile_grid(ui, common_symbols.to_vec(), &mut act.clicked_code);
+            }
+            PaletteCategory::Calculus => {
+                tile_grid(ui, sub_tiles(SubCategory::CalculusMore, &all), &mut act.clicked_code);
+            }
+            PaletteCategory::Matrix => {
+                tile_grid(ui, sub_tiles(SubCategory::Matrix, &all), &mut act.clicked_code);
+            }
+            PaletteCategory::Accent => {
+                tile_grid(ui, sub_tiles(SubCategory::Accent, &all), &mut act.clicked_code);
+            }
+            PaletteCategory::Operator => {
+                tile_grid(ui, sub_tiles(SubCategory::Symbol, &all), &mut act.clicked_code);
+            }
+            PaletteCategory::Greek => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("小写希腊字母 (24)").size(11.0).color(MUTED));
+                });
+                ui.add_space(3.0);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::Greek, &|k| !k.is_ascii_uppercase()),
+                    &mut act.clicked_code,
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("大写希腊字母 (11)").size(11.0).color(MUTED));
+                });
+                ui.add_space(3.0);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::Greek, &|k| k.is_ascii_uppercase()),
+                    &mut act.clicked_code,
+                );
+            }
+            PaletteCategory::Relation => {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("关系符 / 箭头 (Tab x)").size(11.0).color(MUTED));
+                });
+                ui.add_space(3.0);
+                tile_grid(ui, sub_tiles(SubCategory::Relations, &all), &mut act.clicked_code);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("集合 / 逻辑 / 数集 (Tab q)").size(11.0).color(MUTED));
+                });
+                ui.add_space(3.0);
+                tile_grid(ui, sub_tiles(SubCategory::SetLogic, &all), &mut act.clicked_code);
+            }
+            PaletteCategory::Custom => {
+                let lib = &self.editor.library;
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("自定义数学格式 (Tab k)").size(11.0).color(MUTED));
+                });
+                ui.add_space(3.0);
+                let def_custom_key = lib.default_custom().map(|d| d.item_key);
+                let custom_tiles: Vec<Tile> = lib
+                    .custom_formats
+                    .iter()
+                    .map(|fmt| Tile {
+                        badge: format!("k{}", fmt.item_key),
+                        glyph: if fmt.glyph_hint.is_empty() {
+                            fmt.label.clone()
+                        } else {
+                            fmt.glyph_hint.clone()
+                        },
+                        label: fmt.label.clone(),
+                        is_default: def_custom_key == Some(fmt.item_key),
+                        armed: active_sub == Some(SubCategory::Custom),
+                        hover: format!(
+                            "{} · Tab k {}\n{}",
+                            fmt.label, fmt.item_key, fmt.latex_template
+                        ),
+                        code: fmt.code(),
+                    })
+                    .collect();
+                if custom_tiles.is_empty() {
+                    ui.label(RichText::new("尚无自定义格式").size(11.5).color(MUTED));
+                } else {
+                    tile_grid(ui, custom_tiles, &mut act.clicked_code);
+                }
+
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("复用片段 / 填空模版 (Tab t)").size(11.0).color(MUTED));
+                });
+                ui.add_space(3.0);
+                let def_snip_key = lib.default_snippet().map(|s| s.item_key);
+                let snip_tiles: Vec<Tile> = lib
+                    .snippets
+                    .iter()
+                    .map(|snip| Tile {
+                        badge: format!("t{}", snip.item_key),
+                        glyph: snip.label.clone(),
+                        label: "片段".to_owned(),
+                        is_default: def_snip_key == Some(snip.item_key),
+                        armed: active_sub == Some(SubCategory::Template),
+                        hover: format!(
+                            "{} · Tab t {}\n{}",
+                            snip.label, snip.item_key, snip.stream_source
+                        ),
+                        code: snip.code(),
+                    })
+                    .collect();
+                if snip_tiles.is_empty() {
+                    ui.label(RichText::new("尚无片段模版").size(11.5).color(MUTED));
+                } else {
+                    tile_grid(ui, snip_tiles, &mut act.clicked_code);
+                }
+
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+                    if ghost_button(ui, "+ 新增自定义格式", GREEN).clicked() {
+                        act.open_custom_mgr = true;
+                    }
+                    if ghost_button(ui, "⚙ 管理模版库", CYAN).clicked() {
+                        act.open_snip_mgr = true;
+                    }
+                    if ghost_button(ui, "+ 存当前为片段", AMBER).clicked() {
+                        act.quick_save_snip = true;
+                    }
+                });
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 底部状态栏 (28px)：状态消息 + 核心快捷键提示
+    // -----------------------------------------------------------------------
+
+    fn status_bar_ui(&self, ui: &mut egui::Ui) {
+        ui.horizontal_centered(|ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for (key, label) in [
+                    ("F1", "帮助"),
+                    ("Ctrl+Enter", "复制"),
+                    ("CapsLock / Tab j", "导航"),
+                    ("Enter", "推进"),
+                    ("Tab", "结构"),
+                ] {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(label).size(11.0).color(MUTED));
+                    kbd(ui, key);
+                }
+
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    let msg = if self.status.is_empty() {
+                        "就绪"
+                    } else {
+                        self.status.as_str()
+                    };
+                    let color = if msg.starts_with('✓') { GREEN } else { TEXT_DIM };
+                    ui.add(
+                        egui::Label::new(RichText::new(msg).size(11.5).color(color)).truncate(),
+                    );
+                });
+            });
+        });
+    }
+
+    fn apply_ui_actions(&mut self, ctx: &egui::Context, act: UiActions) {
+        if act.toggle_nav {
+            self.status = self.editor.toggle_esc_jump();
+            self.pending_cursor_sync = Some(self.editor.cursor_char);
+            self.request_input_focus = true;
+            self.mark_dirty();
+        }
+        if act.open_custom_mgr {
+            self.modals.open_custom_tab(&self.editor.library);
+        }
+        if act.open_snip_mgr {
+            self.modals.open_snippets_tab(&self.editor.library);
+        }
+        if act.quick_save_snip {
+            self.quick_save_snippet(true);
             self.request_input_focus = true;
         }
-        if click_copy_latex {
-            self.copy_latex(&ctx);
+        if act.copy_latex {
+            self.copy_latex(ctx);
             self.request_input_focus = true;
+        }
+        if act.copy_scheme_a {
+            self.copy_scheme_a(ctx);
+            self.request_input_focus = true;
+        }
+        if let Some(code) = act.clicked_code {
+            self.status = self.editor.apply_card_click(&code);
+            self.pending_cursor_sync = Some(self.editor.cursor_char);
+            self.request_input_focus = true;
+            self.mark_dirty();
+        }
+        if let Some(seq_str) = act.clicked_jump {
+            if seq_str == "Esc" {
+                self.editor.esc_nav = None;
+                self.status = "已退出导航模式。".to_owned();
+                self.pending_cursor_sync = Some(self.editor.cursor_char);
+                self.request_input_focus = true;
+                self.mark_dirty();
+            } else if seq_str == "Backspace" {
+                self.status = self.editor.esc_backspace();
+                self.pending_cursor_sync = Some(self.editor.cursor_char);
+                self.request_input_focus = true;
+                self.mark_dirty();
+            } else {
+                match self.editor.jump_to_sequence(&seq_str) {
+                    Ok(msg) => {
+                        self.status = msg;
+                        self.pending_cursor_sync = Some(self.editor.cursor_char);
+                        self.request_input_focus = true;
+                        self.mark_dirty();
+                    }
+                    Err(err) => {
+                        self.status = err;
+                    }
+                }
+            }
         }
     }
 }
@@ -1770,34 +1440,46 @@ impl eframe::App for MathSlotApp {
 
         egui::Panel::top("mathslot-top-panel")
             .resizable(false)
-            .min_size(TOP_PANEL_EXACT_HEIGHT)
-            .max_size(TOP_PANEL_EXACT_HEIGHT)
+            .exact_size(TOP_BAR_HEIGHT)
             .frame(
                 egui::Frame::NONE
                     .fill(PANEL)
-                    .inner_margin(Margin::symmetric(14, 6)),
+                    .inner_margin(Margin::symmetric(16, 0)),
             )
             .show(ui, |ui| self.top_ui(ui));
 
-        let bottom_height = if self.show_scheme_a { 120.0 } else { 48.0 };
-        egui::Panel::bottom("mathslot-bottom-panel")
+        egui::Panel::bottom("mathslot-status-bar")
             .resizable(false)
-            .min_size(bottom_height)
-            .max_size(bottom_height)
+            .exact_size(STATUS_BAR_HEIGHT)
             .frame(
                 egui::Frame::NONE
                     .fill(PANEL)
-                    .inner_margin(Margin::symmetric(14, 6)),
+                    .inner_margin(Margin::symmetric(16, 0)),
             )
-            .show(ui, |ui| self.bottom_ui(ui));
+            .show(ui, |ui| self.status_bar_ui(ui));
+
+        let mut act = UiActions::default();
+
+        egui::Panel::left("mathslot-left-panel")
+            .resizable(true)
+            .default_size(LEFT_PANEL_DEFAULT_WIDTH)
+            .size_range(380.0..=560.0)
+            .frame(
+                egui::Frame::NONE
+                    .fill(BG)
+                    .inner_margin(Margin::symmetric(14, 12)),
+            )
+            .show(ui, |ui| self.left_panel_ui(ui, &mut act));
 
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::NONE
-                    .fill(BG)
-                    .inner_margin(Margin::symmetric(14, 8)),
+                    .fill(PANEL)
+                    .inner_margin(Margin::symmetric(16, 12)),
             )
-            .show(ui, |ui| self.center_ui(ui));
+            .show(ui, |ui| self.structure_palette_ui(ui, &mut act));
+
+        self.apply_ui_actions(&ctx, act);
 
         let was_modal_open = self.modals.any_open();
         if let Some(modal_action) = self.modals.show(&ctx, &mut self.editor) {
@@ -1831,129 +1513,223 @@ impl eframe::App for MathSlotApp {
         }
 
         if !self.modals.any_open() {
-            // 当无模态弹出框时，输入框保持永久活跃焦点；点击标签页、卡片或任意功能按钮均不发生失焦
-            ctx.memory_mut(|m| m.request_focus(self.input_id));
+            if self.editor.esc_nav.is_none() {
+                // 当无模态弹出框且非导航模式时，输入框保持永久活跃焦点；点击标签页、卡片或任意功能按钮均不发生失焦
+                ctx.memory_mut(|m| m.request_focus(self.input_id));
+            } else {
+                ctx.memory_mut(|m| m.surrender_focus(self.input_id));
+            }
             self.request_input_focus = false;
         }
 
         self.dispatch_and_poll_render(&ctx);
+
+        if let Some(shot) = &mut self.devshot {
+            shot.tick(&ctx);
+        }
     }
 }
 
-/// 醒目、大而精美的格式展示卡片 (94×58)
-/// 呈现：上方快捷键徽章 `[f]`、中央大号数学符号 `a/b`、下方清晰中文名称 `分数`
-fn render_palette_card(
-    ui: &mut egui::Ui,
-    key_badge: &str,
-    glyph: &str,
-    label: &str,
+// ---------------------------------------------------------------------------
+// 面板交互汇总：各面板只记录点击意图，统一在帧末应用，避免借用冲突
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct UiActions {
+    clicked_code: Option<String>,
+    clicked_jump: Option<String>,
+    toggle_nav: bool,
+    open_custom_mgr: bool,
+    open_snip_mgr: bool,
+    quick_save_snip: bool,
+    copy_latex: bool,
+    copy_scheme_a: bool,
+}
+
+/// 分类标签：(分类, 触发键, 标题, 悬停说明)
+const PALETTE_TABS: [(PaletteCategory, &str, &str, &str); 8] = [
+    (PaletteCategory::Direct, "常用", "常用结构", "12 项核心数学结构（分式、上标、下标、根号、极限、积分等，单键直达）"),
+    (PaletteCategory::Greek, "g", "希腊", "希腊字母全集：小写 + 大写 (Tab g)"),
+    (PaletteCategory::Calculus, "c", "微积分", "不定积分、连乘、重积分、偏导 (Tab c)"),
+    (PaletteCategory::Matrix, "m", "矩阵", "方阵、行列式、分段函数 (Tab m)"),
+    (PaletteCategory::Accent, "a", "标注", "帽子、横线、向量、导点、范数 (Tab a)"),
+    (PaletteCategory::Operator, "o", "算子", "无穷、偏导、梯度、叉乘、属于 (Tab o)"),
+    (PaletteCategory::Relation, "x·q", "关系逻辑", "关系符/箭头 (Tab x) · 集合/逻辑 (Tab q)"),
+    (PaletteCategory::Custom, "k·t", "自定义", "自定义 LaTeX 格式 (Tab k) · 片段模版 (Tab t)"),
+];
+
+fn category_of(sub: SubCategory) -> PaletteCategory {
+    match sub {
+        SubCategory::CalculusMore => PaletteCategory::Calculus,
+        SubCategory::Matrix => PaletteCategory::Matrix,
+        SubCategory::Accent => PaletteCategory::Accent,
+        SubCategory::Greek => PaletteCategory::Greek,
+        SubCategory::Symbol => PaletteCategory::Operator,
+        SubCategory::Relations | SubCategory::SetLogic => PaletteCategory::Relation,
+        SubCategory::Custom | SubCategory::Template => PaletteCategory::Custom,
+    }
+}
+
+/// 格式卡片描述
+#[derive(Clone)]
+struct Tile {
+    badge: String,
+    glyph: String,
+    label: String,
     is_default: bool,
-    is_armed: bool,
-    hover_tip: &str,
-) -> bool {
-    let card_w = 94.0;
-    let card_h = 58.0;
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(card_w, card_h), egui::Sense::click());
+    /// 当前前缀状态下，再按徽章末位字母即可直接插入
+    armed: bool,
+    hover: String,
+    code: String,
+}
 
+/// 等宽自适应网格：根据可用宽度自动计算列数，卡片填满整行
+fn tile_grid(ui: &mut egui::Ui, tiles: Vec<Tile>, clicked: &mut Option<String>) {
+    const GAP: f32 = 7.0;
+    const MIN_W: f32 = 82.0;
+    const TILE_H: f32 = 64.0;
+    let avail = ui.available_width();
+    let cols = ((avail + GAP) / (MIN_W + GAP)).floor().max(1.0);
+    let w = ((avail - GAP * (cols - 1.0)) / cols - 0.5).floor().max(40.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(GAP);
+        for tile in &tiles {
+            if palette_tile(ui, Vec2::new(w, TILE_H), tile) {
+                *clicked = Some(tile.code.clone());
+            }
+        }
+    });
+}
+
+/// 单张格式卡片：左上键位徽章 · 右上默认项圆点 · 中央符号 · 底部名称
+fn palette_tile(ui: &mut egui::Ui, size: Vec2, tile: &Tile) -> bool {
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let hovered = response.hovered();
-    let bg_color = if hovered {
-        Color32::from_rgb(32, 42, 65)
-    } else if is_armed {
-        Color32::from_rgb(26, 34, 52)
+    let painter = ui.painter();
+
+    let (bg, stroke) = if hovered {
+        (CARD_HI, Stroke::new(1.0, ACCENT.gamma_multiply(0.8)))
+    } else if tile.armed {
+        (Color32::from_rgb(34, 31, 25), Stroke::new(1.0, AMBER.gamma_multiply(0.3)))
     } else {
-        Color32::from_rgb(18, 23, 36)
+        (CARD, Stroke::new(1.0, BORDER_SOFT))
     };
+    painter.rect(rect, CornerRadius::same(8), bg, stroke, StrokeKind::Inside);
 
-    let stroke_color = if hovered {
-        ACCENT
-    } else if is_default {
-        GREEN
-    } else if is_armed {
-        AMBER
-    } else {
-        CARD_BORDER
-    };
-
-    ui.painter().rect_filled(rect, CornerRadius::same(7), bg_color);
-    ui.painter().rect_stroke(
-        rect,
-        CornerRadius::same(7),
-        Stroke::new(if hovered || is_armed { 1.5 } else { 1.0 }, stroke_color),
-        egui::StrokeKind::Inside,
-    );
-
-    // 上方：快捷键徽章
-    let key_color = if is_default { GREEN } else if is_armed { AMBER } else { CYAN };
-    let key_text = format!("[{key_badge}]");
-    ui.painter().text(
-        rect.min + Vec2::new(6.0, 5.0),
-        Align2::LEFT_TOP,
-        key_text,
-        FontId::monospace(10.5),
-        key_color,
-    );
-
-    if is_default {
-        ui.painter().text(
-            rect.right_top() + Vec2::new(-6.0, 5.0),
-            Align2::RIGHT_TOP,
-            "★",
-            FontId::proportional(11.0),
-            GREEN,
+    // 键位徽章
+    let badge_color = if tile.armed { AMBER } else { MUTED };
+    let badge_galley = painter.layout_no_wrap(tile.badge.clone(), FontId::monospace(10.0), badge_color);
+    let badge_pos = rect.left_top() + Vec2::new(7.0, 6.0);
+    if tile.armed {
+        painter.rect_filled(
+            Rect::from_min_size(badge_pos, badge_galley.size()).expand2(Vec2::new(3.0, 1.0)),
+            CornerRadius::same(3),
+            AMBER_BG,
         );
     }
+    painter.galley(badge_pos, badge_galley, badge_color);
 
-    // 中部：大号数学符号
-    ui.painter().text(
+    if tile.is_default {
+        painter.circle_filled(rect.right_top() + Vec2::new(-9.0, 10.0), 3.0, GREEN);
+    }
+
+    paint_fitted_text(
+        painter,
         rect.center() + Vec2::new(0.0, -1.0),
         Align2::CENTER_CENTER,
-        glyph,
-        FontId::proportional(16.0),
-        TEXT,
+        &tile.glyph,
+        size.x - 12.0,
+        18.5,
+        11.0,
+        if hovered { Color32::WHITE } else { TEXT },
+        false,
     );
-
-    // 下方：中文结构/符号说明
-    ui.painter().text(
-        rect.center_bottom() + Vec2::new(0.0, -5.0),
+    paint_fitted_text(
+        painter,
+        rect.center_bottom() - Vec2::new(0.0, 5.0),
         Align2::CENTER_BOTTOM,
-        label,
-        FontId::proportional(10.5),
-        MUTED,
+        &tile.label,
+        size.x - 8.0,
+        11.0,
+        9.0,
+        if hovered { Color32::WHITE } else { TEXT_DIM },
+        false,
     );
 
-    response.on_hover_text(hover_tip).clicked()
+    let hover = if tile.is_default {
+        format!("{}\n★ 子菜单默认项（Enter / Space 直接选用）", tile.hover)
+    } else {
+        tile.hover.clone()
+    };
+    response.on_hover_text(hover).clicked()
 }
 
-fn output_box(ui: &mut egui::Ui, scroll_id: &str, content: &str) {
-    let is_empty = content.is_empty();
-    let display = if is_empty { "（尚无内容）" } else { content };
-    let color = if is_empty { MUTED } else { TEXT };
-
-    egui::Frame::NONE
-        .fill(BG)
-        .stroke(Stroke::new(1.0, CARD_BORDER))
-        .corner_radius(CornerRadius::same(6))
-        .inner_margin(Margin::symmetric(8, 5))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            egui::ScrollArea::both()
-                .id_salt(scroll_id)
-                .min_scrolled_height(40.0)
-                .max_height(40.0)
-                .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(display).monospace().size(12.0).color(color),
-                        )
-                        .selectable(true),
-                    );
-                });
-        });
+/// 分类标签胶囊：触发键 + 标题
+fn category_chip(
+    ui: &mut egui::Ui,
+    keys: &str,
+    title: &str,
+    selected: bool,
+    sub_active: bool,
+    root_armed: bool,
+) -> egui::Response {
+    let key_color = if sub_active || root_armed { AMBER } else { MUTED };
+    let title_color = if sub_active {
+        AMBER
+    } else if selected {
+        Color32::WHITE
+    } else {
+        TEXT_DIM
+    };
+    let mut job = LayoutJob::default();
+    job.append(
+        keys,
+        0.0,
+        TextFormat {
+            font_id: FontId::monospace(11.0),
+            color: key_color,
+            valign: Align::Center,
+            ..Default::default()
+        },
+    );
+    job.append(
+        title,
+        5.0,
+        TextFormat {
+            font_id: FontId::proportional(12.5),
+            color: title_color,
+            valign: Align::Center,
+            ..Default::default()
+        },
+    );
+    let (fill, stroke) = if sub_active {
+        (AMBER_BG, Stroke::new(1.0, AMBER.gamma_multiply(0.7)))
+    } else if selected {
+        (ACCENT_BG, Stroke::new(1.0, ACCENT.gamma_multiply(0.6)))
+    } else {
+        (Color32::TRANSPARENT, Stroke::new(1.0, BORDER_SOFT))
+    };
+    ui.add(
+        egui::Button::new(job)
+            .fill(fill)
+            .stroke(stroke)
+            .min_size(Vec2::new(0.0, 28.0))
+            .corner_radius(CornerRadius::same(14)),
+    )
 }
 
-fn section_dot(ui: &mut egui::Ui, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(8.0, 8.0), egui::Sense::hover());
-    ui.painter().circle_filled(rect.center(), 3.2, color);
+/// 顶栏品牌标识：圆角方块 + ∑
+fn brand_mark(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(26.0), Sense::hover());
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(7), ACCENT_STRONG);
+    ui.painter().text(
+        rect.center() + Vec2::new(0.0, -0.5),
+        Align2::CENTER_CENTER,
+        "∑",
+        FontId::proportional(16.0),
+        Color32::WHITE,
+    );
 }
 
 /// 为上方输入栏源字符串生成无损语法高亮（支持单字母 `▸f`、双字母 `▸ma`/`▸ka`/`▸ta` 及内联跳转 `▸j.`/`▸j-`）
@@ -2172,16 +1948,8 @@ fn consume_esc_jump_key(ctx: &egui::Context) -> Option<char> {
     ];
     ctx.input_mut(|input| {
         for (key, ch) in KEYS {
-            if input.consume_key(Modifiers::NONE, key) {
-                input.events.retain(|ev| match ev {
-                    egui::Event::Text(txt) => {
-                        !(txt.contains(ch)
-                            && txt
-                                .chars()
-                                .all(|c| c.is_ascii_alphabetic() || matches!(c, ';' | '.' | '$' | '-' | '`' | '0')))
-                    }
-                    _ => true,
-                });
+            if input.consume_key(Modifiers::NONE, key) || input.consume_key(Modifiers::SHIFT, key) {
+                input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
                 return Some(ch);
             }
         }
@@ -2198,8 +1966,10 @@ fn consume_esc_jump_key(ctx: &egui::Context) -> Option<char> {
         }
         if let Some((i, c)) = consumed {
             input.events.remove(i);
+            input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
             return Some(c.to_ascii_lowercase());
         }
+        input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
         None
     })
 }
@@ -2234,54 +2004,6 @@ fn update_texture(
     }
 }
 
-fn card_frame() -> egui::Frame {
-    egui::Frame::NONE
-        .fill(CARD)
-        .stroke(Stroke::new(1.0, CARD_BORDER))
-        .corner_radius(CornerRadius::same(9))
-        .inner_margin(Margin::symmetric(12, 10))
-}
-
-fn surface_card(stroke: Stroke) -> egui::Frame {
-    egui::Frame::NONE
-        .fill(PREVIEW_SURFACE)
-        .stroke(stroke)
-        .corner_radius(CornerRadius::same(9))
-        .inner_margin(Margin::symmetric(12, 10))
-}
-
-fn install_style(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = PANEL;
-    visuals.window_fill = PANEL;
-    visuals.extreme_bg_color = BG;
-    visuals.faint_bg_color = CARD;
-    visuals.override_text_color = Some(TEXT);
-    visuals.selection.bg_fill = Color32::from_rgb(37, 99, 235);
-    visuals.hyperlink_color = ACCENT;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
-    visuals.widgets.noninteractive.bg_fill = PANEL;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, CARD_BORDER);
-    visuals.widgets.inactive.weak_bg_fill = CARD;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, CARD_BORDER);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
-    visuals.widgets.inactive.corner_radius = CornerRadius::same(5);
-    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(38, 48, 68);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
-    visuals.widgets.hovered.corner_radius = CornerRadius::same(5);
-    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(37, 99, 235);
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
-    visuals.widgets.active.corner_radius = CornerRadius::same(5);
-    ctx.set_theme(egui::ThemePreference::Dark);
-    ctx.set_visuals(visuals);
-    ctx.all_styles_mut(|style| {
-        style.spacing.item_spacing = Vec2::new(6.0, 4.0);
-        style.spacing.button_padding = Vec2::new(6.5, 3.5);
-        style.spacing.interact_size.y = 24.0;
-    });
-}
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
@@ -2348,6 +2070,35 @@ fn install_fonts(ctx: &egui::Context) {
             .entry(FontFamily::Monospace)
             .or_default()
             .push("mathslot-cjk".to_owned());
+    }
+
+    let symbol_candidates = [
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "/usr/share/fonts/gdouros-symbola/Symbola.ttf",
+        "/usr/share/fonts/google-noto/NotoSansSymbols2-Regular.ttf",
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "C:\\Windows\\Fonts\\seguisym.ttf",
+    ];
+    for path in symbol_candidates {
+        if Path::new(path).is_file() {
+            if let Ok(bytes) = std::fs::read(path) {
+                fonts.font_data.insert(
+                    "mathslot-symbols".to_owned(),
+                    Arc::new(FontData::from_owned(bytes)),
+                );
+                fonts
+                    .families
+                    .entry(FontFamily::Proportional)
+                    .or_default()
+                    .push("mathslot-symbols".to_owned());
+                fonts
+                    .families
+                    .entry(FontFamily::Monospace)
+                    .or_default()
+                    .push("mathslot-symbols".to_owned());
+                break;
+            }
+        }
     }
 
     ctx.set_fonts(fonts);

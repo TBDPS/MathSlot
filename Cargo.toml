@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "mathslot"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "Ultra-lightweight stream-first math formula editor exporting LaTeX (shared core with Obsidian WASM plugin)"
 

@@ -1,20 +1,19 @@
 use std::path::PathBuf;
 
-use eframe::egui::{self, Align, Color32, CornerRadius, FontId, Layout, Margin, RichText, Stroke};
+use eframe::egui::{self, Align, Align2, CornerRadius, FontId, Layout, Margin, RichText, Stroke, Vec2};
 use mathslot_core::command::CMD_PREFIX;
 use mathslot_core::editor::StreamEditor;
 use mathslot_core::library::{CustomFormat, FormulaSnippet, UserLibrary};
 
-const BG: Color32 = Color32::from_rgb(11, 15, 23);
-const CARD: Color32 = Color32::from_rgb(24, 29, 42);
-const CARD_BORDER: Color32 = Color32::from_rgb(38, 45, 61);
-const TEXT: Color32 = Color32::from_rgb(243, 244, 246);
-const MUTED: Color32 = Color32::from_rgb(148, 163, 184);
-const ACCENT: Color32 = Color32::from_rgb(96, 165, 250);
-const GREEN: Color32 = Color32::from_rgb(52, 211, 153);
-const RED: Color32 = Color32::from_rgb(248, 113, 113);
-const AMBER: Color32 = Color32::from_rgb(251, 191, 36);
-const CYAN: Color32 = Color32::from_rgb(56, 189, 248);
+use crate::theme::{
+    ACCENT, AMBER, BORDER_SOFT, CARD, CYAN, FIELD, GREEN, GREEN_BG, MUTED, RED, TEXT, TEXT_DIM,
+    segmented,
+};
+
+/// 列表行背景（凹陷）
+const BG: egui::Color32 = FIELD;
+/// 卡片描边
+const CARD_BORDER: egui::Color32 = BORDER_SOFT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LibraryTab {
@@ -119,14 +118,19 @@ impl LibraryModalState {
     pub fn show(&mut self, ctx: &egui::Context, editor: &mut StreamEditor) -> Option<ModalAction> {
         let mut action = None;
 
+        let screen = ctx.content_rect();
+        let anchor_pos = screen.center_top() + Vec2::new(0.0, 72.0);
+
         if self.show_library {
             let mut open = self.show_library;
-            egui::Window::new("MathSlot 扩展中心 · LaTeX 导入与公式模版库")
+            egui::Window::new(RichText::new("扩展中心 · LaTeX 导入与公式模版库").size(14.0).strong())
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(true)
-                .default_width(700.0)
-                .min_width(560.0)
+                .pivot(Align2::CENTER_TOP)
+                .default_pos(anchor_pos)
+                .default_width(720.0)
+                .min_width(580.0)
                 .show(ctx, |ui| {
                     if let Some(act) = self.render_library_body(ui, editor) {
                         action = Some(act);
@@ -137,12 +141,14 @@ impl LibraryModalState {
 
         if self.show_help {
             let mut open = self.show_help;
-            egui::Window::new("MathSlot 使用指南与快捷键速查 (F1)")
+            egui::Window::new(RichText::new("使用指南与快捷键速查 · F1").size(14.0).strong())
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(true)
-                .default_width(700.0)
-                .min_width(540.0)
+                .pivot(Align2::CENTER_TOP)
+                .default_pos(anchor_pos)
+                .default_width(720.0)
+                .min_width(560.0)
                 .show(ctx, |ui| {
                     render_help_body(ui);
                 });
@@ -160,57 +166,49 @@ impl LibraryModalState {
         let mut action = None;
         let mut reset_defaults = false;
 
-        ui.horizontal(|ui| {
-            if ui
-                .selectable_label(
-                    self.tab == LibraryTab::LatexConverter,
-                    RichText::new("⇄ LaTeX 逆向导入").strong().color(ACCENT),
-                )
-                .clicked()
-            {
-                self.tab = LibraryTab::LatexConverter;
+        let tab_titles = [
+            "⇄ LaTeX 逆向导入".to_owned(),
+            format!("k{CMD_PREFIX} 自定义格式 ({})", editor.library.custom_formats.len()),
+            format!("t{CMD_PREFIX} 片段模版 ({})", editor.library.snippets.len()),
+        ];
+        let tabs = [
+            LibraryTab::LatexConverter,
+            LibraryTab::CustomFormats,
+            LibraryTab::Snippets,
+        ];
+        let options: Vec<(&str, &str)> = vec![
+            (tab_titles[0].as_str(), "粘贴标准 LaTeX，反编译为简码流"),
+            (tab_titles[1].as_str(), "用 $1, $2… 模板定义任意 LaTeX 宏"),
+            (tab_titles[2].as_str(), "保存并复用常用公式片段 / 填空模版"),
+        ];
+        let selected = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
+        if let Some(idx) = segmented(ui, &options, selected) {
+            self.tab = tabs[idx];
+            if self.tab == LibraryTab::LatexConverter {
                 self.update_latex_conversion();
             }
-            if ui
-                .selectable_label(
-                    self.tab == LibraryTab::CustomFormats,
-                    RichText::new(format!(
-                        "[k{CMD_PREFIX}] 自定义数学格式 ({})",
-                        editor.library.custom_formats.len()
-                    ))
-                    .strong(),
-                )
-                .clicked()
-            {
-                self.tab = LibraryTab::CustomFormats;
-            }
-            if ui
-                .selectable_label(
-                    self.tab == LibraryTab::Snippets,
-                    RichText::new(format!(
-                        "[t{CMD_PREFIX}] 复用片段/填空模版 ({})",
-                        editor.library.snippets.len()
-                    ))
-                    .strong(),
-                )
-                .clicked()
-            {
-                self.tab = LibraryTab::Snippets;
-            }
+        }
 
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui
-                    .small_button("恢复默认预置")
-                    .on_hover_text("保留内置示例格式与模版（覆盖当前列表）")
+                    .small_button(RichText::new("恢复默认预置").color(TEXT_DIM))
+                    .on_hover_text("恢复内置示例格式与模版（覆盖当前列表）")
                     .clicked()
                 {
                     reset_defaults = true;
                 }
-                ui.label(
-                    RichText::new(format!("配置文件: {}", self.config_path_hint))
-                        .size(11.0)
-                        .color(MUTED),
-                );
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!("配置文件  {}", self.config_path_hint))
+                                .size(11.0)
+                                .color(MUTED),
+                        )
+                        .truncate(),
+                    );
+                });
             });
         });
 
@@ -225,15 +223,22 @@ impl LibraryModalState {
         }
 
         if let Some((msg, is_err)) = &self.feedback {
-            ui.add_space(3.0);
-            ui.label(
-                RichText::new(msg)
-                    .size(11.5)
-                    .color(if *is_err { RED } else { GREEN }),
-            );
+            ui.add_space(6.0);
+            let color = if *is_err { RED } else { GREEN };
+            egui::Frame::NONE
+                .fill(if *is_err { RED.gamma_multiply(0.12) } else { GREEN_BG })
+                .stroke(Stroke::new(1.0, color.gamma_multiply(0.4)))
+                .corner_radius(CornerRadius::same(7))
+                .inner_margin(Margin::symmetric(10, 6))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(msg).size(12.0).color(color));
+                });
         }
 
+        ui.add_space(6.0);
         ui.separator();
+        ui.add_space(4.0);
 
         match self.tab {
             LibraryTab::LatexConverter => {
@@ -297,8 +302,8 @@ impl LibraryModalState {
         egui::Frame::NONE
             .fill(CARD)
             .stroke(Stroke::new(1.0, CARD_BORDER))
-            .corner_radius(CornerRadius::same(7))
-            .inner_margin(Margin::symmetric(10, 8))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("LaTeX 源代码输入:").size(12.5).strong().color(ACCENT));
@@ -328,8 +333,8 @@ impl LibraryModalState {
         egui::Frame::NONE
             .fill(CARD)
             .stroke(Stroke::new(1.0, CARD_BORDER))
-            .corner_radius(CornerRadius::same(7))
-            .inner_margin(Margin::symmetric(10, 8))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
@@ -424,8 +429,8 @@ impl LibraryModalState {
         egui::Frame::NONE
             .fill(CARD)
             .stroke(Stroke::new(1.0, CARD_BORDER))
-            .corner_radius(CornerRadius::same(7))
-            .inner_margin(Margin::symmetric(10, 8))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.label(
                     RichText::new("新增 / 更新自定义格式")
@@ -568,8 +573,8 @@ impl LibraryModalState {
                     egui::Frame::NONE
                         .fill(BG)
                         .stroke(Stroke::new(1.0, CARD_BORDER))
-                        .corner_radius(CornerRadius::same(6))
-                        .inner_margin(Margin::symmetric(8, 5))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::symmetric(10, 7))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
@@ -680,8 +685,8 @@ impl LibraryModalState {
         egui::Frame::NONE
             .fill(CARD)
             .stroke(Stroke::new(1.0, CARD_BORDER))
-            .corner_radius(CornerRadius::same(7))
-            .inner_margin(Margin::symmetric(10, 8))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
@@ -774,8 +779,8 @@ impl LibraryModalState {
                     egui::Frame::NONE
                         .fill(BG)
                         .stroke(Stroke::new(1.0, CARD_BORDER))
-                        .corner_radius(CornerRadius::same(6))
-                        .inner_margin(Margin::symmetric(8, 5))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::symmetric(10, 7))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
@@ -841,7 +846,7 @@ impl LibraryModalState {
 fn render_help_body(ui: &mut egui::Ui) {
     egui::ScrollArea::vertical()
         .id_salt("mathslot-help-scroll")
-        .max_height(460.0)
+        .max_height(520.0)
         .show(ui, |ui| {
             help_section(
                 ui,
@@ -888,17 +893,21 @@ fn render_help_body(ui: &mut egui::Ui) {
 
             help_section(
                 ui,
-                "3. 增强导航跳转（行首 · 行尾 · 回上一跳转位置 · 嵌套展开）",
+                "3. 增强导航跳转（Ctrl+J / Alt+J / Esc 直达锚点）",
                 &[
-                    ("Esc + a (或 0)", "一步跳至当前层级最前端 `[a]`（根级即整行行首）"),
-                    ("Esc + ; (或 . / $)", "一步跳至当前层级最末端 `[;]`（跨出所有闭合分号直达行尾）"),
                     (
-                        "Esc + - (或 Alt+←)",
-                        "跳回「上一个跳转位置」，再按一次乒乓切回刚才位置（即使中间插入了字符也会自动跟踪偏移！）",
+                        "Ctrl+J / Alt+J / Esc",
+                        "进入/退出槽位导航模式；导航中按 Enter 确认落位，按 Tab / Esc 亦可退出",
+                    ),
+                    ("a (或 0 / h)", "导航态下一键跳至当前层级最前端 `[a]`（根级即整行行首）"),
+                    ("; (或 . / $ / t)", "导航态下一键跳至当前层级最末端 `[;]`（跨出所有闭合分号直达行尾）"),
+                    (
+                        "- (或 Alt+← / p)",
+                        "跳回「上一个跳转位置」，再按一次乒乓切回（跟踪插入偏移；p/n 历史前进后退）",
                     ),
                     (
-                        "Esc + 复合槽字母",
-                        "带 `[x+]` 的嵌套槽会逐级展开为独立子式（如 `Esc c b`），按 Backspace 返回上一层",
+                        "复合槽字母 (如 c)",
+                        "带 `[x+]` 的嵌套槽会逐级展开为独立子式（如 `c` 然后 `b`），按 Backspace 返回上一层",
                     ),
                     (
                         "Tab + j + 字母",
@@ -969,29 +978,42 @@ fn render_help_body(ui: &mut egui::Ui) {
 }
 
 fn help_section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]) {
+    const KEY_COL_W: f32 = 168.0;
     egui::Frame::NONE
         .fill(CARD)
         .stroke(Stroke::new(1.0, CARD_BORDER))
-        .corner_radius(CornerRadius::same(7))
-        .inner_margin(Margin::symmetric(10, 7))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(14, 12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new(title).size(12.5).strong().color(ACCENT));
-            ui.add_space(3.0);
-            for (k, desc) in rows {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        RichText::new(format!("{k}:"))
-                            .monospace()
-                            .size(11.5)
-                            .strong()
-                            .color(AMBER),
+            ui.label(RichText::new(title).size(13.0).strong().color(ACCENT));
+            ui.add_space(6.0);
+            for (idx, (k, desc)) in rows.iter().enumerate() {
+                if idx > 0 {
+                    ui.add_space(5.0);
+                }
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(KEY_COL_W, 0.0),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            ui.set_width(KEY_COL_W);
+                            ui.label(
+                                RichText::new(*k)
+                                    .monospace()
+                                    .size(12.0)
+                                    .strong()
+                                    .color(AMBER),
+                            );
+                        },
                     );
-                    ui.label(RichText::new(*desc).size(11.5).color(TEXT));
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(*desc).size(12.0).color(TEXT));
+                    });
                 });
             }
         });
-    ui.add_space(6.0);
+    ui.add_space(8.0);
 }
 
 pub fn library_config_path() -> Option<PathBuf> {

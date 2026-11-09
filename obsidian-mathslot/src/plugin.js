@@ -284,8 +284,18 @@ class MathSlotModal extends Modal {
     this.state = null;
     this.drawerMode = null; // null | "custom" | "snippets" | "help"
 
-    // 拦截 Modal 默认的裸 Escape 关闭行为：若抽屉已打开则先收起抽屉，否则切换「无鼠标槽位导航」！
+    // 拦截 Modal 默认的裸 Escape / CapsLock 关闭行为：若抽屉已打开则先收起抽屉，否则切换「无鼠标槽位导航」！
     this.scope.register([], "Escape", (evt) => {
+      evt.preventDefault();
+      if (this.drawerMode) {
+        this.setDrawer(null);
+        this.focusStreamInput();
+        return false;
+      }
+      this.applyState(this.bridge.toggleEsc(), false);
+      return false;
+    });
+    this.scope.register([], "CapsLock", (evt) => {
       evt.preventDefault();
       if (this.drawerMode) {
         this.setDrawer(null);
@@ -581,15 +591,9 @@ class MathSlotModal extends Modal {
       this.delimTabs[key] = tab;
     }
 
-    const copyLatexBtn = rightControls.createEl("button", {
-      cls: "mathslot-btn",
-      text: "复制",
-    });
-    copyLatexBtn.addEventListener("click", () => this.insertOrCopyLatex(true));
-
     const insertBtn = rightControls.createEl("button", {
       cls: "mathslot-btn mathslot-btn-primary",
-      text: "插入笔记 (Ctrl+Enter)",
+      text: "直接插入笔记 (Ctrl+Enter)",
     });
     insertBtn.addEventListener("click", () => this.insertOrCopyLatex(false));
 
@@ -647,7 +651,18 @@ class MathSlotModal extends Modal {
       return;
     }
 
+    if (evt.key === "CapsLock" || evt.code === "CapsLock") {
+      evt.preventDefault();
+      this.applyState(this.bridge.toggleEsc(), false);
+      return;
+    }
+
     if (this.state && this.state.escActive) {
+      if (evt.key === "Escape" || evt.key === "CapsLock" || evt.code === "CapsLock") {
+        evt.preventDefault();
+        this.applyState(this.bridge.toggleEsc(), false);
+        return;
+      }
       if (evt.key === "Backspace") {
         evt.preventDefault();
         this.applyState(this.bridge.escBackspace(), false);
@@ -1535,13 +1550,13 @@ class MathSlotPlugin extends Plugin {
     this.addCommand({
       id: "open-mathslot-inline",
       name: "打开流式数学公式编辑器 (行内 $...$)",
-      callback: () => this.openFormulaModal("inline", null),
+      editorCallback: (editor) => this.openFormulaModal("inline", editor),
     });
 
     this.addCommand({
       id: "open-mathslot-display",
       name: "插入块级数学公式 (块级 $$...$$)",
-      callback: () => this.openFormulaModal("display", null),
+      editorCallback: (editor) => this.openFormulaModal("display", editor),
     });
   }
 
