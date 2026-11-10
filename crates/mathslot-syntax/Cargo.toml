@@ -1,0 +1,11 @@
+[package]
+name = "mathslot-syntax"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Typed mathematical AST, lossless span tracker, zero-copy lexer, parser, and printer for MathSlot"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"

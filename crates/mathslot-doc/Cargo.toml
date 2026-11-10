@@ -1,0 +1,12 @@
+[package]
+name = "mathslot-doc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Mathematical document model, slot table, atomic transaction engine, and undo stack for MathSlot"
+
+[dependencies]
+mathslot-syntax = { path = "../mathslot-syntax" }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"

@@ -1,0 +1,12 @@
+[package]
+name = "mathslot-latex"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Structured LaTeX import/export pipeline, environment canonicalizer, and ImportReport diagnostics"
+
+[dependencies]
+mathslot-syntax = { path = "../mathslot-syntax" }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"

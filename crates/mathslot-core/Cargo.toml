@@ -1,0 +1,13 @@
+[package]
+name = "mathslot-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core domain model and facade for MathSlot"
+
+[dependencies]
+mathslot-syntax = { path = "../mathslot-syntax" }
+mathslot-doc = { path = "../mathslot-doc" }
+mathslot-latex = { path = "../mathslot-latex" }
+serde = { version = "1.0", features = ["derive"] }
