@@ -1,16 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Solid White Squircle Base -->
+  <!-- Solid White Squircle Base with Subtle 1px Hairline Border -->
   <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#FFFFFF"/>
+  <rect x="0.5" y="0.5" width="511" height="511" rx="111.5" ry="111.5" fill="none" stroke="#E2E8F0" stroke-width="1"/>
 
   <!-- Upper Delimiter Capsule (Electric Blue) -->
-  <rect x="136" y="86" width="224" height="38" rx="19" fill="#2163EA"/>
+  <rect x="94" y="76" width="246" height="40" rx="20" fill="#2163EA"/>
 
-  <!-- Center Summation Hero Sigma (Deep Sea Navy) -->
-  <path d="M 136 146 L 360 146 L 360 184 L 246 256 L 360 328 L 360 366 L 136 366 L 136 328 L 196 256 L 136 184 Z" fill="#011D60"/>
+  <!-- Center Hero Sigma (Deep Sea Navy) -->
+  <path d="
+    M 86 140
+    H 305
+    A 16 16 0 0 1 321 156
+    V 186
+    A 11 11 0 0 1 299 186
+    C 299 175 287 168 268 168
+    H 186
+    L 256 256
+    L 186 344
+    H 268
+    C 287 344 299 337 299 326
+    A 11 11 0 0 1 321 326
+    V 356
+    A 16 16 0 0 1 305 372
+    H 86
+    A 10 10 0 0 1 76 362
+    L 76 348
+    L 168 256
+    L 76 164
+    V 150
+    A 10 10 0 0 1 86 140
+    Z
+  " fill="#011D60"/>
 
   <!-- Lower Delimiter Capsule (Electric Blue) -->
-  <rect x="136" y="388" width="224" height="38" rx="19" fill="#2163EA"/>
+  <rect x="94" y="396" width="246" height="40" rx="20" fill="#2163EA"/>
 
-  <!-- Right Slot Indicator (Soft Periwinkle Blue) -->
-  <rect x="372" y="96" width="72" height="320" rx="18" fill="none" stroke="#8FACFD" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right Slot Indicator Pill (Soft Periwinkle Blue) -->
+  <!-- Outer stroke perfectly spans y: [140, 372], x: [347, 436] -->
+  <rect x="355" y="148" width="73" height="216" rx="36.5" fill="none" stroke="#8FACFD" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

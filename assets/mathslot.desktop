@@ -1,3 +1,4 @@
+#!/usr/bin/env xdg-open
 [Desktop Entry]
 Name=MathSlot
 GenericName=Math Formula Editor

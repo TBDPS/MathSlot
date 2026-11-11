@@ -1933,7 +1933,7 @@ fn category_chip(
     )
 }
 
-/// 顶栏品牌标识：实心纯白圆角 Squircle + 几何蓝胶囊 + 深海蓝 ∑ + 槽位框
+/// 顶栏品牌标识：实心纯白圆角 Squircle + 几何蓝胶囊 + 深海蓝 ∑ + 槽位框 (严格居中对齐)
 fn brand_mark(ui: &mut egui::Ui) {
     let size = 26.0;
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
@@ -1942,6 +1942,12 @@ fn brand_mark(ui: &mut egui::Ui) {
     // 1. 实心纯白底板 (Solid White Squircle, rx/ry 约 22%)
     let corner = CornerRadius::same(6);
     painter.rect_filled(rect, corner, Color32::WHITE);
+    painter.rect_stroke(
+        rect,
+        corner,
+        Stroke::new(1.0, Color32::from_rgb(226, 232, 240)),
+        egui::StrokeKind::Inside,
+    );
 
     // 坐标比例变换辅助：将 512x512 坐标映射至当前物理矩形
     let to_pt = |x: f32, y: f32| -> egui::Pos2 {
@@ -1955,25 +1961,25 @@ fn brand_mark(ui: &mut egui::Ui) {
     let navy_blue = Color32::from_rgb(1, 29, 96);           // #011D60
     let slot_periwinkle = Color32::from_rgb(143, 172, 253); // #8FACFD
 
-    // 2. 顶部与底部胶囊 (x: 136..360, y: 86..124, 388..426)
-    let top_cap = Rect::from_min_max(to_pt(136.0, 86.0), to_pt(360.0, 124.0));
+    // 2. 顶部与底部胶囊 (严格水平居中对称 x: 94..340, y: 76..116, 396..436)
+    let top_cap = Rect::from_min_max(to_pt(94.0, 76.0), to_pt(340.0, 116.0));
     painter.rect_filled(top_cap, CornerRadius::same(2), electric_blue);
 
-    let bot_cap = Rect::from_min_max(to_pt(136.0, 388.0), to_pt(360.0, 426.0));
+    let bot_cap = Rect::from_min_max(to_pt(94.0, 396.0), to_pt(340.0, 436.0));
     painter.rect_filled(bot_cap, CornerRadius::same(2), electric_blue);
 
     // 3. 中央几何 ∑（拆解为上横梁、下横梁、上斜梁、下斜梁凸多边形无缝拼合）
-    let top_bar = Rect::from_min_max(to_pt(136.0, 146.0), to_pt(360.0, 184.0));
+    let top_bar = Rect::from_min_max(to_pt(86.0, 140.0), to_pt(305.0, 168.0));
     painter.rect_filled(top_bar, CornerRadius::ZERO, navy_blue);
 
-    let bot_bar = Rect::from_min_max(to_pt(136.0, 328.0), to_pt(360.0, 366.0));
+    let bot_bar = Rect::from_min_max(to_pt(86.0, 344.0), to_pt(305.0, 372.0));
     painter.rect_filled(bot_bar, CornerRadius::ZERO, navy_blue);
 
     let upper_slant = vec![
-        to_pt(136.0, 184.0),
-        to_pt(360.0, 184.0),
-        to_pt(246.0, 256.0),
-        to_pt(196.0, 256.0),
+        to_pt(86.0, 168.0),
+        to_pt(305.0, 168.0),
+        to_pt(256.0, 256.0),
+        to_pt(168.0, 256.0),
     ];
     painter.add(egui::Shape::convex_polygon(
         upper_slant,
@@ -1982,10 +1988,10 @@ fn brand_mark(ui: &mut egui::Ui) {
     ));
 
     let lower_slant = vec![
-        to_pt(196.0, 256.0),
-        to_pt(246.0, 256.0),
-        to_pt(360.0, 328.0),
-        to_pt(136.0, 328.0),
+        to_pt(168.0, 256.0),
+        to_pt(256.0, 256.0),
+        to_pt(305.0, 344.0),
+        to_pt(86.0, 344.0),
     ];
     painter.add(egui::Shape::convex_polygon(
         lower_slant,
@@ -1993,8 +1999,8 @@ fn brand_mark(ui: &mut egui::Ui) {
         Stroke::NONE,
     ));
 
-    // 4. 右侧槽位指示框 (Slot Indicator)
-    let slot_rect = Rect::from_min_max(to_pt(372.0, 96.0), to_pt(444.0, 416.0));
+    // 4. 右侧槽位指示框 (Slot Indicator, 严格对齐 y: 148..364, x: 355..428)
+    let slot_rect = Rect::from_min_max(to_pt(355.0, 148.0), to_pt(428.0, 364.0));
     painter.rect_stroke(
         slot_rect,
         CornerRadius::same(2),

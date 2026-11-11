@@ -125,7 +125,7 @@ impl LibraryModalState {
         {
             self.custom_key = k.to_string();
         }
-        self.show_custom_form = true;
+        self.show_custom_form = false;
         self.show_library = true;
     }
 
@@ -136,7 +136,7 @@ impl LibraryModalState {
         {
             self.snip_key = k.to_string();
         }
-        self.show_snippet_form = true;
+        self.show_snippet_form = false;
         self.show_library = true;
     }
 
@@ -159,15 +159,17 @@ impl LibraryModalState {
 
         if self.show_library {
             let mut open = self.show_library;
-            egui::Window::new(RichText::new("扩展中心 · LaTeX 导入与自定义模版").size(14.0).strong())
+            egui::Window::new(RichText::new("扩展中心 · 格式库与模版").size(14.0).strong())
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(true)
                 .pivot(Align2::CENTER_TOP)
                 .default_pos(anchor_pos)
-                .default_size([820.0, 620.0])
-                .min_size([640.0, 480.0])
+                .default_size([780.0, 580.0])
+                .min_size([680.0, 460.0])
+                .max_size([880.0, 680.0])
                 .show(ctx, |ui| {
+                    ui.set_width(ui.available_width());
                     if let Some(act) = self.render_library_body(ui, editor) {
                         action = Some(act);
                     }
@@ -600,8 +602,8 @@ impl LibraryModalState {
 
         let tab_titles = [
             "⇄ LaTeX 逆向导入".to_owned(),
-            format!("k{CMD_PREFIX} 自定义格式 ({})", editor.library.custom_formats.len()),
-            format!("t{CMD_PREFIX} 片段模版 ({})", editor.library.snippets.len()),
+            format!("k{} 自定义格式 ({})", CMD_PREFIX, editor.library.custom_formats.len()),
+            format!("t{} 片段模版 ({})", CMD_PREFIX, editor.library.snippets.len()),
         ];
         let tabs = [
             LibraryTab::LatexConverter,
@@ -609,9 +611,9 @@ impl LibraryModalState {
             LibraryTab::Snippets,
         ];
         let options: Vec<(&str, &str)> = vec![
-            (tab_titles[0].as_str(), "粘贴标准 LaTeX，反编译为简码流"),
-            (tab_titles[1].as_str(), "用 $1, $2… 模板定义任意 LaTeX 宏"),
-            (tab_titles[2].as_str(), "保存并复用常用公式片段 / 填空模版"),
+            (tab_titles[0].as_str(), "LaTeX 公式反编译为简码流"),
+            (tab_titles[1].as_str(), "以 $1, $2 槽位定义自定义宏"),
+            (tab_titles[2].as_str(), "常用公式片段与填空模版"),
         ];
         let selected = tabs.iter().position(|t| *t == self.tab).unwrap_or(0);
         if let Some(idx) = segmented(ui, &options, selected) {
@@ -700,24 +702,15 @@ impl LibraryModalState {
     ) -> Option<ModalAction> {
         let mut action = None;
 
-        ui.label(
-            RichText::new(
-                "粘贴现有 LaTeX 公式（支持 $..$、$$..$$ 或裸代码），自动将其智能反编译为 MathSlot 极速简码流，即刻插入或替换编辑！",
-            )
-            .size(11.5)
-            .color(MUTED),
-        );
-        ui.add_space(4.0);
-
-        // 快捷预置示例
+        // 常用示例快捷点选
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("常用示例:").size(11.5).color(MUTED));
+            ui.label(RichText::new("示例:").size(11.5).color(MUTED));
             const EXAMPLES: &[(&str, &str)] = &[
                 ("求根公式", r"x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"),
                 ("高斯积分", r"\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}"),
                 ("重要极限", r"\lim_{x \to 0} \frac{\sin x}{x} = 1"),
-                ("贝叶斯定理", r"P(A|B) = \frac{P(B|A) P(A)}{P(B)}"),
-                ("薛定谔方程", r"i\hbar \frac{\partial \psi}{\partial t} = \hat{H}\psi"),
+                ("贝叶斯", r"P(A|B) = \frac{P(B|A) P(A)}{P(B)}"),
+                ("薛定谔", r"i\hbar \frac{\partial \psi}{\partial t} = \hat{H}\psi"),
                 ("二阶矩阵", r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}"),
             ];
             for (title, latex) in EXAMPLES {
@@ -730,15 +723,16 @@ impl LibraryModalState {
 
         ui.add_space(6.0);
 
-        // 输入区域
+        // 现代统一双层转换面板 (Linear 风格无缝分割)
         egui::Frame::NONE
             .fill(CARD)
             .stroke(Stroke::new(1.0, CARD_BORDER))
             .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(14, 12))
+            .inner_margin(Margin::same(12))
             .show(ui, |ui| {
+                // 上半部：LaTeX 输入
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("LaTeX 源代码输入:").size(12.5).strong().color(ACCENT));
+                    ui.label(RichText::new("LaTeX 源代码").size(12.0).strong().color(ACCENT));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.small_button("清空").clicked() {
                             self.latex_input.clear();
@@ -749,32 +743,22 @@ impl LibraryModalState {
                 ui.add_space(3.0);
                 let edit_resp = ui.add(
                     egui::TextEdit::multiline(&mut self.latex_input)
-                        .font(FontId::monospace(13.5))
+                        .font(FontId::monospace(13.0))
                         .desired_rows(3)
-                        .desired_width(f32::INFINITY)
+                        .desired_width(ui.available_width())
                         .hint_text(r"粘贴 LaTeX，如 \frac{a+b}{c} 或 \sum_{k=1}^n k^2"),
                 );
                 if edit_resp.changed() {
                     self.update_latex_conversion();
                 }
-            });
 
-        ui.add_space(6.0);
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
 
-        // 转换结果展示区域
-        egui::Frame::NONE
-            .fill(CARD)
-            .stroke(Stroke::new(1.0, CARD_BORDER))
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(14, 12))
-            .show(ui, |ui| {
+                // 下半部：MathSlot 简码流生成与校验
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("MathSlot 简码流生成结果:")
-                            .size(12.5)
-                            .strong()
-                            .color(AMBER),
-                    );
+                    ui.label(RichText::new("MathSlot 简码流").size(12.0).strong().color(AMBER));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.small_button("复制简码流").clicked() {
                             ui.ctx().copy_text(self.latex_converted_mathslot.clone());
@@ -782,56 +766,55 @@ impl LibraryModalState {
                         }
                     });
                 });
-                ui.add_space(4.0);
-
-                // 只读显示结果
+                ui.add_space(3.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut self.latex_converted_mathslot.as_str())
-                        .font(FontId::monospace(14.0))
+                        .font(FontId::monospace(13.5))
                         .text_color(CYAN)
-                        .desired_width(f32::INFINITY),
+                        .desired_width(ui.available_width()),
                 );
 
-                ui.add_space(6.0);
-
-                // 反向校验 LaTeX 预览
                 let verified_parsed = mathslot_core::parser::parse_with_library(
                     &self.latex_converted_mathslot,
                     &editor.library,
                 );
                 let verified_latex = mathslot_core::latex::to_latex(&verified_parsed);
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("校验反推 LaTeX:").size(11.0).color(MUTED));
-                    ui.label(RichText::new(&verified_latex).monospace().size(11.0).color(TEXT));
+                    ui.label(RichText::new("校验反推:").size(11.0).color(MUTED));
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&verified_latex).monospace().size(11.0).color(TEXT_DIM),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(&verified_latex);
                 });
 
-                ui.add_space(8.0);
-
+                ui.add_space(10.0);
                 ui.horizontal(|ui| {
                     if ui
                         .button(RichText::new("✓ 替换当前编辑器内容").strong().color(GREEN))
-                        .on_hover_text("用转换后的简码流完全覆盖当前编辑器")
+                        .on_hover_text("用反编译简码流覆盖当前编辑器")
                         .clicked()
+                        && !self.latex_converted_mathslot.is_empty()
                     {
-                        if !self.latex_converted_mathslot.is_empty() {
-                            action = Some(ModalAction::ReplaceCode(
-                                self.latex_converted_mathslot.clone(),
-                            ));
-                            self.show_library = false;
-                        }
+                        action = Some(ModalAction::ReplaceCode(
+                            self.latex_converted_mathslot.clone(),
+                        ));
+                        self.show_library = false;
                     }
 
                     if ui
                         .button(RichText::new("+ 插入到当前光标处").color(ACCENT))
-                        .on_hover_text("将转换后的简码流追加到当前光标位置")
+                        .on_hover_text("追加到当前光标位置")
                         .clicked()
+                        && !self.latex_converted_mathslot.is_empty()
                     {
-                        if !self.latex_converted_mathslot.is_empty() {
-                            action = Some(ModalAction::InsertCode(
-                                self.latex_converted_mathslot.clone(),
-                            ));
-                            self.show_library = false;
-                        }
+                        action = Some(ModalAction::InsertCode(
+                            self.latex_converted_mathslot.clone(),
+                        ));
+                        self.show_library = false;
                     }
                 });
             });
@@ -849,20 +832,21 @@ impl LibraryModalState {
         let mut delete_key: Option<char> = None;
         let mut insert_code: Option<String> = None;
 
-        // 紧凑操作栏
+        // 顶栏操作：新建展开与快捷微文案
         ui.horizontal(|ui| {
             let btn_txt = if self.show_custom_form { "收起表单" } else { "+ 新建自定义格式" };
-            if ui.button(RichText::new(btn_txt).strong().color(GREEN)).clicked() {
+            if ui.button(RichText::new(btn_txt).strong().color(if self.show_custom_form { TEXT_DIM } else { GREEN })).clicked() {
                 self.show_custom_form = !self.show_custom_form;
-                if self.show_custom_form && self.custom_label.is_empty() {
-                    if let Some(k) = editor.library.next_free_custom_key() {
-                        self.custom_key = k.to_string();
-                    }
+                if self.show_custom_form
+                    && self.custom_label.is_empty()
+                    && let Some(k) = editor.library.next_free_custom_key()
+                {
+                    self.custom_key = k.to_string();
                 }
             }
 
             ui.label(
-                RichText::new("用 $1, $2 对应第 1, 2 个槽位 · 支持 Tab k 触发与 Enter 推进")
+                RichText::new("按 Tab k 触发 · $1, $2 对应槽位")
                     .size(11.0)
                     .color(MUTED),
             );
@@ -874,11 +858,11 @@ impl LibraryModalState {
                 .fill(CARD)
                 .stroke(Stroke::new(1.0, CARD_BORDER))
                 .corner_radius(CornerRadius::same(10))
-                .inner_margin(Margin::symmetric(14, 12))
+                .inner_margin(Margin::same(12))
                 .show(ui, |ui| {
                     ui.label(
-                        RichText::new("新增 / 更新自定义格式")
-                            .size(12.5)
+                        RichText::new("新建 / 编辑自定义格式")
+                            .size(12.0)
                             .strong()
                             .color(AMBER),
                     );
@@ -887,16 +871,16 @@ impl LibraryModalState {
                         .num_columns(4)
                         .spacing([8.0, 6.0])
                         .show(ui, |ui| {
-                            ui.label("触发字母 (a-z):");
+                            ui.label("触发字母:");
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.custom_key)
-                                    .desired_width(48.0)
+                                    .desired_width(40.0)
                                     .hint_text("g"),
                             );
                             ui.label("格式名称:");
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.custom_label)
-                                    .desired_width(180.0)
+                                    .desired_width(170.0)
                                     .hint_text("如：同余式 / 期望"),
                             );
                             ui.end_row();
@@ -907,36 +891,30 @@ impl LibraryModalState {
                                     .desired_width(90.0)
                                     .hint_text("如 a≡b(m)"),
                             );
-                            ui.label("函数别名 (可选):")
-                                .on_hover_text("定义线性函数调用别名，便于在极速输入或 CAS 模式下展开");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.custom_scheme_a)
-                                    .desired_width(180.0)
-                                    .hint_text("如 cong / binom (留空自动生成)"),
-                            )
-                            .on_hover_text("定义线性函数调用别名，便于在极速输入或 CAS 模式下展开");
-                            ui.end_row();
-
-                            ui.label("槽位角色 (;分隔):");
+                            ui.label("槽位角色:");
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.custom_roles)
-                                    .desired_width(220.0)
-                                    .hint_text("左项;右项;模数（无槽位符号请留空）"),
+                                    .desired_width(170.0)
+                                    .hint_text("左项;右项;模数 (分号分隔)"),
                             );
+                            ui.end_row();
+
                             ui.label("LaTeX 模板:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.custom_latex)
-                                    .font(FontId::monospace(13.0))
-                                    .desired_width(240.0)
-                                    .hint_text("$1 \\equiv $2 \\pmod{$3}"),
-                            );
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.custom_latex)
+                                        .font(FontId::monospace(13.0))
+                                        .desired_width(280.0)
+                                        .hint_text("$1 \\equiv $2 \\pmod{$3}"),
+                                );
+                            });
                             ui.end_row();
                         });
 
-                    ui.add_space(5.0);
+                    ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         if ui
-                            .button(RichText::new("保存自定义格式").strong().color(GREEN))
+                            .button(RichText::new("保存格式").strong().color(GREEN))
                             .clicked()
                         {
                             let key_ch = self
@@ -964,7 +942,7 @@ impl LibraryModalState {
                                 glyph_hint: self.custom_glyph.clone(),
                                 slot_roles: roles,
                                 latex_template: self.custom_latex.clone(),
-                                scheme_a_name: self.custom_scheme_a.clone(),
+                                scheme_a_name: String::new(),
                                 layout,
                                 auto_join,
                             };
@@ -974,7 +952,7 @@ impl LibraryModalState {
                                     let (msg, is_err) = match save_library_to_disk(&editor.library) {
                                         Ok(_) => (
                                             format!(
-                                                "✓ 已保存自定义格式 [{CMD_PREFIX}k{saved_k}]：按 Tab k {saved_k} 即可调用！"
+                                                "✓ 已保存格式 [{CMD_PREFIX}k{saved_k}]：按 Tab k {saved_k} 即可调用！"
                                             ),
                                             false,
                                         ),
@@ -1030,18 +1008,25 @@ impl LibraryModalState {
                                         .color(AMBER),
                                 );
                                 ui.label(RichText::new(&fmt.label).strong().color(TEXT));
-                                ui.label(
-                                    RichText::new(&fmt.glyph_hint)
-                                        .monospace()
-                                        .size(11.5)
-                                        .color(CYAN),
-                                );
-                                ui.label(
-                                    RichText::new(format!("→ {}", fmt.latex_template))
-                                        .monospace()
-                                        .size(11.5)
-                                        .color(MUTED),
-                                );
+                                if !fmt.glyph_hint.is_empty() {
+                                    ui.label(
+                                        RichText::new(&fmt.glyph_hint)
+                                            .monospace()
+                                            .size(11.5)
+                                            .color(CYAN),
+                                    );
+                                }
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(format!("→ {}", fmt.latex_template))
+                                            .monospace()
+                                            .size(11.5)
+                                            .color(MUTED),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(&fmt.latex_template);
+
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if ui.small_button("删除").clicked() {
                                         delete_key = Some(fmt.item_key);
@@ -1068,9 +1053,9 @@ impl LibraryModalState {
             self.custom_glyph = fmt.glyph_hint;
             self.custom_roles = fmt.slot_roles.join(";");
             self.custom_latex = fmt.latex_template;
-            self.custom_scheme_a = fmt.scheme_a_name;
+            self.custom_scheme_a.clear();
             self.show_custom_form = true;
-            self.feedback = Some(("已载入表单，修改后点「保存自定义格式」即可覆盖。".to_owned(), false));
+            self.feedback = Some(("已载入表单，修改后点「保存格式」即可覆盖。".to_owned(), false));
         }
 
         if let Some(k) = delete_key
@@ -1105,26 +1090,27 @@ impl LibraryModalState {
 
         // 顶部操作栏
         ui.horizontal(|ui| {
-            let btn_txt = if self.show_snippet_form { "收起表单" } else { "+ 新建复用片段" };
-            if ui.button(RichText::new(btn_txt).strong().color(GREEN)).clicked() {
+            let btn_txt = if self.show_snippet_form { "收起表单" } else { "+ 新建片段模版" };
+            if ui.button(RichText::new(btn_txt).strong().color(if self.show_snippet_form { TEXT_DIM } else { GREEN })).clicked() {
                 self.show_snippet_form = !self.show_snippet_form;
-                if self.show_snippet_form && self.snip_label.is_empty() {
-                    if let Some(k) = editor.library.next_free_snippet_key() {
-                        self.snip_key = k.to_string();
-                    }
+                if self.show_snippet_form
+                    && self.snip_label.is_empty()
+                    && let Some(k) = editor.library.next_free_snippet_key()
+                {
+                    self.snip_key = k.to_string();
                 }
             }
 
             if ui
                 .button(RichText::new("存内部子式").color(AMBER))
-                .on_hover_text("若光标位于某个根式/分式/积分内，仅提取该子式保存为复用模版")
+                .on_hover_text("若光标位于根式/分式/积分内，仅保存该子式")
                 .clicked()
             {
                 action = Some(ModalAction::QuickSaveSnippet { prefer_inner: true });
             }
             if ui
                 .button(RichText::new("存整行公式").color(ACCENT))
-                .on_hover_text("将当前输入栏整条公式保存为复用模版")
+                .on_hover_text("将当前输入栏整条公式保存为模版")
                 .clicked()
             {
                 action = Some(ModalAction::QuickSaveSnippet {
@@ -1132,7 +1118,7 @@ impl LibraryModalState {
                 });
             }
             ui.label(
-                RichText::new("空槽在按 Tab t 插入后自动定焦")
+                RichText::new("按 Tab t 快速展开")
                     .size(11.0)
                     .color(MUTED),
             );
@@ -1144,40 +1130,54 @@ impl LibraryModalState {
                 .fill(CARD)
                 .stroke(Stroke::new(1.0, CARD_BORDER))
                 .corner_radius(CornerRadius::same(10))
-                .inner_margin(Margin::symmetric(14, 12))
+                .inner_margin(Margin::same(12))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("手动新建 / 编辑片段模版")
-                                .size(12.5)
+                            RichText::new("新建 / 编辑片段模版")
+                                .size(12.0)
                                 .strong()
                                 .color(AMBER),
                         );
-                        if ui.small_button("填入当前编辑器内容").clicked() {
-                            self.snip_source = editor.source.clone();
-                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.small_button("填入当前公式").clicked() {
+                                self.snip_source = editor.source.clone();
+                            }
+                        });
                     });
                     ui.add_space(4.0);
+                    egui::Grid::new("mathslot-snippet-form-grid")
+                        .num_columns(4)
+                        .spacing([8.0, 6.0])
+                        .show(ui, |ui| {
+                            ui.label("触发字母:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.snip_key)
+                                    .desired_width(40.0)
+                                    .hint_text("d"),
+                            );
+                            ui.label("模版名称:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.snip_label)
+                                    .desired_width(180.0)
+                                    .hint_text("如：高斯核 / 泰勒余项"),
+                            );
+                            ui.end_row();
+
+                            ui.label("简码流源码:");
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.snip_source)
+                                        .font(FontId::monospace(12.5))
+                                        .desired_width(280.0)
+                                        .hint_text("如 ▸rb^2 - 4ac;"),
+                                );
+                            });
+                            ui.end_row();
+                        });
+
+                    ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        ui.label("字母(a-z):");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.snip_key)
-                                .desired_width(42.0)
-                                .hint_text("d"),
-                        );
-                        ui.label("名称:");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.snip_label)
-                                .desired_width(160.0)
-                                .hint_text("如：高斯核 / 泰勒余项"),
-                        );
-                        ui.label("简码流:");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.snip_source)
-                                .font(FontId::monospace(13.0))
-                                .desired_width(230.0)
-                                .hint_text("如 ▸rb^2 - 4ac;"),
-                        );
                         if ui
                             .button(RichText::new("保存片段").strong().color(GREEN))
                             .clicked()
@@ -1253,12 +1253,17 @@ impl LibraryModalState {
                                         .color(AMBER),
                                 );
                                 ui.label(RichText::new(&snip.label).strong().color(TEXT));
-                                ui.label(
-                                    RichText::new(&snip.stream_source)
-                                        .monospace()
-                                        .size(11.5)
-                                        .color(CYAN),
-                                );
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&snip.stream_source)
+                                            .monospace()
+                                            .size(11.5)
+                                            .color(CYAN),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(&snip.stream_source);
+
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if ui.small_button("删除").clicked() {
                                         delete_key = Some(snip.item_key);
@@ -1267,7 +1272,7 @@ impl LibraryModalState {
                                         edit_snip = Some(snip.clone());
                                     }
                                     if ui
-                                        .small_button(RichText::new("插入复用").color(GREEN))
+                                        .small_button(RichText::new("插入").color(GREEN))
                                         .clicked()
                                     {
                                         insert_code = Some(snip.code());

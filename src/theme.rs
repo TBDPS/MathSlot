@@ -9,24 +9,24 @@ use eframe::egui::{
 };
 
 // ---------------------------------------------------------------------------
-// 调色板
+// 调色板 (Tailwind Zinc & Linear Deep Space 极简微光系统)
 // ---------------------------------------------------------------------------
 
-/// 应用底色（工作区背景）
-pub const BG: Color32 = Color32::from_rgb(13, 15, 21);
-/// 顶栏 / 侧栏 / 状态栏
-pub const PANEL: Color32 = Color32::from_rgb(18, 21, 29);
-/// 卡片底色
-pub const CARD: Color32 = Color32::from_rgb(23, 27, 37);
+/// 应用底色（工作区背景：Zinc-950 极深微光夜空）
+pub const BG: Color32 = Color32::from_rgb(10, 11, 15);
+/// 顶栏 / 侧栏 / 状态栏（Zinc-900 沉着面板）
+pub const PANEL: Color32 = Color32::from_rgb(17, 19, 25);
+/// 卡片底色（Zinc-850 凸起表面）
+pub const CARD: Color32 = Color32::from_rgb(23, 26, 35);
 /// 卡片悬停 / 次级凸起表面
-pub const CARD_HI: Color32 = Color32::from_rgb(31, 36, 49);
-/// 输入框 / 代码框等“凹陷”表面
-pub const FIELD: Color32 = Color32::from_rgb(11, 13, 19);
-/// 常规描边
-pub const BORDER: Color32 = Color32::from_rgb(40, 46, 61);
+pub const CARD_HI: Color32 = Color32::from_rgb(32, 37, 49);
+/// 输入框 / 代码框等“凹陷”表面（极深黑曜凹槽）
+pub const FIELD: Color32 = Color32::from_rgb(12, 13, 18);
+/// 常规描边 (1px 精细发丝)
+pub const BORDER: Color32 = Color32::from_rgb(38, 44, 58);
 /// 弱描边（卡片外框、分隔线）
-pub const BORDER_SOFT: Color32 = Color32::from_rgb(31, 36, 48);
-/// 公式画布（纸张）
+pub const BORDER_SOFT: Color32 = Color32::from_rgb(26, 30, 42);
+/// 公式画布（纯白纸张）
 pub const PAPER: Color32 = Color32::from_rgb(255, 255, 255);
 /// 纸张上的深色主文字
 pub const PAPER_DARK: Color32 = Color32::from_rgb(30, 41, 59);
@@ -35,20 +35,29 @@ pub const PAPER_MUTED: Color32 = Color32::from_rgb(148, 156, 172);
 /// 纸张上的控件底色
 pub const PAPER_CTRL: Color32 = Color32::from_rgb(241, 243, 247);
 
-pub const TEXT: Color32 = Color32::from_rgb(232, 235, 241);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(178, 186, 200);
-pub const MUTED: Color32 = Color32::from_rgb(118, 128, 146);
+/// 主文字 (Zinc-100 高对比纯净白)
+pub const TEXT: Color32 = Color32::from_rgb(244, 244, 246);
+/// 次级文字 (Zinc-400 银灰过渡色)
+pub const TEXT_DIM: Color32 = Color32::from_rgb(161, 161, 170);
+/// 弱提示文字 (Zinc-500 克制信号微文案)
+pub const MUTED: Color32 = Color32::from_rgb(113, 113, 122);
 
-pub const ACCENT: Color32 = Color32::from_rgb(124, 162, 255);
-pub const ACCENT_STRONG: Color32 = Color32::from_rgb(79, 120, 236);
-pub const ACCENT_BG: Color32 = Color32::from_rgb(31, 42, 72);
-pub const VIOLET: Color32 = Color32::from_rgb(182, 158, 250);
-pub const GREEN: Color32 = Color32::from_rgb(64, 208, 145);
-pub const GREEN_BG: Color32 = Color32::from_rgb(17, 49, 38);
-pub const RED: Color32 = Color32::from_rgb(248, 113, 113);
-pub const AMBER: Color32 = Color32::from_rgb(246, 186, 77);
-pub const AMBER_BG: Color32 = Color32::from_rgb(54, 42, 18);
-pub const CYAN: Color32 = Color32::from_rgb(94, 200, 240);
+/// 电光蓝强调色 (与图标 Delimiter Capsule 完美共振)
+pub const ACCENT: Color32 = Color32::from_rgb(59, 130, 246);
+pub const ACCENT_STRONG: Color32 = Color32::from_rgb(37, 99, 235);
+pub const ACCENT_BG: Color32 = Color32::from_rgb(26, 44, 82);
+/// 丁香紫 (Violet-400 用于层级子式导航)
+pub const VIOLET: Color32 = Color32::from_rgb(167, 139, 250);
+/// 翡翠绿 (Emerald-500 成功与动作)
+pub const GREEN: Color32 = Color32::from_rgb(16, 185, 129);
+pub const GREEN_BG: Color32 = Color32::from_rgb(15, 45, 34);
+/// 玫瑰红 (Rose-500 警示与删除)
+pub const RED: Color32 = Color32::from_rgb(244, 63, 94);
+/// 琥珀橙 (Amber-500 Tab 前缀与预置标识)
+pub const AMBER: Color32 = Color32::from_rgb(245, 158, 11);
+pub const AMBER_BG: Color32 = Color32::from_rgb(50, 36, 14);
+/// 梦幻青 (Cyan-500 参数与高光)
+pub const CYAN: Color32 = Color32::from_rgb(6, 182, 212);
 
 // ---------------------------------------------------------------------------
 // 全局样式
@@ -61,16 +70,16 @@ pub fn install_style(ctx: &egui::Context) {
     v.window_stroke = Stroke::new(1.0, BORDER);
     v.window_corner_radius = CornerRadius::same(12);
     v.window_shadow = Shadow {
-        offset: [0, 14],
-        blur: 40,
+        offset: [0, 16],
+        blur: 48,
         spread: 0,
-        color: Color32::from_black_alpha(150),
+        color: Color32::from_black_alpha(170),
     };
     v.popup_shadow = Shadow {
-        offset: [0, 6],
-        blur: 16,
+        offset: [0, 8],
+        blur: 24,
         spread: 0,
-        color: Color32::from_black_alpha(120),
+        color: Color32::from_black_alpha(140),
     };
     v.menu_corner_radius = CornerRadius::same(8);
     v.extreme_bg_color = FIELD;
@@ -78,7 +87,7 @@ pub fn install_style(ctx: &egui::Context) {
     v.code_bg_color = FIELD;
     v.override_text_color = Some(TEXT);
     v.hyperlink_color = ACCENT;
-    v.selection.bg_fill = Color32::from_rgb(46, 76, 160);
+    v.selection.bg_fill = Color32::from_rgb(33, 62, 138);
     v.selection.stroke = Stroke::new(1.0, ACCENT);
     v.text_cursor.stroke = Stroke::new(2.0, ACCENT);
 
@@ -97,7 +106,7 @@ pub fn install_style(ctx: &egui::Context) {
 
     v.widgets.hovered.bg_fill = CARD_HI;
     v.widgets.hovered.weak_bg_fill = CARD_HI;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(64, 74, 98));
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(60, 70, 92));
     v.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
     v.widgets.hovered.corner_radius = r;
     v.widgets.hovered.expansion = 0.0;
@@ -115,8 +124,8 @@ pub fn install_style(ctx: &egui::Context) {
     ctx.set_visuals(v);
     ctx.all_styles_mut(|style| {
         style.spacing.item_spacing = Vec2::new(8.0, 6.0);
-        style.spacing.button_padding = Vec2::new(9.0, 4.0);
-        style.spacing.interact_size.y = 26.0;
+        style.spacing.button_padding = Vec2::new(10.0, 5.0);
+        style.spacing.interact_size.y = 28.0;
         style.spacing.window_margin = Margin::same(16);
         style.spacing.scroll.bar_width = 6.0;
         style.spacing.scroll.floating = true;
