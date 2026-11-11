@@ -21,8 +21,12 @@ mkdir -p "${APP_DIR}"
 # 2. 安装可执行文件
 TARGET_BIN="${PROJECT_ROOT}/target/release/mathslot"
 if [ ! -f "${TARGET_BIN}" ]; then
-    echo "==> 未发现 release 构建，正在执行 cargo build --release..."
-    (cd "${PROJECT_ROOT}" && cargo build --release)
+    if [ -f "${PROJECT_ROOT}/mathslot" ]; then
+        TARGET_BIN="${PROJECT_ROOT}/mathslot"
+    else
+        echo "==> 未发现 release 构建，正在执行 cargo build --release..."
+        (cd "${PROJECT_ROOT}" && cargo build --release)
+    fi
 fi
 
 echo "==> 复制二进制文件至 ${BIN_DIR}/mathslot ..."

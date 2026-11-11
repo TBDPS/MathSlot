@@ -130,23 +130,19 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-      - name: Build wasm package
-        run: |
-          cd crates/mathslot-wasm
-          wasm-pack build --target web --release
+      - name: Build and Bundle Obsidian Plugin
+        run: node obsidian-mathslot/scripts/build.mjs
 
       - name: Package Obsidian Plugin
         run: |
           PKG_NAME="mathslot-obsidian-plugin"
           mkdir -p "${PKG_NAME}"
-          cp -r obsidian-mathslot/* "${PKG_NAME}/"
-          # 拷贝编译出的 WASM 二进制与绑定代码
-          if [ -d "crates/mathslot-wasm/pkg" ]; then
-            cp -r crates/mathslot-wasm/pkg "${PKG_NAME}/pkg"
-          fi
+          cp obsidian-mathslot/manifest.json obsidian-mathslot/main.js obsidian-mathslot/styles.css "${PKG_NAME}/"
           cp README.md "${PKG_NAME}/"
           zip -r "${PKG_NAME}.zip" "${PKG_NAME}"
 

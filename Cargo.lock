@@ -1297,7 +1297,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "mathslot"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "eframe",
  "latex-rust",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "mathslot-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "latex-rust",
  "mathslot-doc",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "mathslot-doc"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "mathslot-syntax",
  "serde",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "mathslot-latex"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "mathslot-syntax",
  "serde",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "mathslot-syntax"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -1345,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "mathslot-wasm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "mathslot-core",
 ]
