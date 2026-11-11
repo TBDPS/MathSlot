@@ -24,7 +24,7 @@ use crate::theme::*;
 const TOP_BAR_HEIGHT: f32 = 48.0;
 const STATUS_BAR_HEIGHT: f32 = 26.0;
 const LEFT_PANEL_DEFAULT_WIDTH: f32 = 460.0;
-const PREVIEW_BOX_HEIGHT: f32 = 100.0;
+const PREVIEW_BOX_HEIGHT: f32 = 130.0;
 const NAV_BOX_HEIGHT: f32 = 96.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,7 +49,7 @@ enum DelimiterStyle {
 
 const PRESETS: &[(&str, &str)] = &[
     ("一元二次求根公式", "x = ▸f-b +- ▸rb^2 - 4ac;;2a;"),
-    ("高斯正态分布积分", "▸i-oo;oo;e▸u-x^2;;dx = ▸r▸gp;;"),
+    ("高斯积分", "▸i-oo;oo;e^-x^2 dx;= ▸r▸gp;;"),
     ("欧拉恒等式", "e▸ui▸gp;; + 1 = 0"),
     ("重要极限（Sinc函数）", "▸lx;0;▸fsin x;x;; = 1"),
     ("柯西-施瓦茨不等式", "▸p▸s1;n;a_k b_k;;^2 <= ▸p▸s1;n;a_k^2;; ▸p▸s1;n;b_k^2;;"),
@@ -886,23 +886,31 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             });
     }
 
-    /// 框 1：预览框（缩小常驻，固定高度，纯白纸张，无标题）
-    /// 关键：无论是否处于导航模式，永远只渲染真实的 formula_tex，绝不替换为抽象导航字母，确保公式具体结构与内容清晰可见！
+    /// 框 1：预览框（独立顶部 Header Toolbar + ScrollArea 双向平移视口 + 真实几何比例缩放）
+    /// 无论是否处于导航模式，永远只渲染真实的 formula_tex，大公式放大由视口平滑承载！
     fn preview_box(&mut self, ui: &mut egui::Ui) {
         paper_frame().show(ui, |ui| {
             let avail_w = ui.available_width();
             ui.set_width(avail_w);
-            ui.set_height(PREVIEW_BOX_HEIGHT);
 
-            let (rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, PREVIEW_BOX_HEIGHT), Sense::hover());
+            // 1. 顶部独立 Header 栏（物理隔离坐标，杜绝与公式重叠，右侧预留充足宽度 Toolbar）
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("公式预览").strong().size(12.5).color(PAPER_DARK));
 
-            // 右上角浮动微缩控制（− / 100% / +）
-            let ctrl_rect = Rect::from_min_size(rect.right_top() + Vec2::new(-86.0, 4.0), Vec2::new(82.0, 22.0));
-            Self::allocate_ui_at_rect(ui, ctrl_rect, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    if paper_button(ui, "−", false).on_hover_text("缩小预览").clicked() {
-                        self.preview_scale = (self.preview_scale - 0.15).max(0.7);
+                if let Some(err) = &self.render_error {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("⚠ {err}"))
+                            .size(10.5)
+                            .color(Color32::from_rgb(180, 83, 9)),
+                    );
+                }
+
+                // 右侧独立排布预留充足宽度（>= 140pt）的缩放 Toolbar
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    if paper_button(ui, "+", false).on_hover_text("放大预览").clicked() {
+                        self.preview_scale = (self.preview_scale + 0.15).min(2.5);
                     }
                     if paper_button(ui, &format!("{:.0}%", self.preview_scale * 80.0), false)
                         .on_hover_text("恢复标准缩放 (100%)")
@@ -910,45 +918,50 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     {
                         self.preview_scale = 1.25;
                     }
-                    if paper_button(ui, "+", false).on_hover_text("放大预览").clicked() {
-                        self.preview_scale = (self.preview_scale + 0.15).min(2.5);
+                    if paper_button(ui, "−", false).on_hover_text("缩小预览").clicked() {
+                        self.preview_scale = (self.preview_scale - 0.15).max(0.4);
                     }
                 });
             });
 
-            // 核心公式呈现：永远展示真实数学公式！
-            if self.editor.source.is_empty() {
-                ui.painter().text(
-                    rect.center(),
-                    Align2::CENTER_CENTER,
-                    "键入简码生成公式",
-                    FontId::proportional(13.5),
-                    PAPER_MUTED,
-                );
-            } else if let Some(texture) = &self.formula_tex {
-                let size = fitted_size(
-                    texture,
-                    (avail_w - 12.0).max(100.0),
-                    PREVIEW_BOX_HEIGHT - 12.0,
-                    self.preview_scale,
-                );
-                egui::Image::new(texture).paint_at(ui, Rect::from_center_size(rect.center(), size));
-            } else {
-                ui.painter().text(
-                    rect.center(),
-                    Align2::CENTER_CENTER,
-                    "排版引擎加载中…",
-                    FontId::proportional(12.5),
-                    PAPER_MUTED,
-                );
-            }
+            ui.add_space(4.0);
 
-            if let Some(err) = &self.render_error {
-                let err_rect = Rect::from_min_size(rect.left_top() + Vec2::new(6.0, 4.0), Vec2::new(avail_w - 94.0, 18.0));
-                Self::allocate_ui_at_rect(ui, err_rect, |ui| {
-                    ui.label(RichText::new(format!("⚠ {err}")).size(10.5).color(Color32::from_rgb(180, 83, 9)));
+            // 2. 引入 egui::ScrollArea::both() 平滑双向平移视口
+            egui::ScrollArea::both()
+                .id_salt("mathslot-preview-scroll-viewport")
+                .max_height(PREVIEW_BOX_HEIGHT)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_min_width(avail_w - 12.0);
+                    ui.set_min_height(PREVIEW_BOX_HEIGHT - 8.0);
+
+                    if self.editor.source.is_empty() {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space((PREVIEW_BOX_HEIGHT - 32.0) * 0.4);
+                            ui.label(
+                                RichText::new("键入简码生成公式")
+                                    .size(13.5)
+                                    .color(PAPER_MUTED),
+                            );
+                        });
+                    } else if let Some(texture) = &self.formula_tex {
+                        let original = texture.size_vec2() / PIXELS_PER_POINT;
+                        let display_size = original * self.preview_scale;
+
+                        ui.vertical_centered(|ui| {
+                            ui.add(egui::Image::new(texture).fit_to_exact_size(display_size));
+                        });
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space((PREVIEW_BOX_HEIGHT - 32.0) * 0.4);
+                            ui.label(
+                                RichText::new("排版引擎加载中…")
+                                    .size(12.5)
+                                    .color(PAPER_MUTED),
+                            );
+                        });
+                    }
                 });
-            }
         });
     }
 
@@ -2190,18 +2203,16 @@ fn consume_esc_jump_key(ctx: &egui::Context) -> Option<char> {
 
 fn fitted_size(
     texture: &egui::TextureHandle,
-    max_width: f32,
-    max_height: f32,
-    max_scale: f32,
+    _max_width: f32,
+    _max_height: f32,
+    scale_factor: f32,
 ) -> Vec2 {
     let original = texture.size_vec2() / PIXELS_PER_POINT;
     if original.x <= 0.0 || original.y <= 0.0 {
         return Vec2::new(1.0, 1.0);
     }
-    let scale = (max_width / original.x)
-        .min(max_height / original.y)
-        .min(max_scale)
-        .max(0.05);
+    // 真实比例几何缩放，废除强制高度截断 clamp，公式尺寸由 ScrollArea 视口平滑承载
+    let scale = scale_factor.max(0.05);
     original * scale
 }
 

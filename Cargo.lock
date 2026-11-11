@@ -1309,10 +1309,12 @@ dependencies = [
 name = "mathslot-core"
 version = "0.6.0"
 dependencies = [
+ "latex-rust",
  "mathslot-doc",
  "mathslot-latex",
  "mathslot-syntax",
  "serde",
+ "tiny-skia",
 ]
 
 [[package]]

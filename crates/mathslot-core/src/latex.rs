@@ -378,25 +378,25 @@ fn latex_operand(chars: &[char], mut i: usize, end: usize) -> (String, usize) {
     if i >= end {
         return (String::new(), i);
     }
-    match chars[i] {
+    let (mut base, mut next, is_paren) = match chars[i] {
         '(' => {
             if let Some(close) = matching_delim(chars, i, end, '(', ')') {
-                (latex_range(chars, i + 1, close), close + 1)
+                (latex_range(chars, i + 1, close), close + 1, true)
             } else {
-                (latex_range(chars, i + 1, end), end)
+                (latex_range(chars, i + 1, end), end, true)
             }
         }
         '{' => {
             if let Some(close) = matching_delim(chars, i, end, '{', '}') {
-                (latex_range(chars, i + 1, close), close + 1)
+                (latex_range(chars, i + 1, close), close + 1, false)
             } else {
-                (latex_range(chars, i + 1, end), end)
+                (latex_range(chars, i + 1, end), end, false)
             }
         }
         '-' | '+' => {
             let sign = chars[i];
             let (rest, next) = latex_operand(chars, i + 1, end);
-            (format!("{sign}{rest}"), next)
+            return (format!("{sign}{rest}"), next);
         }
         '\\' => {
             let mut j = i + 1;
@@ -406,11 +406,11 @@ fn latex_operand(chars: &[char], mut i: usize, end: usize) -> (String, usize) {
                     j += 1;
                 }
                 let word: String = chars[start..j].iter().collect();
-                (format!("\\{}", canonical_macro(&word)), j)
+                (format!("\\{}", canonical_macro(&word)), j, false)
             } else if j < end {
-                (chars[j..j + 1].iter().collect(), j + 1)
+                (chars[j..j + 1].iter().collect(), j + 1, false)
             } else {
-                (String::new(), j)
+                (String::new(), j, false)
             }
         }
         c if c.is_ascii_digit() => {
@@ -418,7 +418,7 @@ fn latex_operand(chars: &[char], mut i: usize, end: usize) -> (String, usize) {
             while i < end && chars[i].is_ascii_digit() {
                 i += 1;
             }
-            (latex_range(chars, start, i), i)
+            (latex_range(chars, start, i), i, false)
         }
         c if c.is_alphabetic() => {
             let start = i;
@@ -427,15 +427,15 @@ fn latex_operand(chars: &[char], mut i: usize, end: usize) -> (String, usize) {
             }
             let word: String = chars[start..i].iter().collect();
             if is_known_bare_word(&word) {
-                (word_to_latex(&word), i)
+                (word_to_latex(&word), i, false)
             } else {
                 let first = chars[start].to_string();
-                (first, start + 1)
+                (first, start + 1, false)
             }
         }
         _ => {
             if let Some((replacement, consumed)) = multi_symbol(&chars[i..end]) {
-                (replacement.to_owned(), i + consumed)
+                (replacement.to_owned(), i + consumed, false)
             } else {
                 let ch = chars[i];
                 let s = match ch {
@@ -443,10 +443,34 @@ fn latex_operand(chars: &[char], mut i: usize, end: usize) -> (String, usize) {
                     '%' | '#' | '&' => format!("\\{ch}"),
                     _ => ch.to_string(),
                 };
-                (s, i + 1)
+                (s, i + 1, false)
             }
         }
+    };
+
+    if is_paren && next < end && chars[next] == '^' {
+        base = format!("({base})");
     }
+
+    // 复合指数感知解析：连带消费紧随的 ^ 幂次操作符，输出标准单一内聚的指数
+    while next < end && chars[next] == '^' {
+        next += 1;
+        let (sub_arg, sub_next) = latex_operand(chars, next, end);
+        if !sub_arg.is_empty() {
+            if sub_arg.chars().count() == 1 && sub_arg.chars().all(|c| c.is_ascii_alphanumeric()) {
+                base.push('^');
+                base.push_str(&sub_arg);
+            } else {
+                base.push('^');
+                base.push('{');
+                base.push_str(&sub_arg);
+                base.push('}');
+            }
+        }
+        next = sub_next;
+    }
+
+    (base, next)
 }
 
 pub(crate) fn matching_delim(

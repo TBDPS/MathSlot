@@ -21,6 +21,7 @@ pub enum Mode {
     Nav,
 }
 
+#[derive(Clone, Debug)]
 pub struct Rendered {
     pub image: egui::ColorImage,
 }
@@ -208,6 +209,13 @@ mod tests {
     #[test]
     fn test_all_structs_and_symbols_compile_in_latex_rust() {
         let renderer = Renderer::new();
+
+        // 验证标准高斯积分成功光栅化
+        let gaussian = r"\int_{-\infty}^{\infty} e^{-x^2} \,\mathrm{d}x = \sqrt{\pi}";
+        let res = renderer.render_latex(gaussian);
+        assert!(res.is_ok(), "Gaussian integral must render successfully in latex-rust: {res:?}");
+        let rendered = res.unwrap();
+        assert!(rendered.image.size[0] > 0 && rendered.image.size[1] > 0);
 
         for kind in StructKind::ALL {
             let mut src = format!("▸{}", kind.code());

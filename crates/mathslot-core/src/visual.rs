@@ -1080,7 +1080,7 @@ fn preview_script_operand(
         return (empty_slot_box(dialect, hit, hit), i, hit);
     }
 
-    match chars[i] {
+    let (mut base, mut next, mut caret_consumed, is_paren) = match chars[i] {
         '(' => {
             let open_idx = i;
             if let Some(close) = matching_delim(chars, i, end, '(', ')') {
@@ -1099,24 +1099,25 @@ fn preview_script_operand(
                 } else {
                     inner
                 };
-                return (body, close + 1, inner_cur.is_some());
-            }
-            let inner_cur = cursor_idx.and_then(|c| {
-                if c >= ws_start && c <= open_idx {
-                    Some(open_idx + 1)
-                } else if c > open_idx && c <= end {
-                    Some(c)
-                } else {
-                    None
-                }
-            });
-            let inner = preview_range(chars, open_idx + 1, end, inner_cur, dialect);
-            let body = if inner.trim().is_empty() {
-                empty_slot_box(dialect, inner_cur.is_some(), inner_cur.is_some())
+                (body, close + 1, inner_cur.is_some(), true)
             } else {
-                inner
-            };
-            (body, end, inner_cur.is_some())
+                let inner_cur = cursor_idx.and_then(|c| {
+                    if c >= ws_start && c <= open_idx {
+                        Some(open_idx + 1)
+                    } else if c > open_idx && c <= end {
+                        Some(c)
+                    } else {
+                        None
+                    }
+                });
+                let inner = preview_range(chars, open_idx + 1, end, inner_cur, dialect);
+                let body = if inner.trim().is_empty() {
+                    empty_slot_box(dialect, inner_cur.is_some(), inner_cur.is_some())
+                } else {
+                    inner
+                };
+                (body, end, inner_cur.is_some(), true)
+            }
         }
         '{' => {
             let open_idx = i;
@@ -1136,24 +1137,25 @@ fn preview_script_operand(
                 } else {
                     inner
                 };
-                return (body, close + 1, inner_cur.is_some());
-            }
-            let inner_cur = cursor_idx.and_then(|c| {
-                if c >= ws_start && c <= open_idx {
-                    Some(open_idx + 1)
-                } else if c > open_idx && c <= end {
-                    Some(c)
-                } else {
-                    None
-                }
-            });
-            let inner = preview_range(chars, open_idx + 1, end, inner_cur, dialect);
-            let body = if inner.trim().is_empty() {
-                empty_slot_box(dialect, inner_cur.is_some(), inner_cur.is_some())
+                (body, close + 1, inner_cur.is_some(), false)
             } else {
-                inner
-            };
-            (body, end, inner_cur.is_some())
+                let inner_cur = cursor_idx.and_then(|c| {
+                    if c >= ws_start && c <= open_idx {
+                        Some(open_idx + 1)
+                    } else if c > open_idx && c <= end {
+                        Some(c)
+                    } else {
+                        None
+                    }
+                });
+                let inner = preview_range(chars, open_idx + 1, end, inner_cur, dialect);
+                let body = if inner.trim().is_empty() {
+                    empty_slot_box(dialect, inner_cur.is_some(), inner_cur.is_some())
+                } else {
+                    inner
+                };
+                (body, end, inner_cur.is_some(), false)
+            }
         }
         '+' | '-' => {
             let sign_idx = i;
@@ -1163,14 +1165,14 @@ fn preview_script_operand(
             let (rest, next, rest_caret) =
                 preview_script_operand(chars, i + 1, end, cursor_idx, dialect);
             if before_sign {
-                (format!("{caret}{sign}{rest}"), next, true)
+                return (format!("{caret}{sign}{rest}"), next, true);
             } else {
-                (format!("{sign}{rest}"), next, rest_caret)
+                return (format!("{sign}{rest}"), next, rest_caret);
             }
         }
         '^' | '_' => {
             let hit = cursor_idx.is_some_and(|c| c >= ws_start && c <= i);
-            (empty_slot_box(dialect, hit, hit), i, hit)
+            (empty_slot_box(dialect, hit, hit), i, hit, false)
         }
         c if c.is_ascii_digit() => {
             let start = i;
@@ -1187,7 +1189,7 @@ fn preview_script_operand(
                 }
             });
             let rendered = preview_range(chars, start, i, inner_cur, dialect);
-            (rendered, i, inner_cur.is_some())
+            (rendered, i, inner_cur.is_some(), false)
         }
         c if c.is_ascii_alphabetic() => {
             let start = i;
@@ -1210,7 +1212,7 @@ fn preview_script_operand(
                 }
             });
             let rendered = preview_range(chars, start, op_end, inner_cur, dialect);
-            (rendered, op_end, inner_cur.is_some())
+            (rendered, op_end, inner_cur.is_some(), false)
         }
         _ => {
             let before = cursor_idx.is_some_and(|cur| cur >= ws_start && cur <= i);
@@ -1221,7 +1223,7 @@ fn preview_script_operand(
                 } else {
                     rep.to_owned()
                 };
-                (s, i + consumed, before)
+                (s, i + consumed, before, false)
             } else {
                 let piece = safe_single_char(chars[i], None, dialect);
                 let s = if before {
@@ -1229,10 +1231,42 @@ fn preview_script_operand(
                 } else {
                     piece
                 };
-                (s, i + 1, before)
+                (s, i + 1, before, false)
             }
         }
+    };
+
+    if is_paren && next < end && chars[next] == '^' {
+        base = format!("({base})");
     }
+
+    // 复合指数感知解析：连带消费紧随的 ^ 幂次操作符，输出标准单一内聚的指数
+    while next < end && chars[next] == '^' {
+        let op_idx = next;
+        next += 1;
+        let caret = live_caret(dialect);
+        let caret_at_op = !caret_consumed && cursor_idx == Some(op_idx);
+        if caret_at_op {
+            caret_consumed = true;
+            base.push_str(&caret);
+        }
+        base.push('^');
+        let (sub_arg, sub_next, sub_caret) =
+            preview_script_operand(chars, next, end, cursor_idx, dialect);
+        if sub_caret {
+            caret_consumed = true;
+        }
+        if sub_arg.chars().count() == 1 && sub_arg.chars().all(|c| c.is_ascii_alphanumeric()) {
+            base.push_str(&sub_arg);
+        } else {
+            base.push('{');
+            base.push_str(&sub_arg);
+            base.push('}');
+        }
+        next = sub_next;
+    }
+
+    (base, next, caret_consumed)
 }
 
 fn safe_backslash_word(word: &str, dialect: VisualDialect) -> String {

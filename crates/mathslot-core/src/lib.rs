@@ -601,7 +601,7 @@ mod tests {
         // 验证全部 12 项预置数学公式均能完整解析且生成合规 LaTeX
         let presets = [
             "x = ▸f-b +- ▸rb^2 - 4ac;;2a;",
-            "▸i-oo;oo;e▸u-x^2;;dx = ▸r▸gp;;",
+            "▸i-oo;oo;e^-x^2 dx;= ▸r▸gp;;",
             "e▸ui▸gp;; + 1 = 0",
             "▸lx;0;▸fsin x;x;; = 1",
             "▸p▸s1;n;a_k b_k;;^2 <= ▸p▸s1;n;a_k^2;; ▸p▸s1;n;b_k^2;;",

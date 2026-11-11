@@ -28,6 +28,8 @@ pub const BORDER: Color32 = Color32::from_rgb(40, 46, 61);
 pub const BORDER_SOFT: Color32 = Color32::from_rgb(31, 36, 48);
 /// 公式画布（纸张）
 pub const PAPER: Color32 = Color32::from_rgb(255, 255, 255);
+/// 纸张上的深色主文字
+pub const PAPER_DARK: Color32 = Color32::from_rgb(30, 41, 59);
 /// 纸张上的弱文字
 pub const PAPER_MUTED: Color32 = Color32::from_rgb(148, 156, 172);
 /// 纸张上的控件底色

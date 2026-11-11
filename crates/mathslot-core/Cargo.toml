@@ -11,3 +11,7 @@ mathslot-syntax = { path = "../mathslot-syntax" }
 mathslot-doc = { path = "../mathslot-doc" }
 mathslot-latex = { path = "../mathslot-latex" }
 serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+latex-rust = { version = "3.0.1", features = ["png"] }
+tiny-skia = "0.11"

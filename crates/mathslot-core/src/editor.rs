@@ -313,6 +313,14 @@ impl StreamEditor {
         self.cursor_char = cursor_char.min(self.source.chars().count());
     }
 
+    pub fn to_latex(&self) -> String {
+        crate::latex::to_latex(&self.parsed)
+    }
+
+    pub fn insert_str(&mut self, s: &str) {
+        self.type_text(s);
+    }
+
     /// 在当前字符光标 `cursor_char` 处模拟键入一段文本并触发 `sync_after_edit`
     pub fn type_text(&mut self, text: &str) -> Option<String> {
         let mut chars: Vec<char> = self.source.chars().collect();
@@ -492,6 +500,42 @@ impl StreamEditor {
 
         if !matches!(self.prefix_menu_state(), PrefixMenuState::Idle) {
             return "请先按上方字母键完成指令（或再按一次 Tab 取消 ▸）。".to_owned();
+        }
+
+        // 1. 定界符感知：若光标处于配对定界符内部（且该定界符属于当前槽位或根级），按 Enter 直接跳出闭合括号
+        let cur = self.cursor_char;
+        let pairs = bracket_pairs(&self.source);
+        let active_slot = self.parsed.innermost_active_slot_span(cur);
+        let mut target_pair = None;
+
+        for p in pairs {
+            if cur > p.open_char_idx && cur <= p.close_char_idx {
+                if let Some(span) = active_slot {
+                    // 仅当定界符在当前活跃槽位内开启时跳出；若槽位在定界符内部开启，则优先推进槽位
+                    if p.open_char_idx >= span.start.char_idx {
+                        target_pair = Some(p);
+                        break;
+                    }
+                } else {
+                    target_pair = Some(p);
+                    break;
+                }
+            }
+        }
+
+        if let Some(p) = target_pair {
+            let old_src = self.source.clone();
+            self.cursor_char = (p.close_char_idx + 1).min(self.source.chars().count());
+            self.adjust_jump_back_for_edit(&old_src, &self.source.clone());
+            self.reparse();
+            let delim_desc = match (p.open, p.close) {
+                ('(', ')') => "配对括号 ()",
+                ('[', ']') => "配对中括号 []",
+                ('{', '}') => "配对大括号 {}",
+                ('|', '|') => "配对绝对值 ||",
+                (o, c) => return format!("已跳出定界符 {o}{c}。"),
+            };
+            return format!("已跳出{delim_desc}。");
         }
 
         match self.parsed.innermost_slot_state(self.cursor_char) {
@@ -1960,11 +2004,13 @@ fn has_unmatched_open(chars: &[char], before_idx: usize, open: char) -> bool {
     false
 }
 
-/// 扫描源码中的所有括号对，按跨度从小到大排序（最内层在前）。
+/// 扫描源码中的所有配对定界符（()、[]、{}、||），按跨度从小到大排序（最内层在前）。
 fn bracket_pairs(source: &str) -> Vec<BracketPair> {
     let chars: Vec<char> = source.chars().collect();
     let mut stack: Vec<(usize, char)> = Vec::new();
     let mut pairs = Vec::new();
+    let mut pipe_open: Option<usize> = None;
+
     for (idx, &ch) in chars.iter().enumerate() {
         if is_escaped_at(&chars, idx) {
             continue;
@@ -1985,6 +2031,22 @@ fn bracket_pairs(source: &str) -> Vec<BracketPair> {
                         close: ch,
                     });
                 }
+            }
+            '|' => {
+                if let Some(open_idx) = pipe_open.take() {
+                    pairs.push(BracketPair {
+                        open_char_idx: open_idx,
+                        close_char_idx: idx,
+                        open: '|',
+                        close: '|',
+                    });
+                } else {
+                    pipe_open = Some(idx);
+                }
+            }
+            ';' => {
+                // 槽位分隔符重置未配对的绝对值竖线，防止跨槽位误配
+                pipe_open = None;
             }
             _ => {}
         }
