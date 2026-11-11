@@ -162,12 +162,12 @@ impl LibraryModalState {
             egui::Window::new(RichText::new("扩展中心 · 格式库与模版").size(14.0).strong())
                 .open(&mut open)
                 .collapsible(false)
-                .resizable(true)
+                .resizable([false, true])
                 .pivot(Align2::CENTER_TOP)
                 .default_pos(anchor_pos)
                 .default_size([780.0, 580.0])
-                .min_size([680.0, 460.0])
-                .max_size([880.0, 680.0])
+                .min_size([780.0, 460.0])
+                .max_size([780.0, 780.0])
                 .show(ctx, |ui| {
                     ui.set_width(ui.available_width());
                     if let Some(act) = self.render_library_body(ui, editor) {
@@ -182,11 +182,12 @@ impl LibraryModalState {
             egui::Window::new(RichText::new("使用指南与快捷键速查 · F1").size(14.0).strong())
                 .open(&mut open)
                 .collapsible(false)
-                .resizable(true)
+                .resizable([false, true])
                 .pivot(Align2::CENTER_TOP)
                 .default_pos(anchor_pos)
                 .default_size([740.0, 560.0])
-                .min_size([560.0, 420.0])
+                .min_size([740.0, 420.0])
+                .max_size([740.0, 760.0])
                 .show(ctx, |ui| {
                     render_help_body(ui);
                 });
@@ -198,11 +199,12 @@ impl LibraryModalState {
             egui::Window::new(RichText::new("公式库 · Formula Corpus").size(14.0).strong())
                 .open(&mut open)
                 .collapsible(false)
-                .resizable(true)
+                .resizable([false, true])
                 .pivot(Align2::CENTER_TOP)
                 .default_pos(anchor_pos)
                 .default_size([880.0, 640.0])
-                .min_size([680.0, 500.0])
+                .min_size([880.0, 500.0])
+                .max_size([880.0, 840.0])
                 .show(ctx, |ui| {
                     if let Some(act) = self.render_presets_body(ui, editor) {
                         action = Some(act);
@@ -866,55 +868,63 @@ impl LibraryModalState {
                             .strong()
                             .color(AMBER),
                     );
-                    ui.add_space(4.0);
-                    egui::Grid::new("mathslot-custom-fmt-grid")
-                        .num_columns(4)
-                        .spacing([8.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.label("触发字母:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.custom_key)
-                                    .desired_width(40.0)
-                                    .hint_text("g"),
-                            );
-                            ui.label("格式名称:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.custom_label)
-                                    .desired_width(170.0)
-                                    .hint_text("如：同余式 / 期望"),
-                            );
-                            ui.end_row();
-
-                            ui.label("缩略提示:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.custom_glyph)
-                                    .desired_width(90.0)
-                                    .hint_text("如 a≡b(m)"),
-                            );
-                            ui.label("槽位角色:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.custom_roles)
-                                    .desired_width(170.0)
-                                    .hint_text("左项;右项;模数 (分号分隔)"),
-                            );
-                            ui.end_row();
-
-                            ui.label("LaTeX 模板:");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.custom_latex)
-                                        .font(FontId::monospace(13.0))
-                                        .desired_width(280.0)
-                                        .hint_text("$1 \\equiv $2 \\pmod{$3}"),
-                                );
-                            });
-                            ui.end_row();
-                        });
-
                     ui.add_space(6.0);
+
+                    // 第一层（语义元信息）
                     ui.horizontal(|ui| {
+                        ui.label(RichText::new("触发字母:").size(11.5).color(TEXT_DIM));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.custom_key)
+                                .font(FontId::monospace(12.5))
+                                .desired_width(48.0)
+                                .hint_text("g"),
+                        );
+
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("格式名称:").size(11.5).color(TEXT_DIM));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.custom_label)
+                                .desired_width(170.0)
+                                .hint_text("如：同余式 / 期望"),
+                        );
+
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("缩略提示:").size(11.5).color(TEXT_DIM));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.custom_glyph)
+                                .font(FontId::monospace(12.5))
+                                .desired_width(96.0)
+                                .hint_text("如 a≡b(m)"),
+                        );
+
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("槽位角色:").size(11.5).color(TEXT_DIM));
+                        let roles_w = (ui.available_width() - 4.0).max(80.0);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.custom_roles)
+                                .desired_width(roles_w)
+                                .hint_text("左项;右项;模数 ($1, $2...)"),
+                        );
+                    });
+
+                    ui.add_space(8.0);
+
+                    // 第二层（通栏核心载荷）
+                    ui.label(RichText::new("LaTeX 模板:").size(11.5).color(TEXT_DIM));
+                    ui.add_space(2.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.custom_latex)
+                            .font(FontId::monospace(13.0))
+                            .desired_width(ui.available_width())
+                            .hint_text(r"$1 \equiv $2 \pmod{$3}"),
+                    );
+
+                    ui.add_space(10.0);
+
+                    // 第三层（操作栏：右对齐）
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui
-                            .button(RichText::new("保存格式").strong().color(GREEN))
+                            .button(RichText::new("✓ 保存格式").strong().color(GREEN))
                             .clicked()
                         {
                             let key_ch = self
@@ -1000,47 +1010,63 @@ impl LibraryModalState {
                         .corner_radius(CornerRadius::same(8))
                         .inner_margin(Margin::symmetric(10, 7))
                         .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            let total_w = ui.available_width();
+                            let left_w = (total_w - 144.0).max(120.0);
                             ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(format!("[{CMD_PREFIX}k{}]", fmt.item_key))
-                                        .monospace()
-                                        .strong()
-                                        .color(AMBER),
+                                ui.allocate_ui_with_layout(
+                                    Vec2::new(left_w, 0.0),
+                                    Layout::left_to_right(Align::Center),
+                                    |ui| {
+                                        ui.set_width(left_w);
+                                        ui.set_max_width(left_w);
+                                        ui.label(
+                                            RichText::new(format!("[{CMD_PREFIX}k{}]", fmt.item_key))
+                                                .monospace()
+                                                .strong()
+                                                .color(AMBER),
+                                        );
+                                        ui.label(RichText::new(&fmt.label).strong().color(TEXT));
+                                        if !fmt.glyph_hint.is_empty() {
+                                            ui.label(
+                                                RichText::new(&fmt.glyph_hint)
+                                                    .monospace()
+                                                    .size(11.5)
+                                                    .color(CYAN),
+                                            );
+                                        }
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(format!("→ {}", fmt.latex_template))
+                                                    .monospace()
+                                                    .size(11.5)
+                                                    .color(MUTED),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(&fmt.latex_template);
+                                    },
                                 );
-                                ui.label(RichText::new(&fmt.label).strong().color(TEXT));
-                                if !fmt.glyph_hint.is_empty() {
-                                    ui.label(
-                                        RichText::new(&fmt.glyph_hint)
-                                            .monospace()
-                                            .size(11.5)
-                                            .color(CYAN),
-                                    );
-                                }
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(format!("→ {}", fmt.latex_template))
-                                            .monospace()
-                                            .size(11.5)
-                                            .color(MUTED),
-                                    )
-                                    .truncate(),
-                                )
-                                .on_hover_text(&fmt.latex_template);
 
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui.small_button("删除").clicked() {
-                                        delete_key = Some(fmt.item_key);
-                                    }
-                                    if ui.small_button("编辑").clicked() {
-                                        edit_item = Some(fmt.clone());
-                                    }
-                                    if ui
-                                        .small_button(RichText::new("插入").color(GREEN))
-                                        .clicked()
-                                    {
-                                        insert_code = Some(fmt.code());
-                                    }
-                                });
+                                ui.allocate_ui_with_layout(
+                                    Vec2::new(136.0, 0.0),
+                                    Layout::right_to_left(Align::Center),
+                                    |ui| {
+                                        ui.set_width(136.0);
+                                        if ui.small_button("删除").clicked() {
+                                            delete_key = Some(fmt.item_key);
+                                        }
+                                        if ui.small_button("编辑").clicked() {
+                                            edit_item = Some(fmt.clone());
+                                        }
+                                        if ui
+                                            .small_button(RichText::new("插入").color(GREEN))
+                                            .clicked()
+                                        {
+                                            insert_code = Some(fmt.code());
+                                        }
+                                    },
+                                );
                             });
                         });
                     ui.add_space(3.0);
@@ -1132,6 +1158,7 @@ impl LibraryModalState {
                 .corner_radius(CornerRadius::same(10))
                 .inner_margin(Margin::same(12))
                 .show(ui, |ui| {
+                    // 顶部：标题 + 右侧 [填入当前公式] 小按钮
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("新建 / 编辑片段模版")
@@ -1145,41 +1172,45 @@ impl LibraryModalState {
                             }
                         });
                     });
-                    ui.add_space(4.0);
-                    egui::Grid::new("mathslot-snippet-form-grid")
-                        .num_columns(4)
-                        .spacing([8.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.label("触发字母:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.snip_key)
-                                    .desired_width(40.0)
-                                    .hint_text("d"),
-                            );
-                            ui.label("模版名称:");
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.snip_label)
-                                    .desired_width(180.0)
-                                    .hint_text("如：高斯核 / 泰勒余项"),
-                            );
-                            ui.end_row();
-
-                            ui.label("简码流源码:");
-                            ui.horizontal(|ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.snip_source)
-                                        .font(FontId::monospace(12.5))
-                                        .desired_width(280.0)
-                                        .hint_text("如 ▸rb^2 - 4ac;"),
-                                );
-                            });
-                            ui.end_row();
-                        });
-
                     ui.add_space(6.0);
+
+                    // 第一层（元信息）
                     ui.horizontal(|ui| {
+                        ui.label(RichText::new("触发字母:").size(11.5).color(TEXT_DIM));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.snip_key)
+                                .font(FontId::monospace(12.5))
+                                .desired_width(48.0)
+                                .hint_text("d"),
+                        );
+
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("模版名称:").size(11.5).color(TEXT_DIM));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.snip_label)
+                                .desired_width(220.0)
+                                .hint_text("如：高斯核 / 泰勒余项"),
+                        );
+                    });
+
+                    ui.add_space(8.0);
+
+                    // 第二层（通栏核心载荷）
+                    ui.label(RichText::new("简码流源码:").size(11.5).color(TEXT_DIM));
+                    ui.add_space(2.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.snip_source)
+                            .font(FontId::monospace(12.5))
+                            .desired_width(ui.available_width())
+                            .hint_text("如 ▸rb^2 - 4ac;"),
+                    );
+
+                    ui.add_space(10.0);
+
+                    // 第三层（操作栏：右对齐）
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui
-                            .button(RichText::new("保存片段").strong().color(GREEN))
+                            .button(RichText::new("✓ 保存片段").strong().color(GREEN))
                             .clicked()
                         {
                             let key_ch = self
@@ -1245,39 +1276,55 @@ impl LibraryModalState {
                         .corner_radius(CornerRadius::same(8))
                         .inner_margin(Margin::symmetric(10, 7))
                         .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            let total_w = ui.available_width();
+                            let left_w = (total_w - 144.0).max(120.0);
                             ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new(format!("[{CMD_PREFIX}t{}]", snip.item_key))
-                                        .monospace()
-                                        .strong()
-                                        .color(AMBER),
+                                ui.allocate_ui_with_layout(
+                                    Vec2::new(left_w, 0.0),
+                                    Layout::left_to_right(Align::Center),
+                                    |ui| {
+                                        ui.set_width(left_w);
+                                        ui.set_max_width(left_w);
+                                        ui.label(
+                                            RichText::new(format!("[{CMD_PREFIX}t{}]", snip.item_key))
+                                                .monospace()
+                                                .strong()
+                                                .color(AMBER),
+                                        );
+                                        ui.label(RichText::new(&snip.label).strong().color(TEXT));
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(&snip.stream_source)
+                                                    .monospace()
+                                                    .size(11.5)
+                                                    .color(CYAN),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(&snip.stream_source);
+                                    },
                                 );
-                                ui.label(RichText::new(&snip.label).strong().color(TEXT));
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(&snip.stream_source)
-                                            .monospace()
-                                            .size(11.5)
-                                            .color(CYAN),
-                                    )
-                                    .truncate(),
-                                )
-                                .on_hover_text(&snip.stream_source);
 
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui.small_button("删除").clicked() {
-                                        delete_key = Some(snip.item_key);
-                                    }
-                                    if ui.small_button("编辑").clicked() {
-                                        edit_snip = Some(snip.clone());
-                                    }
-                                    if ui
-                                        .small_button(RichText::new("插入").color(GREEN))
-                                        .clicked()
-                                    {
-                                        insert_code = Some(snip.code());
-                                    }
-                                });
+                                ui.allocate_ui_with_layout(
+                                    Vec2::new(136.0, 0.0),
+                                    Layout::right_to_left(Align::Center),
+                                    |ui| {
+                                        ui.set_width(136.0);
+                                        if ui.small_button("删除").clicked() {
+                                            delete_key = Some(snip.item_key);
+                                        }
+                                        if ui.small_button("编辑").clicked() {
+                                            edit_snip = Some(snip.clone());
+                                        }
+                                        if ui
+                                            .small_button(RichText::new("插入").color(GREEN))
+                                            .clicked()
+                                        {
+                                            insert_code = Some(snip.code());
+                                        }
+                                    },
+                                );
                             });
                         });
                     ui.add_space(3.0);
