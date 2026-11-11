@@ -1,9 +1,11 @@
 [workspace]
 members = [
+    ".",
     "crates/mathslot-syntax",
     "crates/mathslot-doc",
     "crates/mathslot-latex",
     "crates/mathslot-core",
+    "crates/mathslot-wasm",
 ]
 resolver = "2"
 
@@ -13,8 +15,32 @@ edition = "2024"
 authors = ["MathSlot Authors"]
 license = "MIT OR Apache-2.0"
 
+[package]
+name = "mathslot"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Ultra-lightweight stream-first math formula editor exporting LaTeX (shared core with Obsidian WASM plugin)"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = [
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "links",
+    "wayland",
+    "x11",
+] }
+latex-rust = { version = "3.0.1", features = ["png"] }
+mathslot-core = { path = "crates/mathslot-core" }
+tiny-skia = "0.11"
+
 [profile.dev]
 opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.release]
 lto = "thin"

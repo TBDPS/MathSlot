@@ -208,6 +208,14 @@ impl<'a> Lexer<'a> {
                             "ast" => Token::Symbol(SymbolKind::Operator(r"\ast".into())),
                             "star" => Token::Symbol(SymbolKind::Operator(r"\star".into())),
 
+                            // 标准数学函数算子 (ISO / AMS 规范)
+                            "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "arcsin"
+                            | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "ln"
+                            | "log" | "exp" | "det" | "gcd" | "deg" | "dim" | "ker"
+                            | "hom" | "arg" | "min" | "max" | "sup" | "inf" => {
+                                Token::Symbol(SymbolKind::Operator(format!(r"\{word}")))
+                            }
+
                             // 箭头
                             "to" | "rightarrow" => Token::Symbol(SymbolKind::Arrow(r"\to".into())),
                             "leftarrow" => Token::Symbol(SymbolKind::Arrow(r"\leftarrow".into())),

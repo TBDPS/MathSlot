@@ -1,0 +1,13 @@
+[package]
+name = "mathslot-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Zero-dependency WebAssembly bridge for MathSlot (Obsidian & Web plugins)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mathslot-core = { path = "../mathslot-core" }

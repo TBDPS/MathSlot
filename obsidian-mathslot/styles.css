@@ -1,0 +1,470 @@
+/* MathSlot Obsidian Plugin — Fixed-Height Menu + Stream Bar + Compact Preview/Nav */
+
+.modal.mathslot-modal {
+  width: min(920px, 94vw);
+  max-width: 920px;
+  padding: 0;
+  background: #0f172a;
+  color: #f1f5f9;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.mathslot-modal .modal-close-button {
+  color: #94a3b8;
+  top: 10px;
+  right: 12px;
+}
+
+.mathslot-root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  font-family: var(--font-interface, system-ui, -apple-system, sans-serif);
+}
+
+/* 顶部标题栏 + 严格固定高度菜单区（绝不抖动） */
+.mathslot-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 24px;
+}
+
+.mathslot-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mathslot-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #60a5fa;
+}
+
+.mathslot-subtitle {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.mathslot-mode-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.9);
+}
+
+.mathslot-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mathslot-btn {
+  background: #1e293b !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 6px !important;
+  padding: 3px 9px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  height: 26px !important;
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.mathslot-btn:hover:not(:disabled) {
+  background: #334155 !important;
+  border-color: #60a5fa !important;
+}
+
+.mathslot-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.mathslot-btn-primary {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+.mathslot-btn-primary:hover:not(:disabled) {
+  background: #1d4ed8 !important;
+}
+
+/* 固定高度菜单盒子：切换子菜单或跳转态时尺寸恒定，容纳直达、子菜单与自定义三行 */
+.mathslot-menu-box {
+  height: 114px;
+  min-height: 114px;
+  max-height: 114px;
+  overflow-y: auto;
+  background: #1e293b;
+  border: 1.5px solid #334155;
+  border-radius: 8px;
+  padding: 7px 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.mathslot-menu-box.is-armed {
+  border-color: #fbbf24;
+}
+
+.mathslot-menu-box.is-esc {
+  border-color: #60a5fa;
+}
+
+.mathslot-menu-box.is-jump {
+  border-color: #38bdf8;
+}
+
+.mathslot-menu-box.is-invalid {
+  border-color: #f87171;
+}
+
+.mathslot-menu-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.mathslot-row-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-right: 2px;
+}
+
+.mathslot-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 12px;
+  color: #f1f5f9;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mathslot-pill:hover {
+  background: #334155;
+  border-color: #60a5fa;
+}
+
+.mathslot-pill.is-armed {
+  border-color: #b45309;
+}
+
+.mathslot-pill.is-default {
+  border-color: #22c55e;
+}
+
+.mathslot-pill-key {
+  font-family: var(--font-monospace, monospace);
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.mathslot-pill.is-armed .mathslot-pill-key {
+  color: #fbbf24;
+}
+
+.mathslot-pill.is-default .mathslot-pill-key {
+  color: #4ade80;
+}
+
+.mathslot-pill-glyph {
+  font-family: var(--font-monospace, monospace);
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* 线性流输入卡片 */
+.mathslot-input-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 9px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mathslot-section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.mathslot-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.mathslot-bc-sep {
+  color: #64748b;
+}
+
+.mathslot-bc-struct {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.mathslot-bc-slot-cur {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.mathslot-bc-slot {
+  color: #94a3b8;
+}
+
+.mathslot-shorthand-hint {
+  margin-left: auto;
+  font-family: var(--font-monospace, monospace);
+  font-size: 11px;
+  color: #38bdf8;
+}
+
+.mathslot-stream-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border: 1.5px solid #475569 !important;
+  border-radius: 7px !important;
+  padding: 8px 11px !important;
+  font-family: var(--font-monospace, "JetBrains Mono", "Fira Code", monospace) !important;
+  font-size: 17.5px !important;
+  line-height: 1.4 !important;
+  height: 40px !important;
+}
+
+.mathslot-stream-input:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2) !important;
+  outline: none !important;
+}
+
+.mathslot-status {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+/* 居中窄幅预览与分层导航区 */
+.mathslot-visual-stack {
+  width: min(740px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mathslot-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.mathslot-surface {
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1.5px solid #334155;
+  border-radius: 9px;
+  padding: 8px 14px;
+  min-height: 64px;
+  max-height: 146px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mathslot-surface.is-esc {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.22);
+}
+
+.mathslot-surface.is-composite {
+  border-color: #a78bfa;
+}
+
+.mathslot-surface mjx-container {
+  margin: 2px 0 !important;
+  color: #0f172a !important;
+  font-size: 118% !important;
+}
+
+/* 底部双栏：左 方案 A 展开式 + 右 LaTeX 输出与插入 */
+.mathslot-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-top: 2px;
+  border-top: 1px solid #1e293b;
+}
+
+.mathslot-out-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mathslot-out-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.mathslot-delim-group {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.mathslot-delim-tab {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: var(--font-monospace, monospace);
+  cursor: pointer;
+}
+
+.mathslot-delim-tab.is-active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #60a5fa;
+}
+
+.mathslot-code-box {
+  background: #0b1120;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  padding: 7px 10px;
+  height: 50px;
+  overflow: auto;
+  font-family: var(--font-monospace, monospace);
+  font-size: 12.5px;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.mathslot-code-box.is-empty {
+  color: #64748b;
+}
+
+/* 扩展中心（自定义格式 & 复用片段）与帮助抽屉面板 */
+.mathslot-drawer {
+  background: #172033;
+  border: 1.5px solid #475569;
+  border-radius: 9px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 290px;
+  overflow-y: auto;
+}
+
+.mathslot-drawer.is-hidden {
+  display: none;
+}
+
+.mathslot-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 6px;
+}
+
+.mathslot-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 8px;
+  align-items: center;
+}
+
+.mathslot-mini-input {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border: 1px solid #475569 !important;
+  border-radius: 5px !important;
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  height: 28px !important;
+}
+
+.mathslot-lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mathslot-lib-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.mathslot-help-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mathslot-help-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 7px;
+  padding: 7px 10px;
+}
+
+.mathslot-help-card h4 {
+  margin: 0 0 4px 0;
+  font-size: 12.5px;
+  color: #60a5fa;
+}
+
+.mathslot-help-card p {
+  margin: 2px 0;
+  color: #cbd5e1;
+}
