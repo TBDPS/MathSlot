@@ -47,20 +47,7 @@ enum DelimiterStyle {
     MarkdownCode,
 }
 
-const PRESETS: &[(&str, &str)] = &[
-    ("一元二次求根公式", "x = ▸f-b +- ▸rb^2 - 4ac;;2a;"),
-    ("高斯积分", "▸i-oo;oo;e^-x^2 dx;= ▸r▸gp;;"),
-    ("欧拉恒等式", "e▸ui▸gp;; + 1 = 0"),
-    ("重要极限（Sinc函数）", "▸lx;0;▸fsin x;x;; = 1"),
-    ("柯西-施瓦茨不等式", "▸p▸s1;n;a_k b_k;;^2 <= ▸p▸s1;n;a_k^2;; ▸p▸s1;n;b_k^2;;"),
-    ("贝叶斯全概率公式", "P(A|B) = ▸fP(B|A) P(A);P(B);"),
-    ("泰勒展开级数", "f(x) = ▸s0;n;▸ff^(k)(x_0);k!;(x - x_0)^k; + R_n(x)"),
-    ("薛定谔波动方程", "i▸ol ▸cg▸gy;t; = ▸aaH; ▸gy"),
-    ("麦克斯韦旋度方程", "▸od xx E = -▸cgB;t;"),
-    ("二阶特征行列式", "▸mc▸gl - a;-b;-c;▸gl - d; = 0"),
-    ("三阶方阵乘法", "▸mg1;0;0;0;1;0;0;0;1;"),
-    ("微积分基本定理", "▸ia;b;f'(x) dx = ▸kgf(x);a;b; = f(b) - f(a)"),
-];
+use mathslot_core::presets::PRESET_LIBRARY;
 
 pub struct MathSlotApp {
     editor: StreamEditor,
@@ -704,6 +691,7 @@ impl MathSlotApp {
         let mut action_toggle_nav = false;
         let mut open_latex_tab = false;
         let mut open_custom_mgr = false;
+        let mut open_presets = false;
         let mut open_help = false;
 
         let (mode_text, mode_color) = self.mode_badge();
@@ -751,12 +739,18 @@ impl MathSlotApp {
                 {
                     action_clear = true;
                 }
-                let next_preset_name = PRESETS[self.preset_index % PRESETS.len()].0;
-                if tool_button(ui, RichText::new("↻ 示例").size(13.0).color(TEXT_DIM), true)
-                    .on_hover_text(format!("载入数学范例：{next_preset_name}"))
+                let next_preset = &PRESET_LIBRARY[self.preset_index % PRESET_LIBRARY.len()];
+                if tool_button(ui, RichText::new("↻ 换一个").size(13.0).color(TEXT_DIM), true)
+                    .on_hover_text(format!("快速轮换载入下一个范例 [{}]：{}", next_preset.category, next_preset.name))
                     .clicked()
                 {
                     action_preset = true;
+                }
+                if tool_button(ui, RichText::new("📖 示例公式库").size(13.0).color(CYAN), true)
+                    .on_hover_text("浏览与搜索 60+ 经典权威数学与物理公式库")
+                    .clicked()
+                {
+                    open_presets = true;
                 }
                 vsep(ui, 22.0);
                 if tool_button(ui, RichText::new("+ 存片段").size(13.0).color(GREEN), true)
@@ -814,6 +808,9 @@ impl MathSlotApp {
         if open_custom_mgr {
             self.modals.open_custom_tab(&self.editor.library);
         }
+        if open_presets {
+            self.modals.open_presets();
+        }
         if action_quick_save {
             self.quick_save_snippet(true);
             self.request_input_focus = true;
@@ -843,9 +840,9 @@ impl MathSlotApp {
             self.mark_dirty();
         }
         if action_preset {
-            let (name, src) = PRESETS[self.preset_index % PRESETS.len()];
-            self.preset_index = (self.preset_index + 1) % PRESETS.len();
-            self.status = self.editor.load_preset(src, name);
+            let formula = &PRESET_LIBRARY[self.preset_index % PRESET_LIBRARY.len()];
+            self.preset_index = (self.preset_index + 1) % PRESET_LIBRARY.len();
+            self.status = self.editor.load_preset(formula.source, formula.name);
             self.pending_cursor_sync = Some(self.editor.cursor_char);
             self.request_input_focus = true;
             self.mark_dirty();

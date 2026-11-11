@@ -678,11 +678,13 @@ pub(crate) fn canonical_macro(word: &str) -> &str {
         "ker" => "ker",
         "hom" => "hom",
         "arg" => "arg",
-        "rank" => "rank",
-        "tr" => "tr",
-        "span" => "span",
-        "diag" => "diag",
-        "proj" => "proj",
+        "rank" => "operatorname{rank}",
+        "tr" => "operatorname{tr}",
+        "span" => "operatorname{span}",
+        "diag" => "operatorname{diag}",
+        "proj" => "operatorname{proj}",
+        "Res" => "operatorname{Res}",
+        "Cov" => "operatorname{Cov}",
         "Re" => "Re",
         "Im" => "Im",
         "Pr" => "Pr",
@@ -809,6 +811,11 @@ pub(crate) fn is_known_bare_word(word: &str) -> bool {
             | "arg"
             | "rank"
             | "tr"
+            | "span"
+            | "diag"
+            | "proj"
+            | "Res"
+            | "Cov"
             | "oo"
             | "in"
             | "notin"

@@ -11,10 +11,12 @@ pub mod editor;
 pub mod latex;
 pub mod library;
 pub mod parser;
+pub mod presets;
 pub mod scheme_a;
 pub mod session;
 pub mod visual;
 
+pub use presets::{PresetFormula, PRESET_LIBRARY, preset_categories};
 pub use session::Session;
 
 pub use mathslot_syntax::{
@@ -159,8 +161,14 @@ mod tests {
         .unwrap();
 
         let json = lib.to_json_pretty();
+        assert!(json.contains("\"schema_version\": 1"));
         let restored = UserLibrary::from_json(&json).unwrap();
         assert_eq!(restored, lib);
+
+        // 验证旧版无 schema_version 的配置平滑自动迁移
+        let legacy_json = r#"{"customFormats":[],"snippets":[]}"#;
+        let legacy_lib = UserLibrary::from_json(legacy_json).unwrap();
+        assert!(legacy_lib.custom_formats.is_empty());
 
         let d1 = parse_with_library("▸kga^p;a;p;", &restored);
         assert_eq!(to_latex(&d1), "a^{p} \\equiv a \\pmod{p}");
@@ -598,11 +606,14 @@ mod tests {
         assert_eq!(to_scheme_a(&q), "x = frac(-b +- sqrt(b^2 - 4ac), 2a)");
         assert_eq!(to_latex(&q), "x = \\frac{-b \\pm \\sqrt{b^{2} - 4ac}}{2a}");
 
+        let euler = parse("▸ue;i▸gp;; + 1 = 0");
+        assert_eq!(to_latex(&euler), "{e}^{i\\pi} + 1 = 0");
+
         // 验证全部 12 项预置数学公式均能完整解析且生成合规 LaTeX
         let presets = [
             "x = ▸f-b +- ▸rb^2 - 4ac;;2a;",
             "▸i-oo;oo;e^-x^2 dx;= ▸r▸gp;;",
-            "e▸ui▸gp;; + 1 = 0",
+            "▸ue;i▸gp;; + 1 = 0",
             "▸lx;0;▸fsin x;x;; = 1",
             "▸p▸s1;n;a_k b_k;;^2 <= ▸p▸s1;n;a_k^2;; ▸p▸s1;n;b_k^2;;",
             "P(A|B) = ▸fP(B|A) P(A);P(B);",

@@ -1,0 +1,207 @@
+name: Cross-Platform Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    name: Build Linux x86_64 Bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies for egui / wayland
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            libx11-xcb-dev
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin mathslot
+
+      - name: Package Linux distribution
+        run: |
+          PKG_NAME="mathslot-linux-x86_64"
+          mkdir -p "${PKG_NAME}/assets" "${PKG_NAME}/scripts"
+          cp target/release/mathslot "${PKG_NAME}/"
+          cp -r assets/* "${PKG_NAME}/assets/"
+          cp scripts/install-desktop.sh "${PKG_NAME}/scripts/"
+          chmod +x "${PKG_NAME}/scripts/install-desktop.sh" "${PKG_NAME}/mathslot"
+          cp README.md HELP.md "${PKG_NAME}/"
+          tar -czvf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathslot-linux-x86_64.tar.gz
+          path: mathslot-linux-x86_64.tar.gz
+
+  build-windows-x86_64:
+    name: Build Windows x86_64 Binary
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin mathslot
+
+      - name: Package Windows distribution
+        shell: bash
+        run: |
+          PKG_NAME="mathslot-windows-x86_64"
+          mkdir -p "${PKG_NAME}/assets"
+          cp target/release/mathslot.exe "${PKG_NAME}/"
+          cp -r assets/* "${PKG_NAME}/assets/"
+          cp README.md HELP.md "${PKG_NAME}/"
+          7z a "${PKG_NAME}.zip" "${PKG_NAME}"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathslot-windows-x86_64.zip
+          path: mathslot-windows-x86_64.zip
+
+  build-macos:
+    name: Build macOS Apple Silicon (aarch64)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin mathslot
+
+      - name: Package macOS distribution
+        run: |
+          PKG_NAME="mathslot-macos-aarch64"
+          mkdir -p "${PKG_NAME}/assets"
+          cp target/release/mathslot "${PKG_NAME}/"
+          cp -r assets/* "${PKG_NAME}/assets/"
+          chmod +x "${PKG_NAME}/mathslot"
+          cp README.md HELP.md "${PKG_NAME}/"
+          tar -czvf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathslot-macos-aarch64.tar.gz
+          path: mathslot-macos-aarch64.tar.gz
+
+  build-obsidian-plugin:
+    name: Build Obsidian WASM Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build wasm package
+        run: |
+          cd crates/mathslot-wasm
+          wasm-pack build --target web --release
+
+      - name: Package Obsidian Plugin
+        run: |
+          PKG_NAME="mathslot-obsidian-plugin"
+          mkdir -p "${PKG_NAME}"
+          cp -r obsidian-mathslot/* "${PKG_NAME}/"
+          # 拷贝编译出的 WASM 二进制与绑定代码
+          if [ -d "crates/mathslot-wasm/pkg" ]; then
+            cp -r crates/mathslot-wasm/pkg "${PKG_NAME}/pkg"
+          fi
+          cp README.md "${PKG_NAME}/"
+          zip -r "${PKG_NAME}.zip" "${PKG_NAME}"
+
+      - name: Upload Obsidian artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mathslot-obsidian-plugin.zip
+          path: mathslot-obsidian-plugin.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - build-linux-x86_64
+      - build-windows-x86_64
+      - build-macos
+      - build-obsidian-plugin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: List downloaded artifacts
+        run: |
+          mkdir -p release-assets
+          find dist -type f -exec mv -v {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          files: release-assets/*
+          name: MathSlot ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ### MathSlot 公式编辑器跨平台正式发布
+
+            🎉 欢迎使用 **MathSlot** —— 专为极速录入与排版打造的超轻量流式简码数学公式编辑器！
+
+            #### 制品下载清单 (Release Artifacts)
+            - **Linux (x86_64)**: `mathslot-linux-x86_64.tar.gz` (含原生可执行程序、桌面入口、图标全套与一键安装脚本)
+            - **Windows (x86_64)**: `mathslot-windows-x86_64.zip` (开箱即用)
+            - **macOS (Apple Silicon aarch64)**: `mathslot-macos-aarch64.tar.gz`
+            - **Obsidian 插件**: `mathslot-obsidian-plugin.zip` (零依赖 WebAssembly 插件)
+
+            #### 核心特性亮点
+            - **海量经典公式库 (Preset Library)**：收录 60+ 覆盖微积分、线代、概率、物理、复变、离散算法等学科的经典权威公式；
+            - **欧拉恒等式规范书写**：`▸ue;i▸gp;; + 1 = 0`，完美解决基底在上、指数在外的历史偏差；
+            - **全结构槽位书写顺序严密规范**：全结构严格贴合人类自然书写思考流与排版直觉；
+            - **Linux / Fedora Wayland 原生集成**：独立 Application ID、现代化矢量与多尺寸应用图标，告别黄色问号与齿轮；
+            - **配置与模版双重容灾**：Schema 版本化管理，自动原子写盘与备份容灾 (`library.json.bak`)。

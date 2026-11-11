@@ -206,6 +206,8 @@ impl Default for UserLibrary {
     }
 }
 
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 impl UserLibrary {
     pub fn default_seeded() -> Self {
         Self {
@@ -461,7 +463,7 @@ layout: LayoutKind::Linear, auto_join: None,
     }
 
     pub fn to_json_pretty(&self) -> String {
-        let mut out = String::from("{\n  \"customFormats\": [\n");
+        let mut out = format!("{{\n  \"schema_version\": {},\n  \"customFormats\": [\n", CURRENT_SCHEMA_VERSION);
         for (idx, f) in self.custom_formats.iter().enumerate() {
             if idx > 0 {
                 out.push_str(",\n");
@@ -514,6 +516,14 @@ layout: LayoutKind::Linear, auto_join: None,
         let val = JsonParser::parse_str(json)?;
         let JsonVal::Obj(entries) = val else {
             return Err("顶层配置必须是 JSON 对象".to_owned());
+        };
+
+        // 检验或自动迁移配置 Schema 版本（缺省视为 v1）
+        let _schema_version: u32 = match find_field(&entries, "schema_version")
+            .or_else(|| find_field(&entries, "schemaVersion"))
+        {
+            Some(JsonVal::Num(n)) => *n as u32,
+            _ => 1,
         };
 
         let mut custom_formats = Vec::new();

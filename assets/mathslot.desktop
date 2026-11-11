@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=MathSlot
+GenericName=Math Formula Editor
+Comment=Ultra-lightweight stream-first math formula editor exporting LaTeX
+Exec=mathslot %U
+Icon=mathslot
+Terminal=false
+Type=Application
+Categories=Education;Science;Math;Utility;
+StartupWMClass=mathslot
+Keywords=math;latex;formula;editor;symbols;calculus;
+MimeType=text/x-tex;

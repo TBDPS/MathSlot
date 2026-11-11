@@ -4,6 +4,7 @@ use eframe::egui::{self, Align, Align2, CornerRadius, FontId, Layout, Margin, Ri
 use mathslot_core::command::CMD_PREFIX;
 use mathslot_core::editor::StreamEditor;
 use mathslot_core::library::{CustomFormat, FormulaSnippet, UserLibrary};
+use mathslot_core::presets::{PRESET_LIBRARY, PresetFormula, preset_categories};
 
 use crate::theme::{
     ACCENT, AMBER, BORDER_SOFT, CARD, CYAN, FIELD, GREEN, GREEN_BG, MUTED, RED, TEXT, TEXT_DIM,
@@ -52,6 +53,11 @@ pub struct LibraryModalState {
     // LaTeX 逆向反编译器 / 转换器
     pub latex_input: String,
     pub latex_converted_mathslot: String,
+
+    // 示例公式库 (Preset Corpus)
+    pub show_presets: bool,
+    pub preset_search: String,
+    pub preset_category_idx: usize,
 }
 
 impl LibraryModalState {
@@ -75,13 +81,20 @@ impl LibraryModalState {
             snip_source: String::new(),
             latex_input: r"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}".to_owned(),
             latex_converted_mathslot: String::new(),
+            show_presets: false,
+            preset_search: String::new(),
+            preset_category_idx: 0,
         };
         s.update_latex_conversion();
         s
     }
 
     pub fn any_open(&self) -> bool {
-        self.show_library || self.show_help
+        self.show_library || self.show_help || self.show_presets
+    }
+
+    pub fn open_presets(&mut self) {
+        self.show_presets = true;
     }
 
     pub fn open_custom_tab(&mut self, lib: &UserLibrary) {
@@ -154,6 +167,193 @@ impl LibraryModalState {
                 });
             self.show_help = open;
         }
+
+        if self.show_presets {
+            let mut open = self.show_presets;
+            egui::Window::new(RichText::new("📖 经典公式库 · Preset Formula Corpus").size(14.0).strong())
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(true)
+                .pivot(Align2::CENTER_TOP)
+                .default_pos(anchor_pos)
+                .default_width(860.0)
+                .default_height(600.0)
+                .min_width(680.0)
+                .min_height(480.0)
+                .show(ctx, |ui| {
+                    if let Some(act) = self.render_presets_body(ui, editor) {
+                        action = Some(act);
+                    }
+                });
+            self.show_presets = open;
+        }
+
+        action
+    }
+
+    fn render_presets_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor: &mut StreamEditor,
+    ) -> Option<ModalAction> {
+        let mut action = None;
+
+        // 顶部工具条：搜索输入框与清除按钮
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("🔍").size(14.0));
+            let _search_edit = ui.add(
+                egui::TextEdit::singleline(&mut self.preset_search)
+                    .hint_text("搜索公式名称、学科分类、符号简码或说明关键词...")
+                    .desired_width(ui.available_width() - 80.0),
+            );
+            if !self.preset_search.is_empty() && ui.small_button("✕ 清空").clicked() {
+                self.preset_search.clear();
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // 学科分类筛选 Tab 条
+        let categories = preset_categories();
+        ui.horizontal_wrapped(|ui| {
+            for (idx, &cat) in categories.iter().enumerate() {
+                let is_selected = self.preset_category_idx == idx;
+                let text = if is_selected {
+                    RichText::new(cat).strong().color(ACCENT)
+                } else {
+                    RichText::new(cat).color(TEXT_DIM)
+                };
+                let btn = ui.selectable_label(is_selected, text);
+                if btn.clicked() {
+                    self.preset_category_idx = idx;
+                }
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(6.0);
+
+        // 筛选逻辑
+        let active_cat = categories[self.preset_category_idx];
+        let search_term = self.preset_search.trim().to_lowercase();
+        let filtered: Vec<&PresetFormula> = PRESET_LIBRARY
+            .iter()
+            .filter(|f| {
+                if self.preset_category_idx > 0 && f.category != active_cat {
+                    return false;
+                }
+                if search_term.is_empty() {
+                    return true;
+                }
+                f.name.to_lowercase().contains(&search_term)
+                    || f.desc.to_lowercase().contains(&search_term)
+                    || f.source.to_lowercase().contains(&search_term)
+                    || f.category.to_lowercase().contains(&search_term)
+            })
+            .collect();
+
+        // 状态概要信息
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "共收录 {} 个权威公式 · 当前显示 {} 个",
+                    PRESET_LIBRARY.len(),
+                    filtered.len()
+                ))
+                .size(11.5)
+                .color(MUTED),
+            );
+            if let Some((msg, is_err)) = &self.feedback {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let color = if *is_err { RED } else { GREEN };
+                    ui.label(RichText::new(msg).size(11.5).color(color));
+                });
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // 滚动展示公式卡片
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if filtered.is_empty() {
+                    ui.add_space(32.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            RichText::new("未找到匹配的公式，请尝试更换关键词或学科分类。")
+                                .size(13.0)
+                                .color(MUTED),
+                        );
+                    });
+                    return;
+                }
+
+                for formula in filtered {
+                    egui::Frame::NONE
+                        .fill(CARD)
+                        .corner_radius(CornerRadius::same(6))
+                        .stroke(Stroke::new(1.0, CARD_BORDER))
+                        .inner_margin(Margin::same(10))
+                        .show(ui, |ui| {
+                            // 第一行：标题、学科徽章与右侧动作区
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(formula.name).strong().size(13.5).color(TEXT));
+                                ui.label(
+                                    RichText::new(format!("[{}]", formula.category))
+                                        .size(11.0)
+                                        .color(CYAN),
+                                );
+
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.small_button(RichText::new("复制 LaTeX").color(TEXT_DIM)).clicked() {
+                                        let parsed = mathslot_core::parser::parse_with_library(
+                                            formula.source,
+                                            &editor.library,
+                                        );
+                                        let latex = mathslot_core::latex::to_latex(&parsed);
+                                        ui.ctx().copy_text(latex);
+                                        self.feedback = Some((
+                                            format!("✓ 已复制 [{}] 的标准 LaTeX 至剪贴板！", formula.name),
+                                            false,
+                                        ));
+                                    }
+
+                                    if ui.small_button(RichText::new("+ 追加").color(ACCENT)).clicked() {
+                                        action = Some(ModalAction::InsertCode(formula.source.to_string()));
+                                        self.show_presets = false;
+                                    }
+
+                                    if ui.small_button(RichText::new("✓ 载入").strong().color(GREEN)).clicked() {
+                                        action = Some(ModalAction::ReplaceCode(formula.source.to_string()));
+                                        self.show_presets = false;
+                                    }
+                                });
+                            });
+
+                            ui.add_space(4.0);
+
+                            // 第二行：学科背景或数学说明
+                            ui.label(RichText::new(formula.desc).size(11.5).color(MUTED));
+
+                            ui.add_space(4.0);
+
+                            // 第三行：流式简码预览条
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("简码流:").size(11.0).color(AMBER));
+                                ui.label(
+                                    RichText::new(formula.source)
+                                        .monospace()
+                                        .size(11.5)
+                                        .color(CYAN),
+                                );
+                            });
+                        });
+
+                    ui.add_space(4.0);
+                }
+            });
 
         action
     }
@@ -1049,10 +1249,24 @@ pub fn load_library_from_disk() -> (UserLibrary, String) {
     match std::fs::read_to_string(&path) {
         Ok(raw) => match UserLibrary::from_json(&raw) {
             Ok(lib) => (lib, display),
-            Err(e) => (
-                UserLibrary::default_seeded(),
-                format!("配置文件损坏，已回退默认库（{display}）: {e}"),
-            ),
+            Err(e) => {
+                // 自动尝试从 .bak 容灾备份恢复
+                let bak = path.with_extension("json.bak");
+                if bak.exists()
+                    && let Ok(bak_raw) = std::fs::read_to_string(&bak)
+                    && let Ok(lib) = UserLibrary::from_json(&bak_raw)
+                {
+                    (
+                        lib,
+                        format!("主配置文件损坏，已成功从容灾备份恢复（{}）", bak.display()),
+                    )
+                } else {
+                    (
+                        UserLibrary::default_seeded(),
+                        format!("配置文件损坏，已回退默认库（{display}）: {e}"),
+                    )
+                }
+            }
         },
         Err(_) => (UserLibrary::default_seeded(), display),
     }
@@ -1068,6 +1282,11 @@ pub fn save_library_to_disk(lib: &UserLibrary) -> Result<String, String> {
     // 先写临时文件再原子替换，避免写入中途崩溃产生截断的 library.json
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, lib.to_json_pretty()).map_err(|e| format!("写入配置文件失败: {e}"))?;
+    // 自动双重容灾备份：若已有原配置，先复制一份为 library.json.bak
+    if path.exists() {
+        let bak = path.with_extension("json.bak");
+        let _ = std::fs::copy(&path, &bak);
+    }
     std::fs::rename(&tmp, &path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("替换配置文件失败: {e}")

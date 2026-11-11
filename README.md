@@ -13,21 +13,28 @@
 
 ## 核心特性
 
-1. **高频单字母直达 + 二级菜单默认项**：
+1. **经典公式库与一键载入 (Preset Corpus Modal)**：
+   - **60+ 权威典型公式全收录**：涵盖微积分与高数、线性代数与矩阵、概率论与数理统计、大学物理与场论、复变函数与变换、离散数学与计算机科学 6 大核心领域；
+   - **交互式公式库面板 (`📖 示例公式库`)**：点击顶部「📖 示例公式库」唤出高品质模态弹窗，支持按学科 Tab 筛选、即时关键词全文过滤；
+   - **灵活复用**：每张卡片支持 **「✓ 一键载入」**（清空并替换）、**「+ 追加插入」**（光标处无缝追加）以及 **「复制 LaTeX」**（直接提取标准 LaTeX 源码至剪贴板）；
+   - **快速轮换 (`↻ 换一个`)**：点击顶部「↻ 换一个」在 60+ 权威范例中极速轮换载入。
+
+2. **高频单字母直达 + 二级菜单默认项 + 槽位书写严密规范**：
    - **12 个高频结构单字母直达**：按 `Tab` 插入前导符 `▸` 后，仅需 **1 个字母**即可生成常用结构：
-     - `▸f` 分数（Fraction）
-     - `▸r` 根号（Square Root）
-     - `▸i` 定积分（Definite Integral）
-     - `▸s` 求和（Summation）
-     - `▸l` 极限（Limit）
-     - `▸u` 上标（Superscript）
-     - `▸d` 下标（Subscript）
-     - `▸b` 上下标（Sub-superscript）
+     - `▸f` 分数（Fraction，[分子, 分母]）
+     - `▸r` 根号（Square Root，[被开方式]）
+     - `▸n` N 次根（N-th Root，[根指数, 被开方式]）
+     - `▸u` 上标（Superscript，[底数, 指数]）
+     - `▸d` 下标（Subscript，[主体, 下标]）
+     - `▸b` 上下标（Sub-superscript，[主体, 下标, 上标]）
+     - `▸i` 定积分（Definite Integral，[下限, 上限, 被积式]）
+     - `▸s` 求和（Summation，[下限, 上限, 求和项]）
+     - `▸l` 极限（Limit，[趋近变量, 趋近目标, 主体]）
      - `▸p` 括号包裹（Parentheses）
      - `▸v` 绝对值（Absolute Value / Norm）
-     - `▸n` N 次根（N-th Root）
-     - `▸e` 二项式系数（Binomial `\binom`）
-   - **极限趋向箭头零记忆输入**：`▸l`（极限）原生设为三槽位 **`趋近变量 ; 趋近目标 ; 主体`**，自动生成 `\to`（`→`），例如输入 `▸lx;0;▸fsin x;x;` 直接输出标准 `\lim_{x \to 0} \frac{\sin x}{x}`；单独输入趋向箭头可直接敲自然 ASCII 简写 **`->`** 或按 `Tab o b`（`▸ob`）。
+     - `▸e` 二项式系数（Binomial `\binom`，[上项 n, 下项 k]）
+   - **权威欧拉恒等式规范示范**：标准结构输入 **`▸ue;i▸gp;; + 1 = 0`**（底数 $e$、指数 $i\pi$），生成完美学术规范的 `${e}^{i\pi} + 1 = 0$`，彻底告别基底在外的误区；
+   - **极限趋向箭头零记忆输入**：`▸l`（极限）原生设为三槽位 **`趋近变量 ; 趋近目标 ; 主体`**，自动生成 `\to`（`→`），例如输入 `▸lx;0;▸fsin x;x;;` 直接输出标准 `\lim_{x \to 0} \frac{\sin x}{x}`；单独输入趋向箭头可直接敲自然 ASCII 简写 **`->`** 或按 `Tab o b`（`▸ob`）。
    - **7 组二级子菜单均带 ★默认项**：低频或成组条目归入 `c`（微积分/连乘）、`m`（矩阵/分段）、`a`（标注/向量/定界）、`g`（希腊字母）、`o`（常用算子/常数）、`x`（关系符/箭头）、`q`（集合/逻辑），展开子菜单后按 `Enter` 或 `Space` 一键选用默认项。
 
 2. **标准 LaTeX 语法对齐与扩展宏库**：
@@ -131,9 +138,19 @@ cargo run --release
 # 或者编译生成二进制并在根目录下直接执行软链接
 cargo build --release
 ./mathslot
+
+# Linux / Fedora Wayland 原生桌面图标与入口一键部署
+./scripts/install-desktop.sh
 ```
 
-### 2. 构建与安装 Obsidian 插件
+### 2. Linux / Fedora Wayland 原生桌面深度集成
+
+MathSlot 为 Linux 原生桌面（尤其是 Fedora GNOME Wayland 环境）提供了开箱即用的第一方支持：
+- **专属高辨识度矢量图标**：深蓝底色搭配金色积分与青色槽位符号，内嵌 16×16 至 256×256 各尺寸 PNG 与矢量 SVG；
+- **Wayland 原生关联**：二进制内嵌注册 `with_app_id("mathslot")`，彻底告别黄色问号与齿轮图标；
+- **标准 XDG 桌面安装**：运行 `./scripts/install-desktop.sh` 即可自动将可执行文件软链至 `~/.local/bin/`、安装 `mathslot.desktop` 与全套图标并刷新系统缓存。
+
+### 3. 构建与安装 Obsidian 插件
 
 ```bash
 # 进入插件工程目录
@@ -154,7 +171,32 @@ cp manifest.json styles.css main.js "/path/to/your/vault/.obsidian/plugins/maths
 
 ---
 
+## 存储架构与数据容灾 (Storage Architecture)
+
+MathSlot 严格遵守各操作系统平台的 XDG 标准配置路径，将用户自定义的扩展宏 (`[k▸]`) 与片段模版 (`[t▸]`) 进行结构化持久化存储：
+
+- **跨平台配置文件路径**：
+  - **Linux / Wayland / X11**：`$XDG_CONFIG_HOME/mathslot/library.json`（缺省为 `~/.config/mathslot/library.json`）
+  - **Windows**：`%APPDATA%\mathslot\library.json`
+  - **macOS**：`$HOME/Library/Application Support/mathslot/library.json`
+- **Schema 版本契约 (`schema_version: 1`)**：JSON 顶层明确声明模式版本，支持未来增减字段时的平滑向后兼容与自动迁移；
+- **写入安全与容灾备份**：
+  - **原子写入 (Atomic Rename)**：先写入 `library.json.tmp` 临时文件，校验成功后执行系统级原子替换，彻底避免系统掉电或崩溃产生的半写截断损坏；
+  - **双重容灾备份 (`library.json.bak`)**：每次修改持久化前自动留存上一版完整副本为 `.bak` 文件；在主文件异常损坏时自动回退并提示恢复，确保科研资产零丢失。
+
+---
+
+## 跨平台发布与 GitHub Releases
+
+本项目由 GitHub Actions CI/CD 流水线自动化构建全平台发布包，可访问 [GitHub Releases](https://github.com/TBDPS/MathSlot/releases) 下载：
+- **Linux (x86_64)**: `mathslot-linux-x86_64.tar.gz`（含二进制、桌面快捷方式、全套应用图标与一键安装脚本）；
+- **Windows (x86_64)**: `mathslot-windows-x86_64.zip`；
+- **macOS (Apple Silicon aarch64)**: `mathslot-macos-aarch64.tar.gz`；
+- **Obsidian 插件**: `mathslot-obsidian-plugin.zip`（内含零依赖 WASM、`manifest.json`、`main.js` 与 `styles.css`）。
+
+---
+
 ## 更多参考
 
 - 完整操作教程、所有快捷键映射及配置示例请参阅 **[使用手册 HELP.md](./HELP.md)**。
-- 架构设计方案与演进请参阅 **[docs/DECISION_ROUND_6_FULL_PRODUCT.md](./docs/DECISION_ROUND_6_FULL_PRODUCT.md)**。
+- 架构设计方案与演进请参阅 **[docs/DECISION_ROUND_8_FEATURE_AND_RELEASE.md](./docs/DECISION_ROUND_8_FEATURE_AND_RELEASE.md)**。
