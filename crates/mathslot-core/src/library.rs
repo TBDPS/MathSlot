@@ -194,10 +194,228 @@ impl FormulaSnippet {
     }
 }
 
+/// 具备独立生命周期与所有权的公式实体项
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormulaEntry {
+    pub id: String,           // 唯一标识 (例如 "preset-euler" 或 "user-1710123456")
+    pub name: String,         // 公式标题 (如 "多头自注意力机制 Multi-Head Attention")
+    pub category: String,     // 学科或领域分类 (如 "深度学习", "量子力学")
+    pub source: String,       // MathSlot 流式简码源文本
+    pub desc: String,         // 学术背景、数学原理或工程用途说明
+    pub tags: Vec<String>,    // 检索与智能联想标签
+    pub is_builtin: bool,     // 是否为系统内置种子公式
+    pub created_at: u64,      // 创建时间戳 (秒级 Unix Epoch)
+}
+
+/// 动态公式容器 (FormulaLibrary / FormulaCorpus)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormulaLibrary {
+    pub entries: Vec<FormulaEntry>,
+}
+
+impl Default for FormulaLibrary {
+    fn default() -> Self {
+        Self::default_seeded()
+    }
+}
+
+impl FormulaLibrary {
+    /// 预置加载 88+ 项权威经典公式作为种子数据
+    pub fn default_seeded() -> Self {
+        let mut entries = Vec::with_capacity(crate::presets::PRESET_LIBRARY.len());
+        for (i, p) in crate::presets::PRESET_LIBRARY.iter().enumerate() {
+            let id = format!("preset-{:03}", i + 1);
+            let mut tags = Vec::new();
+            for word in p.name.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|s| !s.is_empty()) {
+                if word.len() >= 2 {
+                    tags.push(word.to_ascii_lowercase());
+                }
+            }
+            tags.push(p.category.to_lowercase());
+            tags.dedup();
+
+            entries.push(FormulaEntry {
+                id,
+                name: p.name.to_owned(),
+                category: p.category.to_owned(),
+                source: p.source.to_owned(),
+                desc: p.desc.to_owned(),
+                tags,
+                is_builtin: true,
+                created_at: 1700000000 + (i as u64) * 60,
+            });
+        }
+        Self { entries }
+    }
+
+    pub fn upsert(&mut self, mut entry: FormulaEntry) -> Result<String, String> {
+        if entry.name.trim().is_empty() {
+            return Err("公式名称不能为空。".to_owned());
+        }
+        if entry.source.trim().is_empty() {
+            return Err("公式简码源码不能为空。".to_owned());
+        }
+        if entry.category.trim().is_empty() {
+            entry.category = "自定义公式".to_owned();
+        }
+        if entry.id.trim().is_empty() {
+            entry.id = format!("user-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+        }
+        let id = entry.id.clone();
+        if let Some(pos) = self.entries.iter().position(|e| e.id == id) {
+            self.entries[pos] = entry;
+        } else {
+            self.entries.push(entry);
+        }
+        Ok(id)
+    }
+
+    pub fn remove(&mut self, id: &str) -> bool {
+        let before = self.entries.len();
+        self.entries.retain(|e| e.id != id);
+        self.entries.len() < before
+    }
+
+    pub fn get(&self, id: &str) -> Option<&FormulaEntry> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
+    pub fn get_mut(&mut self, id: &str) -> Option<&mut FormulaEntry> {
+        self.entries.iter_mut().find(|e| e.id == id)
+    }
+
+    pub fn restore_defaults(&mut self) {
+        let mut seeded = Self::default_seeded();
+        let user_entries: Vec<FormulaEntry> = self.entries.iter().filter(|e| !e.is_builtin).cloned().collect();
+        seeded.entries.extend(user_entries);
+        *self = seeded;
+    }
+
+    pub fn categories(&self) -> Vec<String> {
+        let mut cats = Vec::new();
+        for e in &self.entries {
+            if !cats.contains(&e.category) {
+                cats.push(e.category.clone());
+            }
+        }
+        cats
+    }
+
+    pub fn filter<'a>(&'a self, category: Option<&str>, query: &str) -> Vec<&'a FormulaEntry> {
+        let q = query.trim().to_lowercase();
+        self.entries.iter().filter(|e| {
+            if let Some(cat) = category {
+                if cat != "全部" && !cat.is_empty() && e.category != cat {
+                    return false;
+                }
+            }
+            if q.is_empty() {
+                return true;
+            }
+            e.name.to_lowercase().contains(&q)
+                || e.desc.to_lowercase().contains(&q)
+                || e.source.to_lowercase().contains(&q)
+                || e.category.to_lowercase().contains(&q)
+                || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
+        }).collect()
+    }
+
+    pub fn export_json(&self) -> String {
+        let mut out = String::from("[\n");
+        for (i, e) in self.entries.iter().enumerate() {
+            if i > 0 {
+                out.push_str(",\n");
+            }
+            let tags_json: Vec<String> = e.tags.iter().map(|t| escape_json_str(t)).collect();
+            out.push_str(&format!(
+                "  {{\n    \"id\": {},\n    \"name\": {},\n    \"category\": {},\n    \"source\": {},\n    \"desc\": {},\n    \"tags\": [{}],\n    \"is_builtin\": {},\n    \"created_at\": {}\n  }}",
+                escape_json_str(&e.id),
+                escape_json_str(&e.name),
+                escape_json_str(&e.category),
+                escape_json_str(&e.source),
+                escape_json_str(&e.desc),
+                tags_json.join(", "),
+                e.is_builtin,
+                e.created_at,
+            ));
+        }
+        out.push_str("\n]\n");
+        out
+    }
+
+    pub fn import_json(&mut self, json: &str, overwrite: bool) -> Result<usize, String> {
+        let val = JsonParser::parse_str(json)?;
+        let arr = match val {
+            JsonVal::Arr(a) => a,
+            JsonVal::Obj(entries) => match find_field(&entries, "formulas") {
+                Some(JsonVal::Arr(a)) => (*a).clone(),
+                _ => return Err("导入数据必须为公式数组或包含 formulas 字段的对象".to_owned()),
+            },
+            _ => return Err("导入数据格式错误，期望 JSON 数组".to_owned()),
+        };
+
+        let mut count = 0;
+        for item in arr {
+            if let JsonVal::Obj(obj) = item {
+                let name = get_str(&obj, "name").unwrap_or("").trim().to_owned();
+                let source = get_str(&obj, "source").unwrap_or("").trim().to_owned();
+                if name.is_empty() || source.is_empty() {
+                    continue;
+                }
+                let mut id = get_str(&obj, "id").unwrap_or("").trim().to_owned();
+                if id.is_empty() {
+                    id = format!("imported-{}", count + 1);
+                }
+                let category = get_str(&obj, "category").unwrap_or("自定义公式").trim().to_owned();
+                let desc = get_str(&obj, "desc").unwrap_or("").trim().to_owned();
+                let mut tags = Vec::new();
+                if let Some(JsonVal::Arr(t_arr)) = find_field(&obj, "tags") {
+                    for t in t_arr {
+                        if let JsonVal::Str(s) = t {
+                            tags.push(s.clone());
+                        }
+                    }
+                }
+                let is_builtin = match find_field(&obj, "is_builtin").or_else(|| find_field(&obj, "isBuiltin")) {
+                    Some(JsonVal::Bool(b)) => *b,
+                    _ => false,
+                };
+                let created_at = match find_field(&obj, "created_at").or_else(|| find_field(&obj, "createdAt")) {
+                    Some(JsonVal::Num(n)) => *n as u64,
+                    _ => 0,
+                };
+
+                let entry = FormulaEntry {
+                    id: id.clone(),
+                    name,
+                    category,
+                    source,
+                    desc,
+                    tags,
+                    is_builtin,
+                    created_at,
+                };
+
+                if let Some(existing_pos) = self.entries.iter().position(|e| e.id == id) {
+                    if overwrite {
+                        self.entries[existing_pos] = entry;
+                        count += 1;
+                    }
+                } else {
+                    self.entries.push(entry);
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserLibrary {
     pub custom_formats: Vec<CustomFormat>,
     pub snippets: Vec<FormulaSnippet>,
+    pub formulas: FormulaLibrary,
 }
 
 impl Default for UserLibrary {
@@ -206,7 +424,7 @@ impl Default for UserLibrary {
     }
 }
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 impl UserLibrary {
     pub fn default_seeded() -> Self {
@@ -325,6 +543,7 @@ layout: LayoutKind::Linear, auto_join: None,
                     stream_source: "▸f▸oc ;▸oc x;".to_owned(),
                 },
             ],
+            formulas: FormulaLibrary::default_seeded(),
         }
     }
 
@@ -508,6 +727,24 @@ layout: LayoutKind::Linear, auto_join: None,
                 escape_json_str(&s.stream_source),
             ));
         }
+        out.push_str("\n  ],\n  \"formulas\": [\n");
+        for (idx, e) in self.formulas.entries.iter().enumerate() {
+            if idx > 0 {
+                out.push_str(",\n");
+            }
+            let tags_json: Vec<String> = e.tags.iter().map(|t| escape_json_str(t)).collect();
+            out.push_str(&format!(
+                "    {{\"id\": {}, \"name\": {}, \"category\": {}, \"source\": {}, \"desc\": {}, \"tags\": [{}], \"is_builtin\": {}, \"created_at\": {}}}",
+                escape_json_str(&e.id),
+                escape_json_str(&e.name),
+                escape_json_str(&e.category),
+                escape_json_str(&e.source),
+                escape_json_str(&e.desc),
+                tags_json.join(", "),
+                e.is_builtin,
+                e.created_at,
+            ));
+        }
         out.push_str("\n  ]\n}\n");
         out
     }
@@ -641,11 +878,62 @@ layout: LayoutKind::Linear, auto_join: None,
             }
         }
 
+        let formulas = if let Some(JsonVal::Arr(arr)) = find_field(&entries, "formulas") {
+            let mut f_entries = Vec::new();
+            for item in arr {
+                if let JsonVal::Obj(obj) = item {
+                    let name = get_str(obj, "name").unwrap_or("").trim().to_owned();
+                    let source = get_str(obj, "source").unwrap_or("").trim().to_owned();
+                    if name.is_empty() || source.is_empty() {
+                        continue;
+                    }
+                    let mut id = get_str(obj, "id").unwrap_or("").trim().to_owned();
+                    if id.is_empty() {
+                        id = format!("formula-{}", f_entries.len() + 1);
+                    }
+                    let category = get_str(obj, "category").unwrap_or("自定义公式").trim().to_owned();
+                    let desc = get_str(obj, "desc").unwrap_or("").trim().to_owned();
+                    let mut tags = Vec::new();
+                    if let Some(JsonVal::Arr(t_arr)) = find_field(obj, "tags") {
+                        for t in t_arr {
+                            if let JsonVal::Str(s) = t {
+                                tags.push(s.clone());
+                            }
+                        }
+                    }
+                    let is_builtin = match find_field(obj, "is_builtin").or_else(|| find_field(obj, "isBuiltin")) {
+                        Some(JsonVal::Bool(b)) => *b,
+                        _ => false,
+                    };
+                    let created_at = match find_field(obj, "created_at").or_else(|| find_field(obj, "createdAt")) {
+                        Some(JsonVal::Num(n)) => *n as u64,
+                        _ => 0,
+                    };
+
+                    f_entries.push(FormulaEntry {
+                        id,
+                        name,
+                        category,
+                        source,
+                        desc,
+                        tags,
+                        is_builtin,
+                        created_at,
+                    });
+                }
+            }
+            FormulaLibrary { entries: f_entries }
+        } else {
+            // 向前兼容 v1：缺失 formulas 数组时，自动以 default_seeded 填充种子数据
+            FormulaLibrary::default_seeded()
+        };
+
         custom_formats.sort_by_key(|f| f.item_key);
         snippets.sort_by_key(|s| s.item_key);
         Ok(Self {
             custom_formats,
             snippets,
+            formulas,
         })
     }
 }
@@ -703,9 +991,10 @@ pub fn escape_json_str(s: &str) -> String {
 // 极简零依赖安全 JSON 解析器（专供加载用户配置与模板库）
 // ===========================================================================
 
+#[derive(Clone, Debug)]
 enum JsonVal {
     Null,
-    Bool,
+    Bool(bool),
     Num(u64),
     Str(String),
     Arr(Vec<JsonVal>),
@@ -785,10 +1074,12 @@ impl JsonParser {
         match c {
             '"' => Ok(JsonVal::Str(self.parse_string()?)),
             't' | 'f' => {
+                let start = self.pos;
                 while self.pos < self.chars.len() && self.chars[self.pos].is_ascii_alphabetic() {
                     self.pos += 1;
                 }
-                Ok(JsonVal::Bool)
+                let s: String = self.chars[start..self.pos].iter().collect();
+                Ok(JsonVal::Bool(s == "true"))
             }
             'n' => {
                 while self.pos < self.chars.len() && self.chars[self.pos].is_ascii_alphabetic() {
@@ -938,5 +1229,81 @@ impl JsonParser {
             }
         }
         Err("JSON 字符串缺少闭合引号".to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_formula_library_crud_and_filter() {
+        let mut lib = FormulaLibrary::default_seeded();
+        assert!(lib.entries.len() >= 88, "应当收录 88+ 项权威预置公式，当前 {}", lib.entries.len());
+
+        // 检索测试
+        let dl = lib.filter(Some("现代深度学习与人工智能"), "Attention");
+        assert!(!dl.is_empty(), "必须能检索到注意力机制");
+        assert!(dl.iter().any(|e| e.name.contains("Scaled Dot-Product")));
+
+        let qm = lib.filter(Some("量子力学"), "薛定谔");
+        assert_eq!(qm.len(), 2, "含时间与定态薛定谔方程");
+
+        // 增删改测试
+        let new_entry = FormulaEntry {
+            id: "user-test-1".to_owned(),
+            name: "测试自定义公式".to_owned(),
+            category: "测试分类".to_owned(),
+            source: "x + y = z".to_owned(),
+            desc: "测试说明".to_owned(),
+            tags: vec!["test".to_owned()],
+            is_builtin: false,
+            created_at: 1700000000,
+        };
+        let upserted_id = lib.upsert(new_entry.clone()).expect("upsert 成功");
+        assert_eq!(upserted_id, "user-test-1");
+        assert!(lib.get("user-test-1").is_some());
+
+        // 修改
+        let mut updated = new_entry;
+        updated.desc = "更新后的说明".to_owned();
+        lib.upsert(updated).expect("更新成功");
+        assert_eq!(lib.get("user-test-1").unwrap().desc, "更新后的说明");
+
+        // 删除
+        assert!(lib.remove("user-test-1"));
+        assert!(lib.get("user-test-1").is_none());
+    }
+
+    #[test]
+    fn test_formula_library_json_roundtrip_and_schema_compat() {
+        let lib = FormulaLibrary::default_seeded();
+        let initial_len = lib.entries.len();
+
+        let json = lib.export_json();
+        assert!(json.contains("Attention(Q, K, V)"));
+
+        let mut imported_lib = FormulaLibrary { entries: Vec::new() };
+        let count = imported_lib.import_json(&json, true).expect("导入成功");
+        assert_eq!(count, initial_len);
+        assert_eq!(imported_lib.entries.len(), initial_len);
+
+        // UserLibrary Schema 2 往返持久化测试
+        let user_lib = UserLibrary::default_seeded();
+        let u_json = user_lib.to_json_pretty();
+        assert!(u_json.contains("\"schema_version\": 2"));
+        assert!(u_json.contains("\"formulas\": ["));
+
+        let parsed_u = UserLibrary::from_json(&u_json).expect("解析 Schema 2 必须成功");
+        assert_eq!(parsed_u.formulas.entries.len(), user_lib.formulas.entries.len());
+
+        // 测试向后兼容 v1（无 formulas 字段）
+        let v1_json = r#"{
+            "schema_version": 1,
+            "customFormats": [],
+            "snippets": []
+        }"#;
+        let parsed_v1 = UserLibrary::from_json(v1_json).expect("解析 v1 配置必须成功");
+        assert_eq!(parsed_v1.formulas.entries.len(), initial_len, "v1 必须自动以种子数据填充 formulas");
     }
 }

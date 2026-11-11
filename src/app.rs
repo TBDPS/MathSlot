@@ -95,6 +95,7 @@ impl MathSlotApp {
                 Some("latex") => modals.open_latex_tab(),
                 Some("custom") => modals.open_custom_tab(&editor.library),
                 Some("snippets") => modals.open_snippets_tab(&editor.library),
+                Some("presets") => modals.open_presets(),
                 Some("esc") => {
                     editor.toggle_esc_jump();
                 }
@@ -164,7 +165,7 @@ impl MathSlotApp {
             return;
         }
         ctx.copy_text(text);
-        self.status = "✓ 已复制方案 A 展开式。".to_owned();
+        self.status = "✓ 已复制线性函数展开式。".to_owned();
     }
 
     fn quick_save_snippet(&mut self, prefer_inner: bool) {
@@ -711,9 +712,9 @@ impl MathSlotApp {
             status_pill(ui, &mode_text, mode_color);
 
             let (nav_label, nav_color) = if in_nav {
-                ("⚡ 退出导航 [Tab / Esc / Alt j]", ACCENT)
+                ("退出直达 [Tab / Esc / Alt j]", ACCENT)
             } else {
-                ("⚡ 导航 [Tab j / Alt j]", TEXT_DIM)
+                ("槽位直达 [Tab j]", TEXT_DIM)
             };
             if tool_button(ui, RichText::new(nav_label).size(12.5).color(nav_color), true)
                 .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
@@ -746,8 +747,8 @@ impl MathSlotApp {
                 {
                     action_preset = true;
                 }
-                if tool_button(ui, RichText::new("📖 示例公式库").size(13.0).color(CYAN), true)
-                    .on_hover_text("浏览与搜索 60+ 经典权威数学与物理公式库")
+                if tool_button(ui, RichText::new("公式库").size(13.0).color(CYAN), true)
+                    .on_hover_text("浏览与搜索 88+ 权威数学与物理公式库")
                     .clicked()
                 {
                     open_presets = true;
@@ -1091,7 +1092,7 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                 // 右上角提供快捷导航触发
                 let trigger_rect = Rect::from_min_size(rect.right_top() + Vec2::new(-86.0, 5.0), Vec2::new(80.0, 22.0));
                 Self::allocate_ui_at_rect(ui, trigger_rect, |ui| {
-                    if paper_button(ui, "⚡ 导航", false)
+                    if paper_button(ui, "槽位直达", false)
                         .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
                         .clicked()
                     {
@@ -1130,7 +1131,7 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 if in_nav {
-                    ui.label(RichText::new("⚡ 导航直达模式 · 按字母跳改（Tab / Esc / Alt j 退出）").size(11.5).strong().color(ACCENT));
+                    ui.label(RichText::new("槽位直达模式 · 按字母跳改（Tab / Esc / Alt j 退出）").size(11.5).strong().color(ACCENT));
                 } else if breadcrumbs.is_empty() {
                     ui.label(RichText::new("键入简码，或点击右侧数学结构直接插入…").size(11.0).color(MUTED));
                 } else {
@@ -1535,7 +1536,7 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     if ghost_button(ui, "+ 新增自定义格式", GREEN).clicked() {
                         act.open_custom_mgr = true;
                     }
-                    if ghost_button(ui, "⚙ 管理模版库", CYAN).clicked() {
+                    if ghost_button(ui, "管理模版库", CYAN).clicked() {
                         act.open_snip_mgr = true;
                     }
                     if ghost_button(ui, "+ 存当前为片段", AMBER).clicked() {
@@ -1932,17 +1933,73 @@ fn category_chip(
     )
 }
 
-/// 顶栏品牌标识：圆角方块 + ∑
+/// 顶栏品牌标识：实心纯白圆角 Squircle + 几何蓝胶囊 + 深海蓝 ∑ + 槽位框
 fn brand_mark(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(26.0), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(7), ACCENT_STRONG);
-    ui.painter().text(
-        rect.center() + Vec2::new(0.0, -0.5),
-        Align2::CENTER_CENTER,
-        "∑",
-        FontId::proportional(16.0),
-        Color32::WHITE,
+    let size = 26.0;
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    let painter = ui.painter();
+
+    // 1. 实心纯白底板 (Solid White Squircle, rx/ry 约 22%)
+    let corner = CornerRadius::same(6);
+    painter.rect_filled(rect, corner, Color32::WHITE);
+
+    // 坐标比例变换辅助：将 512x512 坐标映射至当前物理矩形
+    let to_pt = |x: f32, y: f32| -> egui::Pos2 {
+        egui::Pos2::new(
+            rect.min.x + (x / 512.0) * rect.width(),
+            rect.min.y + (y / 512.0) * rect.height(),
+        )
+    };
+
+    let electric_blue = Color32::from_rgb(33, 99, 234);     // #2163EA
+    let navy_blue = Color32::from_rgb(1, 29, 96);           // #011D60
+    let slot_periwinkle = Color32::from_rgb(143, 172, 253); // #8FACFD
+
+    // 2. 顶部与底部胶囊 (x: 136..360, y: 86..124, 388..426)
+    let top_cap = Rect::from_min_max(to_pt(136.0, 86.0), to_pt(360.0, 124.0));
+    painter.rect_filled(top_cap, CornerRadius::same(2), electric_blue);
+
+    let bot_cap = Rect::from_min_max(to_pt(136.0, 388.0), to_pt(360.0, 426.0));
+    painter.rect_filled(bot_cap, CornerRadius::same(2), electric_blue);
+
+    // 3. 中央几何 ∑（拆解为上横梁、下横梁、上斜梁、下斜梁凸多边形无缝拼合）
+    let top_bar = Rect::from_min_max(to_pt(136.0, 146.0), to_pt(360.0, 184.0));
+    painter.rect_filled(top_bar, CornerRadius::ZERO, navy_blue);
+
+    let bot_bar = Rect::from_min_max(to_pt(136.0, 328.0), to_pt(360.0, 366.0));
+    painter.rect_filled(bot_bar, CornerRadius::ZERO, navy_blue);
+
+    let upper_slant = vec![
+        to_pt(136.0, 184.0),
+        to_pt(360.0, 184.0),
+        to_pt(246.0, 256.0),
+        to_pt(196.0, 256.0),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        upper_slant,
+        navy_blue,
+        Stroke::NONE,
+    ));
+
+    let lower_slant = vec![
+        to_pt(196.0, 256.0),
+        to_pt(246.0, 256.0),
+        to_pt(360.0, 328.0),
+        to_pt(136.0, 328.0),
+    ];
+    painter.add(egui::Shape::convex_polygon(
+        lower_slant,
+        navy_blue,
+        Stroke::NONE,
+    ));
+
+    // 4. 右侧槽位指示框 (Slot Indicator)
+    let slot_rect = Rect::from_min_max(to_pt(372.0, 96.0), to_pt(444.0, 416.0));
+    painter.rect_stroke(
+        slot_rect,
+        CornerRadius::same(2),
+        Stroke::new(1.0, slot_periwinkle),
+        egui::StrokeKind::Middle,
     );
 }
 
@@ -2237,12 +2294,41 @@ fn install_fonts(ctx: &egui::Context) {
         }
     }
 
-    let candidates = [
+    // 辅助闭包：查找候选列表中的首个有效文件；若未命中且在 Linux 下，则尝试 fc-match 查询
+    let find_font = |candidates: &[&str], _fc_pattern: Option<&str>| -> Option<Vec<u8>> {
+        for path in candidates {
+            if Path::new(path).is_file() {
+                if let Ok(bytes) = std::fs::read(path) {
+                    return Some(bytes);
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(pattern) = _fc_pattern {
+            if let Ok(output) = std::process::Command::new("fc-match")
+                .args(["-f", "%{file}", pattern])
+                .output()
+            {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                if !path.is_empty() && Path::new(&path).is_file() {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        return Some(bytes);
+                    }
+                }
+            }
+        }
+        None
+    };
+
+    // 1. CJK 中文字体
+    let cjk_candidates = [
         "/usr/local/share/fonts/l/LXGWWenKai_Regular.ttf",
+        "/usr/share/fonts/google-noto-sans-cjk-vf-fonts/NotoSansCJK-VF.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/google-noto-sans-cjk-vf-fonts/NotoSansCJK-VF.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
         "/System/Library/Fonts/PingFang.ttc",
         "/System/Library/Fonts/STHeiti Light.ttc",
         "/System/Library/Fonts/Hiragino Sans GB.ttc",
@@ -2251,33 +2337,7 @@ fn install_fonts(ctx: &egui::Context) {
         "C:\\Windows\\Fonts\\simsun.ttc",
         "/usr/share/fonts/google-droid-sans-fonts/DroidSansFallbackFull.ttf",
     ];
-
-    let mut font_bytes = None;
-    for path in candidates {
-        if Path::new(path).is_file() {
-            if let Ok(bytes) = std::fs::read(path) {
-                font_bytes = Some(bytes);
-                break;
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    if font_bytes.is_none() {
-        if let Ok(output) = std::process::Command::new("fc-match")
-            .args(["-f", "%{file}", "sans-serif:lang=zh-cn"])
-            .output()
-        {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            if !path.is_empty() {
-                if let Ok(bytes) = std::fs::read(path) {
-                    font_bytes = Some(bytes);
-                }
-            }
-        }
-    }
-
-    if let Some(bytes) = font_bytes {
+    if let Some(bytes) = find_font(&cjk_candidates, Some("sans-serif:lang=zh-cn")) {
         fonts.font_data.insert(
             "mathslot-cjk".to_owned(),
             Arc::new(FontData::from_owned(bytes)),
@@ -2294,33 +2354,54 @@ fn install_fonts(ctx: &egui::Context) {
             .push("mathslot-cjk".to_owned());
     }
 
+    // 2. 基础符号字体 (DejaVu / Noto Symbols)
     let symbol_candidates = [
         "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-        "/usr/share/fonts/gdouros-symbola/Symbola.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/google-noto/NotoSansSymbols2-Regular.ttf",
-        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
         "C:\\Windows\\Fonts\\seguisym.ttf",
     ];
-    for path in symbol_candidates {
-        if Path::new(path).is_file() {
-            if let Ok(bytes) = std::fs::read(path) {
-                fonts.font_data.insert(
-                    "mathslot-symbols".to_owned(),
-                    Arc::new(FontData::from_owned(bytes)),
-                );
-                fonts
-                    .families
-                    .entry(FontFamily::Proportional)
-                    .or_default()
-                    .push("mathslot-symbols".to_owned());
-                fonts
-                    .families
-                    .entry(FontFamily::Monospace)
-                    .or_default()
-                    .push("mathslot-symbols".to_owned());
-                break;
-            }
-        }
+    if let Some(bytes) = find_font(&symbol_candidates, Some("symbol")) {
+        fonts.font_data.insert(
+            "mathslot-symbols".to_owned(),
+            Arc::new(FontData::from_owned(bytes)),
+        );
+        fonts
+            .families
+            .entry(FontFamily::Proportional)
+            .or_default()
+            .push("mathslot-symbols".to_owned());
+        fonts
+            .families
+            .entry(FontFamily::Monospace)
+            .or_default()
+            .push("mathslot-symbols".to_owned());
+    }
+
+    // 3. 完整 Emoji 字体 (Symbola / NotoEmoji / Apple Color Emoji / Segoe UI Emoji)
+    let emoji_candidates = [
+        "/usr/share/fonts/gdouros-symbola/Symbola.ttf",
+        "/usr/share/fonts/google-noto-emoji-fonts/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/noto-emoji/NotoEmoji-Regular.ttf",
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "C:\\Windows\\Fonts\\seguiemj.ttf",
+    ];
+    if let Some(bytes) = find_font(&emoji_candidates, Some("emoji")) {
+        fonts.font_data.insert(
+            "mathslot-emoji".to_owned(),
+            Arc::new(FontData::from_owned(bytes)),
+        );
+        fonts
+            .families
+            .entry(FontFamily::Proportional)
+            .or_default()
+            .push("mathslot-emoji".to_owned());
+        fonts
+            .families
+            .entry(FontFamily::Monospace)
+            .or_default()
+            .push("mathslot-emoji".to_owned());
     }
 
     ctx.set_fonts(fonts);

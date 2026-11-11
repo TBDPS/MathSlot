@@ -316,7 +316,7 @@
   font-size: 118% !important;
 }
 
-/* 底部双栏：左 方案 A 展开式 + 右 LaTeX 输出与插入 */
+/* 底部双栏：左 线性函数展开式 + 右 LaTeX 输出与插入 */
 .mathslot-bottom-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

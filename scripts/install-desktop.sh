@@ -35,7 +35,7 @@ chmod +x "${BIN_DIR}/mathslot"
 
 # 3. 安装各分辨率图标至 hicolor 图标主题目录
 echo "==> 安装应用程序图标至 ${ICON_BASE} ..."
-for SIZE in 16 32 48 64 128 256; do
+for SIZE in 16 32 48 64 128 256 512; do
     SIZE_DIR="${ICON_BASE}/${SIZE}x${SIZE}/apps"
     mkdir -p "${SIZE_DIR}"
     if [ -f "${PROJECT_ROOT}/assets/icons/mathslot-${SIZE}.png" ]; then
@@ -68,6 +68,6 @@ echo "==========================================================================
 echo "✓ MathSlot 桌面集成安装成功！"
 echo "  - 二进制路径:  ${BIN_DIR}/mathslot"
 echo "  - 桌面入口项:  ${APP_DIR}/mathslot.desktop"
-echo "  - 图标资源库:  ${ICON_BASE}/ (16x16 ~ 256x256 及 scalable SVG)"
+echo "  - 图标资源库:  ${ICON_BASE}/ (16x16 ~ 512x512 及 scalable SVG)"
 echo "  - Wayland 匹配: StartupWMClass=mathslot, with_app_id('mathslot')"
 echo "=============================================================================="

@@ -407,6 +407,174 @@ pub const PRESET_LIBRARY: &[PresetFormula] = &[
         source: "T(n) = a T▸p▸fn;b;;; + f(n)",
         desc: "评估分治递归算法时间复杂度的通用递推关系模型",
     },
+
+    // ==========================================
+    // 7. 现代深度学习与人工智能 (Deep Learning & Modern AI)
+    // ==========================================
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "缩放点积注意力 (Scaled Dot-Product Attention)",
+        source: "Attention(Q, K, V) = softmax▸p▸fQ K^T;▸rd_k;;; V",
+        desc: "Transformer 核心自注意力机制，缩放因子维持点积梯度稳定性",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "多头自注意力机制 (Multi-Head Attention)",
+        source: "MultiHead(Q, K, V) = Concat(head_1, ..., head_h) W^O",
+        desc: "Transformer 多重表示子空间联合特征映射",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "Adam 优化器一阶动量更新",
+        source: "m_t = ▸gb_1 m_(t-1) + (1 - ▸gb_1) g_t",
+        desc: "自适应矩估计梯度优化器的一阶指数移动平均更新规则",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "Adam 优化器二阶动量更新",
+        source: "v_t = ▸gb_2 v_(t-1) + (1 - ▸gb_2) (g_t)^2",
+        desc: "自适应矩估计梯度优化器的未中心化方差二阶滑动平均",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "层归一化 (Layer Normalization)",
+        source: "y = ▸f x - ▸gm;▸r▸gs^2 + ▸ge;;; ▸og ▸gc + ▸gb",
+        desc: "Transformer 标准层归一化变换，沿单个样本特征维度标准化",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "Softmax 交叉熵损失函数",
+        source: "L = -▸s1;C;y_c log ▸f▸ue;z_c;;▸s1;C;▸ue;z_j;;;;",
+        desc: "多分类判别模型标准对数极大似然目标函数",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "GELU 高斯误差线性单元激活",
+        source: "GELU(x) = x ▸gF(x) = x P(X <= x)",
+        desc: "高斯误差线性单元激活函数，现代大语言模型前馈网络标配",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "残差连接恒等映射 (Residual Connection)",
+        source: "x_(l+1) = x_l + F(x_l, W_l)",
+        desc: "ResNet 深度残差网络恒等跳连，破解深层梯度消失难题",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "Transformer 前馈网络 (FFN)",
+        source: "FFN(x) = max(0, x W_1 + b_1) W_2 + b_2",
+        desc: "Transformer 编码块双层线性变换与非线性升维映射",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "扩散模型去噪分数匹配 (Score Matching)",
+        source: "L_(simple) = ▸ce;▸af▸ge - ▸ge▸d▸gt;(x_t, t);;^2;",
+        desc: "DDPM 去噪扩散概率模型简化均方误差优化目标",
+    },
+    PresetFormula {
+        category: "现代深度学习与人工智能",
+        name: "InfoNCE 自监督对比损失",
+        source: "L_q = -log ▸f▸ue;q * k_+ / ▸gt;;▸ue;q * k_+ / ▸gt; + ▸si;▸ue;q * k_i / ▸gt;;;",
+        desc: "无监督表征学习互信息下界对比估计目标函数",
+    },
+
+    // ==========================================
+    // 8. 量子力学 (Quantum Mechanics)
+    // ==========================================
+    PresetFormula {
+        category: "量子力学",
+        name: "含时间薛定谔方程",
+        source: "i ▸ol ▸cg▸gy;t; = ▸aaH; ▸gy",
+        desc: "量子系统状态波函数随时间演化的非相对论性微观动力学基本方程",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "定态薛定谔方程 (本征值方程)",
+        source: "▸aaH; ▸gy = E ▸gy",
+        desc: "哈密顿算符定态本征值与空间本征波函数动力学方程",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "谐振子阶梯升降算符对易子",
+        source: "[a, a▸u+;] = 1",
+        desc: "量子谐振子产生湮灭算符李代数对易正则关系",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "海森堡测不准不确定性原理",
+        source: "▸gD x ▸gD p >= ▸f▸ol;2;",
+        desc: "坐标与共轭动量算符不对易决定的微观物理测量精度极限",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "克莱因-戈登相对论波动方程",
+        source: "▸p▸cg^2;t^2; - c^2 ▸od^2 + ▸fmc^2;▸ol;;^2;; ▸gy = 0",
+        desc: "描述自旋为零玻色子场的相对论量子波动方程",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "狄拉克内积期望值",
+        source: "▸anA; = ▸ca▸gy^* ▸aaA; ▸gy dx;",
+        desc: "量子态在力学量算符下的物理统计期望值积分",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "泡利自旋矩阵李代数对易子",
+        source: "[▸gs_i, ▸gs_j] = 2i ▸ge_(ijk) ▸gs_k",
+        desc: "自旋 1/2 角动量算符在 SU(2) 群下的李代数结构常数",
+    },
+    PresetFormula {
+        category: "量子力学",
+        name: "一维无限深势阱能级量子化解",
+        source: "E_n = ▸fn^2 ▸gp^2 ▸ol^2;2 m L^2;",
+        desc: "束缚态空间边界条件诱发的空间能量离散化本征能级",
+    },
+
+    // ==========================================
+    // 9. 微分几何与数学物理 (Differential Geometry & Math Physics)
+    // ==========================================
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "外微分乘积反对称莱布尼茨法则",
+        source: "d(▸go ▸qg ▸gh) = d▸go ▸qg ▸gh + (-1)^p ▸go ▸qg d▸gh",
+        desc: "微分形式代数楔积的外微分算子导数运算法则",
+    },
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "广义斯托克斯微分形式统一积分定理",
+        source: "▸i▸oc▸gO;;▸go; = ▸i▸gO;;d▸go;",
+        desc: "流形边界积分与全流形外微分积分等价的宏伟统一几何定理",
+    },
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "霍奇星号对偶与内积映射",
+        source: "▸ga ▸qg *▸gb = ▸kd▸ga;▸gb; ▸go",
+        desc: "定向黎曼流形上微分形式空间与测度体积元的霍奇对偶",
+    },
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "黎曼曲率张量联络定义",
+        source: "R(X, Y)Z = ▸od_X ▸od_Y Z - ▸od_Y ▸od_X Z - ▸od_([X, Y]) Z",
+        desc: "仿射联络诱发的曲率算子，度量流形切向量平行移动的不可交换性",
+    },
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "爱因斯坦引力场方程",
+        source: "G▸d▸gm▸gn; + ▸gL g▸d▸gm▸gn; = ▸f8 ▸gp G;c^4; T▸d▸gm▸gn;",
+        desc: "广义相对论核心方程，连接时空几何曲率与物质能量动量张量",
+    },
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "弯曲时空自由粒子测地线方程",
+        source: "▸f d^2 x▸u▸gm;;d▸gu^2;; + ▸gC▸u▸gm;▸d▸ga▸gb; ▸f dx▸u▸ga;;d▸gu;; ▸f dx▸u▸gb;;d▸gu;; = 0",
+        desc: "在弯曲时空中受引力影响自由下落粒子的极值轨迹常微分方程",
+    },
+    PresetFormula {
+        category: "微分几何与数学物理",
+        name: "电磁场强度 2-形式规范外微分",
+        source: "F = dA = ▸f1;2; F▸d▸gm▸gn;; dx▸u▸gm; ▸qg dx▸u▸gn;",
+        desc: "电磁规范势 1-形式的外微分与反对称场强 2-形式几何展开",
+    },
 ];
 
 /// 获取所有学科分类名称（不重复）
@@ -417,6 +585,9 @@ pub fn preset_categories() -> &'static [&'static str] {
         "线性代数",
         "概率统计",
         "大学物理",
+        "量子力学",
+        "现代深度学习与人工智能",
+        "微分几何与数学物理",
         "复变函数",
         "离散数学",
     ]

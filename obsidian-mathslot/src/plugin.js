@@ -538,14 +538,14 @@ class MathSlotModal extends Modal {
     this.navHeadEl = visualStack.createDiv({ cls: "mathslot-section-head" });
     this.navSurfaceEl = visualStack.createDiv({ cls: "mathslot-surface" });
 
-    // 5. 底部双栏：左 方案 A 展开形态 + 右 LaTeX 输出与插入按钮
+    // 5. 底部双栏：左 线性函数展开形态 + 右 LaTeX 输出与插入按钮
     const bottomGrid = root.createDiv({ cls: "mathslot-bottom-grid" });
 
     const colA = bottomGrid.createDiv({ cls: "mathslot-out-col" });
     const headA = colA.createDiv({ cls: "mathslot-out-head" });
     const titleA = headA.createDiv();
     titleA.createEl("strong", {
-      text: "展开形态 (方案 A) ",
+      text: "展开形态 (线性函数调用) ",
       attr: { style: "color:#38bdf8;font-size:12.5px" },
     });
     titleA.createSpan({
@@ -554,20 +554,20 @@ class MathSlotModal extends Modal {
     });
     const copyABtn = headA.createEl("button", {
       cls: "mathslot-btn",
-      text: "复制展开式",
+      text: "复制函数式",
     });
     copyABtn.addEventListener("click", () => {
       if (this.state && this.state.schemeA) {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard
             .writeText(this.state.schemeA)
-            .then(() => new Notice("✓ 已复制方案 A 结构展开式"))
+            .then(() => new Notice("✓ 已复制线性函数展开式"))
             .catch((err) => {
               console.error("MathSlot: 剪贴板写入失败", err);
-              new Notice("✗ 复制失败，请手动选择方案 A 面板内容复制。");
+              new Notice("✗ 复制失败，请手动选择面板内容复制。");
             });
         } else {
-          new Notice("当前环境不支持剪贴板 API，请手动复制方案 A 内容。");
+          new Notice("当前环境不支持剪贴板 API，请手动复制展开式内容。");
         }
       }
       this.focusStreamInput();
@@ -1367,7 +1367,7 @@ class MathSlotModal extends Modal {
     });
     const inScheme = formGrid.createEl("input", {
       cls: "mathslot-mini-input",
-      attr: { placeholder: "方案A名 (如 cong)" },
+      attr: { placeholder: "函数别名 (如 cong / binom)" },
     });
 
     const btnRow = formBox.createDiv({ cls: "mathslot-menu-row" });

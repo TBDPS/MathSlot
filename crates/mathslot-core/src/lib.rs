@@ -161,7 +161,7 @@ mod tests {
         .unwrap();
 
         let json = lib.to_json_pretty();
-        assert!(json.contains("\"schema_version\": 1"));
+        assert!(json.contains(&format!("\"schema_version\": {}", crate::library::CURRENT_SCHEMA_VERSION)));
         let restored = UserLibrary::from_json(&json).unwrap();
         assert_eq!(restored, lib);
 

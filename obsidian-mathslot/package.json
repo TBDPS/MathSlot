@@ -1,6 +1,6 @@
 {
   "name": "obsidian-mathslot",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Obsidian plugin for MathSlot powered by shared mathslot-core Rust WASM",
   "scripts": {
