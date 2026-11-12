@@ -17,3 +17,9 @@ agent-state/reviews/index.tsv
 # Python 缓存
 __pycache__/
 *.pyc
+
+# 夜间模式控制文件（运行时，不进库）
+agent-state/AUTORUN
+agent-state/DONE
+agent-state/STOPPED
+agent-state/.autorun-*
