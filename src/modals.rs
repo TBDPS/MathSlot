@@ -145,21 +145,22 @@ impl LibraryModalState {
     ) -> Option<ModalAction> {
         let mut action = None;
 
-        // 1. 顶部工具栏：检索与快捷操作
+        // 1. 顶部工具栏 Row 1: 弹性搜索框 + ✕ 清空 + [+ 新建公式] 主按钮
         ui.horizontal(|ui| {
             ui.label(RichText::new("检索:").size(12.5).color(TEXT_DIM));
-            let search_w = (ui.available_width() - 360.0).clamp(160.0, 360.0);
+            let btn_txt = if self.show_formula_form { "收起表单" } else { "+ 新建公式" };
+            let has_clear = !self.preset_search.is_empty();
+            let reserved_right = 95.0 + if has_clear { 55.0 } else { 0.0 };
+            let search_w = (ui.available_width() - reserved_right).max(100.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.preset_search)
                     .hint_text("搜索公式名称、学科分类、符号简码或说明关键词...")
                     .desired_width(search_w),
             );
-            if !self.preset_search.is_empty() && ui.small_button("✕ 清空").clicked() {
+            if has_clear && ui.small_button("✕ 清空").clicked() {
                 self.preset_search.clear();
             }
 
-            ui.add_space(8.0);
-            let btn_txt = if self.show_formula_form { "收起表单" } else { "+ 新建公式" };
             if ui.button(RichText::new(btn_txt).strong().color(GREEN)).clicked() {
                 self.show_formula_form = !self.show_formula_form;
                 if self.show_formula_form {
@@ -175,199 +176,11 @@ impl LibraryModalState {
                     self.formula_edit_tags.clear();
                 }
             }
-
-            if ui.button(RichText::new("恢复默认预置").color(TEXT_DIM))
-                .on_hover_text("恢复出厂预置公式（保留用户自建公式）")
-                .clicked()
-            {
-                editor.library.formulas.restore_defaults();
-                let _ = save_library_to_disk(&editor.library);
-                self.feedback = Some(("✓ 已成功恢复出厂种子公式！".to_owned(), false));
-            }
-
-            if ui.button(RichText::new("导出 JSON").color(CYAN))
-                .on_hover_text("导出全部公式包为格式化 JSON 并写入剪贴板")
-                .clicked()
-            {
-                let json = editor.library.formulas.export_json();
-                ui.ctx().copy_text(json);
-                self.feedback = Some(("✓ 已导出全部公式包 JSON 到系统剪贴板！".to_owned(), false));
-            }
-
-            let imp_txt = if self.show_formula_importer { "关闭导入" } else { "导入 JSON" };
-            if ui.button(RichText::new(imp_txt).color(AMBER))
-                .on_hover_text("从 JSON 文本导入公式")
-                .clicked()
-            {
-                self.show_formula_importer = !self.show_formula_importer;
-            }
         });
 
-        // 2. 导入面板 (手风琴展开)
-        if self.show_formula_importer {
-            ui.add_space(6.0);
-            egui::Frame::NONE
-                .fill(CARD)
-                .stroke(Stroke::new(1.0, AMBER.gamma_multiply(0.6)))
-                .corner_radius(CornerRadius::same(6))
-                .inner_margin(Margin::same(10))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(RichText::new("导入公式包 (JSON 数组)").strong().color(AMBER));
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.formula_import_text)
-                            .desired_rows(3)
-                            .desired_width(ui.available_width())
-                            .hint_text("在此粘贴导出的公式 JSON 数组文本..."),
-                    );
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui.button(RichText::new("覆盖导入 (同 ID 替换)").strong().color(GREEN)).clicked() {
-                            match editor.library.formulas.import_json(&self.formula_import_text, true) {
-                                Ok(cnt) => {
-                                    let _ = save_library_to_disk(&editor.library);
-                                    self.feedback = Some((format!("✓ 成功导入 {cnt} 条公式！"), false));
-                                    self.show_formula_importer = false;
-                                    self.formula_import_text.clear();
-                                }
-                                Err(e) => {
-                                    self.feedback = Some((format!("导入失败: {e}"), true));
-                                }
-                            }
-                        }
-                        if ui.button(RichText::new("跳过重复导入").color(CYAN)).clicked() {
-                            match editor.library.formulas.import_json(&self.formula_import_text, false) {
-                                Ok(cnt) => {
-                                    let _ = save_library_to_disk(&editor.library);
-                                    self.feedback = Some((format!("✓ 成功新增导入 {cnt} 条公式！"), false));
-                                    self.show_formula_importer = false;
-                                    self.formula_import_text.clear();
-                                }
-                                Err(e) => {
-                                    self.feedback = Some((format!("导入失败: {e}"), true));
-                                }
-                            }
-                        }
-                        if ui.button("关闭").clicked() {
-                            self.show_formula_importer = false;
-                        }
-                    });
-                });
-        }
+        ui.add_space(4.0);
 
-        // 3. 新建 / 编辑表单面板
-        if self.show_formula_form {
-            ui.add_space(6.0);
-            let is_editing = self.formula_editing_id.is_some();
-            let title = if is_editing { "编辑公式" } else { "新建自定义公式" };
-            egui::Frame::NONE
-                .fill(CARD)
-                .stroke(Stroke::new(1.0, GREEN.gamma_multiply(0.6)))
-                .corner_radius(CornerRadius::same(6))
-                .inner_margin(Margin::same(10))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(title).strong().color(GREEN));
-                        if let Some(id) = &self.formula_editing_id {
-                            ui.label(RichText::new(format!("(ID: {id})")).size(11.0).color(MUTED));
-                        }
-                    });
-                    ui.add_space(6.0);
-
-                    // 第一层（语义元信息紧凑行）
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("公式名称:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.formula_edit_name)
-                                .desired_width(170.0)
-                                .hint_text("如：高斯消元定理"),
-                        );
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("学科分类:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.formula_edit_category)
-                                .desired_width(130.0)
-                                .hint_text("如：线性代数"),
-                        );
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("检索标签:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.formula_edit_tags)
-                                .desired_width((ui.available_width() - 4.0).max(100.0))
-                                .hint_text("如：algebra matrix (空格分隔)"),
-                        );
-                    });
-
-                    ui.add_space(6.0);
-
-                    // 第二层（简码流源码通栏独占 100% 宽度）
-                    ui.label(RichText::new("简码流源码 (通栏):").size(11.5).color(TEXT_DIM));
-                    ui.add_space(2.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.formula_edit_source)
-                            .font(FontId::monospace(13.0))
-                            .desired_width(ui.available_width())
-                            .hint_text("如：▸f a;b; = c"),
-                    );
-
-                    ui.add_space(6.0);
-
-                    // 第三层（学术说明与操作底栏）
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("学术说明:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.formula_edit_desc)
-                                .desired_width((ui.available_width() - 150.0).max(140.0))
-                                .hint_text("公式背景、数学原理或工程用途简述"),
-                        );
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button(RichText::new("✓ 保存公式").strong().color(GREEN)).clicked() {
-                                let tags: Vec<String> = self.formula_edit_tags
-                                    .split(|c: char| c == ',' || c == '，' || c.is_whitespace())
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty())
-                                    .map(str::to_owned)
-                                    .collect();
-                                let id = self.formula_editing_id.clone().unwrap_or_default();
-                                let is_builtin = self.formula_editing_id
-                                    .as_deref()
-                                    .and_then(|eid| editor.library.formulas.get(eid))
-                                    .map(|e| e.is_builtin)
-                                    .unwrap_or(false);
-                                let entry = mathslot_core::library::FormulaEntry {
-                                    id,
-                                    name: self.formula_edit_name.clone(),
-                                    category: self.formula_edit_category.clone(),
-                                    source: self.formula_edit_source.clone(),
-                                    desc: self.formula_edit_desc.clone(),
-                                    tags,
-                                    is_builtin,
-                                    created_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
-                                };
-                                match editor.library.formulas.upsert(entry) {
-                                    Ok(_) => {
-                                        let _ = save_library_to_disk(&editor.library);
-                                        self.feedback = Some(("✓ 公式已成功保存！".to_owned(), false));
-                                        self.show_formula_form = false;
-                                    }
-                                    Err(e) => {
-                                        self.feedback = Some((e, true));
-                                    }
-                                }
-                            }
-                            if ui.button("取消").clicked() {
-                                self.show_formula_form = false;
-                            }
-                        });
-                    });
-                });
-        }
-
-        ui.add_space(8.0);
-
-        // 4. 学科分类筛选 Tab 条 (动态汇聚)
+        // 2. 顶部工具栏 Row 2: 学科分类流式胶囊与微型运维按钮组 (绝不溢出)
         let mut categories = vec!["全部".to_owned()];
         for cat in editor.library.formulas.categories() {
             if !categories.contains(&cat) {
@@ -388,43 +201,248 @@ impl LibraryModalState {
                     self.preset_category = cat.clone();
                 }
             }
-        });
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(6.0);
+            ui.add_space(6.0);
+            if ui.small_button(RichText::new("恢复默认").color(TEXT_DIM))
+                .on_hover_text("恢复出厂预置公式（保留用户自建公式）")
+                .clicked()
+            {
+                editor.library.formulas.restore_defaults();
+                let _ = save_library_to_disk(&editor.library);
+                self.feedback = Some(("✓ 已成功恢复出厂种子公式！".to_owned(), false));
+            }
 
-        // 5. 筛选与展示
-        let filtered = editor.library.formulas.filter(Some(&self.preset_category), &self.preset_search);
+            if ui.small_button(RichText::new("导出 JSON").color(CYAN))
+                .on_hover_text("导出全部公式包为格式化 JSON 并写入剪贴板")
+                .clicked()
+            {
+                let json = editor.library.formulas.export_json();
+                ui.ctx().copy_text(json);
+                self.feedback = Some(("✓ 已导出全部公式包 JSON 到系统剪贴板！".to_owned(), false));
+            }
 
-        // 状态概要信息
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!(
-                    "共收录 {} 个公式 · 当前显示 {} 个",
-                    editor.library.formulas.entries.len(),
-                    filtered.len()
-                ))
-                .size(11.5)
-                .color(MUTED),
-            );
-            if let Some((msg, is_err)) = &self.feedback {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let color = if *is_err { RED } else { GREEN };
-                    ui.label(RichText::new(msg).size(11.5).color(color));
-                });
+            let imp_txt = if self.show_formula_importer { "关闭导入" } else { "导入 JSON" };
+            if ui.small_button(RichText::new(imp_txt).color(AMBER))
+                .on_hover_text("从 JSON 文本导入公式")
+                .clicked()
+            {
+                self.show_formula_importer = !self.show_formula_importer;
             }
         });
 
-        ui.add_space(6.0);
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
 
         // 待删除 ID
         let mut delete_id: Option<String> = None;
 
-        // 6. 滚动展示公式卡片 (自适应高度)
+        // 3. 滚动展示区域（表单与卡片随滚轮自然流动）
+        let filtered: Vec<_> = editor
+            .library
+            .formulas
+            .filter(Some(&self.preset_category), &self.preset_search)
+            .into_iter()
+            .cloned()
+            .collect();
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                // 导入面板 (手风琴展开)
+                if self.show_formula_importer {
+                    egui::Frame::NONE
+                        .fill(CARD)
+                        .stroke(Stroke::new(1.0, AMBER.gamma_multiply(0.6)))
+                        .corner_radius(CornerRadius::same(6))
+                        .inner_margin(Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.label(RichText::new("导入公式包 (JSON 数组)").strong().color(AMBER));
+                            ui.add_space(4.0);
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.formula_import_text)
+                                    .desired_rows(3)
+                                    .desired_width(ui.available_width())
+                                    .hint_text("在此粘贴导出的公式 JSON 数组文本..."),
+                            );
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                if ui.button(RichText::new("覆盖导入 (同 ID 替换)").strong().color(GREEN)).clicked() {
+                                    match editor.library.formulas.import_json(&self.formula_import_text, true) {
+                                        Ok(cnt) => {
+                                            let _ = save_library_to_disk(&editor.library);
+                                            self.feedback = Some((format!("✓ 成功导入 {cnt} 条公式！"), false));
+                                            self.show_formula_importer = false;
+                                            self.formula_import_text.clear();
+                                        }
+                                        Err(e) => {
+                                            self.feedback = Some((format!("导入失败: {e}"), true));
+                                        }
+                                    }
+                                }
+                                if ui.button(RichText::new("跳过重复导入").color(CYAN)).clicked() {
+                                    match editor.library.formulas.import_json(&self.formula_import_text, false) {
+                                        Ok(cnt) => {
+                                            let _ = save_library_to_disk(&editor.library);
+                                            self.feedback = Some((format!("✓ 成功新增导入 {cnt} 条公式！"), false));
+                                            self.show_formula_importer = false;
+                                            self.formula_import_text.clear();
+                                        }
+                                        Err(e) => {
+                                            self.feedback = Some((format!("导入失败: {e}"), true));
+                                        }
+                                    }
+                                }
+                                if ui.button("关闭").clicked() {
+                                    self.show_formula_importer = false;
+                                }
+                            });
+                        });
+                    ui.add_space(8.0);
+                }
+
+                // 新建 / 编辑表单面板
+                if self.show_formula_form {
+                    let is_editing = self.formula_editing_id.is_some();
+                    let title = if is_editing { "编辑公式" } else { "新建自定义公式" };
+                    egui::Frame::NONE
+                        .fill(CARD)
+                        .stroke(Stroke::new(1.0, GREEN.gamma_multiply(0.6)))
+                        .corner_radius(CornerRadius::same(6))
+                        .inner_margin(Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(title).strong().color(GREEN));
+                                if let Some(id) = &self.formula_editing_id {
+                                    ui.label(RichText::new(format!("(ID: {id})")).size(11.0).color(MUTED));
+                                }
+                            });
+                            ui.add_space(6.0);
+
+                            // 第一层（语义元信息紧凑行）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("公式名称:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.formula_edit_name)
+                                        .desired_width(170.0)
+                                        .hint_text("如：高斯消元定理"),
+                                );
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("学科分类:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.formula_edit_category)
+                                        .desired_width(130.0)
+                                        .hint_text("如：线性代数"),
+                                );
+                            });
+
+                            ui.add_space(5.0);
+
+                            // 第二层（检索标签行）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("检索标签:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.formula_edit_tags)
+                                        .desired_width((ui.available_width() - 4.0).max(100.0))
+                                        .hint_text("如：algebra matrix (空格分隔)"),
+                                );
+                            });
+
+                            ui.add_space(5.0);
+
+                            // 第三层（简码流源码通栏独占 100% 宽度）
+                            ui.label(RichText::new("简码流源码 (通栏):").size(11.5).color(TEXT_DIM));
+                            ui.add_space(2.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.formula_edit_source)
+                                    .font(FontId::monospace(13.0))
+                                    .desired_width(ui.available_width())
+                                    .hint_text("如：▸f a;b; = c"),
+                            );
+
+                            ui.add_space(5.0);
+
+                            // 第四层（学术说明）
+                            ui.label(RichText::new("学术说明:").size(11.5).color(TEXT_DIM));
+                            ui.add_space(2.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.formula_edit_desc)
+                                    .desired_width(ui.available_width())
+                                    .hint_text("公式背景、数学原理或工程用途简述"),
+                            );
+
+                            ui.add_space(6.0);
+
+                            // 第五层（紧凑就近操作按钮组：左侧对齐，杜绝远隔千山万水）
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                if ui.button(RichText::new("✓ 保存公式").strong().color(GREEN)).clicked() {
+                                    let tags: Vec<String> = self.formula_edit_tags
+                                        .split(|c: char| c == ',' || c == '，' || c.is_whitespace())
+                                        .map(str::trim)
+                                        .filter(|s| !s.is_empty())
+                                        .map(str::to_owned)
+                                        .collect();
+                                    let id = self.formula_editing_id.clone().unwrap_or_default();
+                                    let is_builtin = self.formula_editing_id
+                                        .as_deref()
+                                        .and_then(|eid| editor.library.formulas.get(eid))
+                                        .map(|e| e.is_builtin)
+                                        .unwrap_or(false);
+                                    let entry = mathslot_core::library::FormulaEntry {
+                                        id,
+                                        name: self.formula_edit_name.clone(),
+                                        category: self.formula_edit_category.clone(),
+                                        source: self.formula_edit_source.clone(),
+                                        desc: self.formula_edit_desc.clone(),
+                                        tags,
+                                        is_builtin,
+                                        created_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                                    };
+                                    match editor.library.formulas.upsert(entry) {
+                                        Ok(_) => {
+                                            let _ = save_library_to_disk(&editor.library);
+                                            self.feedback = Some(("✓ 公式已成功保存！".to_owned(), false));
+                                            self.show_formula_form = false;
+                                        }
+                                        Err(e) => {
+                                            self.feedback = Some((e, true));
+                                        }
+                                    }
+                                }
+                                if ui.button("取消").clicked() {
+                                    self.show_formula_form = false;
+                                }
+                            });
+                        });
+                    ui.add_space(8.0);
+                }
+
+                // 状态概要信息
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "共收录 {} 个公式 · 当前显示 {} 个",
+                            editor.library.formulas.entries.len(),
+                            filtered.len()
+                        ))
+                        .size(11.5)
+                        .color(MUTED),
+                    );
+                    if let Some((msg, is_err)) = &self.feedback {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let color = if *is_err { RED } else { GREEN };
+                            ui.label(RichText::new(msg).size(11.5).color(color));
+                        });
+                    }
+                });
+
+                ui.add_space(6.0);
+
                 if filtered.is_empty() {
                     ui.add_space(32.0);
                     ui.vertical_centered(|ui| {
@@ -437,6 +455,7 @@ impl LibraryModalState {
                     return;
                 }
 
+                // 双层流式公式卡片：顶层为名称与核心高频动作；底层为简码流与次级动作
                 for formula in filtered {
                     egui::Frame::NONE
                         .fill(CARD)
@@ -445,9 +464,8 @@ impl LibraryModalState {
                         .inner_margin(Margin::same(10))
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
-                            // 第一行：标题、学科徽章与右侧动作区
+                            // 顶层：学科徽章、名称（自适应截断）与核心高频动作（✓ 载入、+ 追加）
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(&formula.name).strong().size(13.5).color(TEXT));
                                 ui.label(
                                     RichText::new(format!("[{}]", formula.category))
                                         .size(11.0)
@@ -456,8 +474,17 @@ impl LibraryModalState {
                                 if !formula.is_builtin {
                                     ui.label(RichText::new("[自建]").size(10.5).color(AMBER));
                                 }
+                                let act_w = 115.0;
+                                let title_w = (ui.available_width() - act_w).max(40.0);
+                                ui.add_sized(
+                                    Vec2::new(title_w, 18.0),
+                                    egui::Label::new(RichText::new(&formula.name).strong().size(13.0).color(TEXT))
+                                        .truncate(),
+                                )
+                                .on_hover_text(&formula.name);
 
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
                                     if ui.small_button(RichText::new("✓ 载入").strong().color(GREEN))
                                         .on_hover_text("载入公式并替换当前输入栏内容（左侧实时预览）")
                                         .clicked()
@@ -473,6 +500,58 @@ impl LibraryModalState {
                                         action = Some(ModalAction::InsertCode(formula.source.clone()));
                                         self.feedback = Some((format!("✓ 已追加 [{}] 到当前光标！", formula.name), false));
                                     }
+                                });
+                            });
+
+                            // 中间层：学科背景或数学说明与标签
+                            if !formula.desc.is_empty() || !formula.tags.is_empty() {
+                                ui.add_space(2.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    if !formula.desc.is_empty() {
+                                        ui.label(RichText::new(&formula.desc).size(11.5).color(MUTED));
+                                    }
+                                    for tag in &formula.tags {
+                                        ui.label(RichText::new(format!("#{tag}")).size(10.5).color(TEXT_DIM));
+                                    }
+                                });
+                            }
+
+                            ui.add_space(4.0);
+
+                            // 底层：流式简码预览（自适应截断）与次级动作（复制 LaTeX、编辑、删除）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("简码:").size(11.0).color(AMBER));
+                                let btns_w = if formula.is_builtin { 100.0 } else { 145.0 };
+                                let code_w = (ui.available_width() - btns_w).max(40.0);
+                                ui.add_sized(
+                                    Vec2::new(code_w, 18.0),
+                                    egui::Label::new(
+                                        RichText::new(&formula.source)
+                                            .monospace()
+                                            .size(11.5)
+                                            .color(CYAN),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(&formula.source);
+
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+                                    if !formula.is_builtin {
+                                        if ui.small_button(RichText::new("删除").color(RED)).clicked() {
+                                            delete_id = Some(formula.id.clone());
+                                        }
+                                    }
+
+                                    if ui.small_button(RichText::new("编辑").color(CYAN)).clicked() {
+                                        self.formula_editing_id = Some(formula.id.clone());
+                                        self.formula_edit_name = formula.name.clone();
+                                        self.formula_edit_category = formula.category.clone();
+                                        self.formula_edit_source = formula.source.clone();
+                                        self.formula_edit_desc = formula.desc.clone();
+                                        self.formula_edit_tags = formula.tags.join(" ");
+                                        self.show_formula_form = true;
+                                    }
 
                                     if ui.small_button(RichText::new("复制 LaTeX").color(TEXT_DIM)).clicked() {
                                         let parsed = mathslot_core::parser::parse_with_library(
@@ -486,51 +565,7 @@ impl LibraryModalState {
                                             false,
                                         ));
                                     }
-
-                                    if ui.small_button(RichText::new("编辑").color(CYAN)).clicked() {
-                                        self.formula_editing_id = Some(formula.id.clone());
-                                        self.formula_edit_name = formula.name.clone();
-                                        self.formula_edit_category = formula.category.clone();
-                                        self.formula_edit_source = formula.source.clone();
-                                        self.formula_edit_desc = formula.desc.clone();
-                                        self.formula_edit_tags = formula.tags.join(" ");
-                                        self.show_formula_form = true;
-                                    }
-
-                                    if !formula.is_builtin {
-                                        if ui.small_button(RichText::new("删除").color(RED)).clicked() {
-                                            delete_id = Some(formula.id.clone());
-                                        }
-                                    }
                                 });
-                            });
-
-                            ui.add_space(4.0);
-
-                            // 第二行：学科背景或数学说明
-                            if !formula.desc.is_empty() {
-                                ui.label(RichText::new(&formula.desc).size(11.5).color(MUTED));
-                                ui.add_space(4.0);
-                            }
-
-                            // 第三行：流式简码预览条
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new("简码流:").size(11.0).color(AMBER));
-                                ui.label(
-                                    RichText::new(&formula.source)
-                                        .monospace()
-                                        .size(11.5)
-                                        .color(CYAN),
-                                );
-                                if !formula.tags.is_empty() {
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        ui.label(
-                                            RichText::new(format!("#{}", formula.tags.join(" #")))
-                                                .size(10.5)
-                                                .color(MUTED),
-                                        );
-                                    });
-                                }
                             });
                         });
 
@@ -798,156 +833,166 @@ impl LibraryModalState {
             );
         });
 
-        if self.show_custom_form {
-            ui.add_space(6.0);
-            egui::Frame::NONE
-                .fill(CARD)
-                .stroke(Stroke::new(1.0, CARD_BORDER))
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(Margin::same(12))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(
-                        RichText::new("新建 / 编辑自定义格式")
-                            .size(12.0)
-                            .strong()
-                            .color(AMBER),
-                    );
-                    ui.add_space(6.0);
-
-                    // 第一层（语义元信息）
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("触发字母:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.custom_key)
-                                .font(FontId::monospace(12.5))
-                                .desired_width(48.0)
-                                .hint_text("g"),
-                        );
-
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("格式名称:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.custom_label)
-                                .desired_width(170.0)
-                                .hint_text("如：同余式 / 期望"),
-                        );
-
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("缩略提示:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.custom_glyph)
-                                .font(FontId::monospace(12.5))
-                                .desired_width(96.0)
-                                .hint_text("如 a≡b(m)"),
-                        );
-
-                        ui.add_space(6.0);
-                        ui.label(RichText::new("槽位角色:").size(11.5).color(TEXT_DIM));
-                        let roles_w = (ui.available_width() - 4.0).max(80.0);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.custom_roles)
-                                .desired_width(roles_w)
-                                .hint_text("左项;右项;模数 ($1, $2...)"),
-                        );
-                    });
-
-                    ui.add_space(8.0);
-
-                    // 第二层（通栏核心载荷）
-                    ui.label(RichText::new("LaTeX 模板:").size(11.5).color(TEXT_DIM));
-                    ui.add_space(2.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.custom_latex)
-                            .font(FontId::monospace(13.0))
-                            .desired_width(ui.available_width())
-                            .hint_text(r"$1 \equiv $2 \pmod{$3}"),
-                    );
-
-                    ui.add_space(10.0);
-
-                    // 第三层（操作栏：右对齐）
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✓ 保存格式").strong().color(GREEN))
-                            .clicked()
-                        {
-                            let key_ch = self
-                                .custom_key
-                                .trim()
-                                .chars()
-                                .next()
-                                .unwrap_or(' ')
-                                .to_ascii_lowercase();
-                            let roles: Vec<String> = self
-                                .custom_roles
-                                .split([';', '；', ','])
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .map(str::to_owned)
-                                .collect();
-                            let (layout, auto_join) = if let Some(old) = editor.library.lookup_custom(key_ch) {
-                                (old.layout.clone(), old.auto_join.clone())
-                            } else {
-                                (mathslot_core::library::LayoutKind::Linear, None)
-                            };
-                            let fmt = CustomFormat {
-                                item_key: key_ch,
-                                label: self.custom_label.clone(),
-                                glyph_hint: self.custom_glyph.clone(),
-                                slot_roles: roles,
-                                latex_template: self.custom_latex.clone(),
-                                scheme_a_name: String::new(),
-                                layout,
-                                auto_join,
-                            };
-                            match editor.library.upsert_custom(fmt) {
-                                Ok(saved_k) => {
-                                    editor.set_library(editor.library.clone());
-                                    let (msg, is_err) = match save_library_to_disk(&editor.library) {
-                                        Ok(_) => (
-                                            format!(
-                                                "✓ 已保存格式 [{CMD_PREFIX}k{saved_k}]：按 Tab k {saved_k} 即可调用！"
-                                            ),
-                                            false,
-                                        ),
-                                        Err(e) => (format!("✓ 已保存（本次会话生效），但写入磁盘失败: {e}"), true),
-                                    };
-                                    self.feedback = Some((msg.clone(), is_err));
-                                    if let Some(nk) = editor.library.next_free_custom_key() {
-                                        self.custom_key = nk.to_string();
-                                    }
-                                    self.custom_label.clear();
-                                    self.custom_glyph.clear();
-                                    self.custom_latex.clear();
-                                    self.custom_scheme_a.clear();
-                                    self.show_custom_form = false;
-                                    action = Some(ModalAction::LibraryChanged(msg));
-                                }
-                                Err(err) => {
-                                    self.feedback = Some((err, true));
-                                }
-                            }
-                        }
-                        if ui.button("取消").clicked() {
-                            self.show_custom_form = false;
-                        }
-                    });
-                });
-        }
-
         ui.add_space(6.0);
-        ui.label(
-            RichText::new("已注册自定义格式列表")
-                .size(12.0)
-                .strong()
-                .color(TEXT),
-        );
 
         egui::ScrollArea::vertical()
             .id_salt("mathslot-custom-list-scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                // 置顶紧凑内敛表单（随滚轮自然流动，杜绝垂直截断）
+                if self.show_custom_form {
+                    egui::Frame::NONE
+                        .fill(CARD)
+                        .stroke(Stroke::new(1.0, CARD_BORDER))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.label(
+                                RichText::new("新建 / 编辑自定义格式")
+                                    .size(12.0)
+                                    .strong()
+                                    .color(AMBER),
+                            );
+                            ui.add_space(5.0);
+
+                            // 第一层（语义元信息）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("按键:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.custom_key)
+                                        .font(FontId::monospace(12.5))
+                                        .desired_width(48.0)
+                                        .hint_text("g"),
+                                );
+
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("格式名称:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.custom_label)
+                                        .desired_width(170.0)
+                                        .hint_text("如：同余式 / 期望"),
+                                );
+
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("缩略提示:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.custom_glyph)
+                                        .font(FontId::monospace(12.5))
+                                        .desired_width(96.0)
+                                        .hint_text("如 a≡b(m)"),
+                                );
+                            });
+
+                            ui.add_space(5.0);
+
+                            // 第二层（槽位角色）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("槽位角色:").size(11.5).color(TEXT_DIM));
+                                let roles_w = (ui.available_width() - 4.0).max(80.0);
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.custom_roles)
+                                        .desired_width(roles_w)
+                                        .hint_text("左项;右项;模数 ($1, $2...)"),
+                                );
+                            });
+
+                            ui.add_space(5.0);
+
+                            // 第三层（通栏核心载荷）
+                            ui.label(RichText::new("LaTeX 模板:").size(11.5).color(TEXT_DIM));
+                            ui.add_space(2.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.custom_latex)
+                                    .font(FontId::monospace(13.0))
+                                    .desired_width(ui.available_width())
+                                    .hint_text(r"$1 \equiv $2 \pmod{$3}"),
+                            );
+
+                            ui.add_space(6.0);
+
+                            // 第四层（紧凑内敛操作栏：左侧就近对齐，杜绝远隔千山万水）
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                if ui
+                                    .button(RichText::new("✓ 保存格式").strong().color(GREEN))
+                                    .clicked()
+                                {
+                                    let key_ch = self
+                                        .custom_key
+                                        .trim()
+                                        .chars()
+                                        .next()
+                                        .unwrap_or(' ')
+                                        .to_ascii_lowercase();
+                                    let roles: Vec<String> = self
+                                        .custom_roles
+                                        .split([';', '；', ','])
+                                        .map(str::trim)
+                                        .filter(|s| !s.is_empty())
+                                        .map(str::to_owned)
+                                        .collect();
+                                    let (layout, auto_join) = if let Some(old) = editor.library.lookup_custom(key_ch) {
+                                        (old.layout.clone(), old.auto_join.clone())
+                                    } else {
+                                        (mathslot_core::library::LayoutKind::Linear, None)
+                                    };
+                                    let fmt = CustomFormat {
+                                        item_key: key_ch,
+                                        label: self.custom_label.clone(),
+                                        glyph_hint: self.custom_glyph.clone(),
+                                        slot_roles: roles,
+                                        latex_template: self.custom_latex.clone(),
+                                        scheme_a_name: String::new(),
+                                        layout,
+                                        auto_join,
+                                    };
+                                    match editor.library.upsert_custom(fmt) {
+                                        Ok(saved_k) => {
+                                            editor.set_library(editor.library.clone());
+                                            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+                                                Ok(_) => (
+                                                    format!(
+                                                        "✓ 已保存格式 [{CMD_PREFIX}k{saved_k}]：按 Tab k {saved_k} 即可调用！"
+                                                    ),
+                                                    false,
+                                                ),
+                                                Err(e) => (format!("✓ 已保存（本次会话生效），但写入磁盘失败: {e}"), true),
+                                            };
+                                            self.feedback = Some((msg.clone(), is_err));
+                                            if let Some(nk) = editor.library.next_free_custom_key() {
+                                                self.custom_key = nk.to_string();
+                                            }
+                                            self.custom_label.clear();
+                                            self.custom_glyph.clear();
+                                            self.custom_latex.clear();
+                                            self.custom_scheme_a.clear();
+                                            self.show_custom_form = false;
+                                            action = Some(ModalAction::LibraryChanged(msg));
+                                        }
+                                        Err(err) => {
+                                            self.feedback = Some((err, true));
+                                        }
+                                    }
+                                }
+                                if ui.button("取消").clicked() {
+                                    self.show_custom_form = false;
+                                }
+                            });
+                        });
+                    ui.add_space(8.0);
+                }
+
+                ui.label(
+                    RichText::new("已注册自定义格式列表")
+                        .size(12.0)
+                        .strong()
+                        .color(TEXT),
+                );
+                ui.add_space(4.0);
+
                 for fmt in &editor.library.custom_formats {
                     egui::Frame::NONE
                         .fill(BG)
@@ -1094,126 +1139,132 @@ impl LibraryModalState {
             );
         });
 
-        if self.show_snippet_form {
-            ui.add_space(6.0);
-            egui::Frame::NONE
-                .fill(CARD)
-                .stroke(Stroke::new(1.0, CARD_BORDER))
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(Margin::same(12))
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    // 顶部：标题 + 右侧 [填入当前公式] 小按钮
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new("新建 / 编辑片段模版")
-                                .size(12.0)
-                                .strong()
-                                .color(AMBER),
-                        );
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.small_button("填入当前公式").clicked() {
-                                self.snip_source = editor.source.clone();
-                            }
-                        });
-                    });
-                    ui.add_space(6.0);
-
-                    // 第一层（元信息）
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("触发字母:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.snip_key)
-                                .font(FontId::monospace(12.5))
-                                .desired_width(48.0)
-                                .hint_text("d"),
-                        );
-
-                        ui.add_space(8.0);
-                        ui.label(RichText::new("模版名称:").size(11.5).color(TEXT_DIM));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.snip_label)
-                                .desired_width(220.0)
-                                .hint_text("如：高斯核 / 泰勒余项"),
-                        );
-                    });
-
-                    ui.add_space(8.0);
-
-                    // 第二层（通栏核心载荷）
-                    ui.label(RichText::new("简码流源码:").size(11.5).color(TEXT_DIM));
-                    ui.add_space(2.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.snip_source)
-                            .font(FontId::monospace(12.5))
-                            .desired_width(ui.available_width())
-                            .hint_text("如 ▸rb^2 - 4ac;"),
-                    );
-
-                    ui.add_space(10.0);
-
-                    // 第三层（操作栏：右对齐）
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✓ 保存片段").strong().color(GREEN))
-                            .clicked()
-                        {
-                            let key_ch = self
-                                .snip_key
-                                .trim()
-                                .chars()
-                                .next()
-                                .unwrap_or(' ')
-                                .to_ascii_lowercase();
-                            let snip = FormulaSnippet {
-                                item_key: key_ch,
-                                label: self.snip_label.clone(),
-                                stream_source: self.snip_source.clone(),
-                            };
-                            match editor.library.upsert_snippet(snip) {
-                                Ok(saved_k) => {
-                                    let (msg, is_err) = match save_library_to_disk(&editor.library) {
-                                        Ok(_) => (
-                                            format!(
-                                                "✓ 已保存复用片段 [{CMD_PREFIX}t{saved_k}]：按 Tab t {saved_k} 即可内联展开！"
-                                            ),
-                                            false,
-                                        ),
-                                        Err(e) => (format!("✓ 已保存（本次会话生效），但写入磁盘失败: {e}"), true),
-                                    };
-                                    self.feedback = Some((msg.clone(), is_err));
-                                    if let Some(nk) = editor.library.next_free_snippet_key() {
-                                        self.snip_key = nk.to_string();
-                                    }
-                                    self.snip_label.clear();
-                                    self.snip_source.clear();
-                                    self.show_snippet_form = false;
-                                    action = Some(ModalAction::LibraryChanged(msg));
-                                }
-                                Err(err) => {
-                                    self.feedback = Some((err, true));
-                                }
-                            }
-                        }
-                        if ui.button("取消").clicked() {
-                            self.show_snippet_form = false;
-                        }
-                    });
-                });
-        }
-
         ui.add_space(6.0);
-        ui.label(
-            RichText::new("已保存片段与填空模版")
-                .size(12.0)
-                .strong()
-                .color(TEXT),
-        );
 
         egui::ScrollArea::vertical()
             .id_salt("mathslot-snippet-list-scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                // 置顶紧凑内敛表单（随滚轮自然流动，杜绝垂直截断）
+                if self.show_snippet_form {
+                    egui::Frame::NONE
+                        .fill(CARD)
+                        .stroke(Stroke::new(1.0, CARD_BORDER))
+                        .corner_radius(CornerRadius::same(8))
+                        .inner_margin(Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            // 顶部：标题 + 右侧 [填入当前公式] 小按钮
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("新建 / 编辑片段模版")
+                                        .size(12.0)
+                                        .strong()
+                                        .color(AMBER),
+                                );
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.small_button("填入当前公式").clicked() {
+                                        self.snip_source = editor.source.clone();
+                                    }
+                                });
+                            });
+                            ui.add_space(5.0);
+
+                            // 第一层（元信息）
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("触发字母:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.snip_key)
+                                        .font(FontId::monospace(12.5))
+                                        .desired_width(48.0)
+                                        .hint_text("d"),
+                                );
+
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("模版名称:").size(11.5).color(TEXT_DIM));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.snip_label)
+                                        .desired_width(220.0)
+                                        .hint_text("如：高斯核 / 泰勒余项"),
+                                );
+                            });
+
+                            ui.add_space(6.0);
+
+                            // 第二层（通栏核心载荷）
+                            ui.label(RichText::new("简码流源码:").size(11.5).color(TEXT_DIM));
+                            ui.add_space(2.0);
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.snip_source)
+                                    .font(FontId::monospace(12.5))
+                                    .desired_width(ui.available_width())
+                            .hint_text("如 ▸rb^2 - 4ac;"),
+                            );
+
+                            ui.add_space(6.0);
+
+                            // 第三层（紧凑内敛操作栏：左侧就近对齐，杜绝远隔千山万水）
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                if ui
+                                    .button(RichText::new("✓ 保存片段").strong().color(GREEN))
+                                    .clicked()
+                                {
+                                    let key_ch = self
+                                        .snip_key
+                                        .trim()
+                                        .chars()
+                                        .next()
+                                        .unwrap_or(' ')
+                                        .to_ascii_lowercase();
+                                    let snip = FormulaSnippet {
+                                        item_key: key_ch,
+                                        label: self.snip_label.clone(),
+                                        stream_source: self.snip_source.clone(),
+                                    };
+                                    match editor.library.upsert_snippet(snip) {
+                                        Ok(saved_k) => {
+                                            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+                                                Ok(_) => (
+                                                    format!(
+                                                        "✓ 已保存复用片段 [{CMD_PREFIX}t{saved_k}]：按 Tab t {saved_k} 即可内联展开！"
+                                                    ),
+                                                    false,
+                                                ),
+                                                Err(e) => (format!("✓ 已保存（本次会话生效），但写入磁盘失败: {e}"), true),
+                                            };
+                                            self.feedback = Some((msg.clone(), is_err));
+                                            if let Some(nk) = editor.library.next_free_snippet_key() {
+                                                self.snip_key = nk.to_string();
+                                            }
+                                            self.snip_label.clear();
+                                            self.snip_source.clear();
+                                            self.show_snippet_form = false;
+                                            action = Some(ModalAction::LibraryChanged(msg));
+                                        }
+                                        Err(err) => {
+                                            self.feedback = Some((err, true));
+                                        }
+                                    }
+                                }
+                                if ui.button("取消").clicked() {
+                                    self.show_snippet_form = false;
+                                }
+                            });
+                        });
+                    ui.add_space(8.0);
+                }
+
+                ui.label(
+                    RichText::new("已保存片段与填空模版")
+                        .size(12.0)
+                        .strong()
+                        .color(TEXT),
+                );
+                ui.add_space(4.0);
+
                 for snip in &editor.library.snippets {
                     egui::Frame::NONE
                         .fill(BG)

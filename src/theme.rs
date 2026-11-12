@@ -275,6 +275,7 @@ pub fn ghost_button(ui: &mut egui::Ui, text: &str, color: Color32) -> Response {
 }
 
 /// 竖直细分隔线
+#[allow(dead_code)]
 pub fn vsep(ui: &mut egui::Ui, height: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(9.0, height), Sense::hover());
     ui.painter().vline(

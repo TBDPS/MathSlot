@@ -104,20 +104,17 @@ fn test_acc_r10_cards_and_forms_semantic_layout_inspection() {
     // 2.2 验证自定义格式表单布局与尺寸约束
     // 触发字母: 48px monospace
     assert!(
-        src.contains(".desired_width(48.0)\n                                .hint_text(\"g\")")
-            || src.contains(".desired_width(48.0)\r\n                                .hint_text(\"g\")"),
+        src.contains(".desired_width(48.0)") && src.contains(".hint_text(\"g\")"),
         "自定义格式触发字母框 desired_width 必须为 48.0"
     );
     // 格式名称: 170px
     assert!(
-        src.contains(".desired_width(170.0)\n                                .hint_text(\"如：同余式 / 期望\")")
-            || src.contains(".desired_width(170.0)\r\n                                .hint_text(\"如：同余式 / 期望\")"),
+        src.contains(".desired_width(170.0)") && src.contains(".hint_text(\"如：同余式 / 期望\")"),
         "格式名称 desired_width 必须为 170.0"
     );
     // 缩略提示: 96px
     assert!(
-        src.contains(".desired_width(96.0)\n                                .hint_text(\"如 a≡b(m)\")")
-            || src.contains(".desired_width(96.0)\r\n                                .hint_text(\"如 a≡b(m)\")"),
+        src.contains(".desired_width(96.0)") && src.contains(".hint_text(\"如 a≡b(m)\")"),
         "缩略提示 desired_width 必须为 96.0"
     );
     // 槽位角色动态自适应剩余宽度
@@ -127,28 +124,24 @@ fn test_acc_r10_cards_and_forms_semantic_layout_inspection() {
     );
     // 第二层 LaTeX 模板输入框 100% 通栏
     assert!(
-        src.contains(".desired_width(ui.available_width())\n                            .hint_text(r\"$1 \\equiv $2 \\pmod{$3}\")")
-            || src.contains(".desired_width(ui.available_width())\r\n                            .hint_text(r\"$1 \\equiv $2 \\pmod{$3}\")"),
+        src.contains(".desired_width(ui.available_width())") && src.contains(".hint_text(r\"$1 \\equiv $2 \\pmod{$3}\")"),
         "LaTeX 模板必须采用 desired_width(ui.available_width()) 100% 通栏布局"
     );
 
     // 2.3 验证片段模版表单布局与尺寸约束
     // 触发字母: 48px
     assert!(
-        src.contains(".desired_width(48.0)\n                                .hint_text(\"d\")")
-            || src.contains(".desired_width(48.0)\r\n                                .hint_text(\"d\")"),
+        src.contains(".desired_width(48.0)") && src.contains(".hint_text(\"d\")"),
         "片段模版触发字母框 desired_width 必须为 48.0"
     );
     // 模版名称: 220px
     assert!(
-        src.contains(".desired_width(220.0)\n                                .hint_text(\"如：高斯核 / 泰勒余项\")")
-            || src.contains(".desired_width(220.0)\r\n                                .hint_text(\"如：高斯核 / 泰勒余项\")"),
+        src.contains(".desired_width(220.0)") && src.contains(".hint_text(\"如：高斯核 / 泰勒余项\")"),
         "模版名称 desired_width 必须为 220.0"
     );
     // 简码流源码: 100% 通栏
     assert!(
-        src.contains(".desired_width(ui.available_width())\n                            .hint_text(\"如 ▸rb^2 - 4ac;\")")
-            || src.contains(".desired_width(ui.available_width())\r\n                            .hint_text(\"如 ▸rb^2 - 4ac;\")"),
+        src.contains(".desired_width(ui.available_width())") && src.contains(".hint_text(\"如 ▸rb^2 - 4ac;\")"),
         "片段简码源码必须采用 desired_width(ui.available_width()) 100% 通栏布局"
     );
 

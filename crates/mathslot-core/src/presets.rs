@@ -468,7 +468,7 @@ pub const PRESET_LIBRARY: &[PresetFormula] = &[
     PresetFormula {
         category: "现代深度学习与人工智能",
         name: "扩散模型去噪分数匹配 (Score Matching)",
-        source: "L_(simple) = ▸ce;▸af▸ge - ▸ge▸d▸gt;(x_t, t);;^2;",
+        source: "L_(simple) = ▸ce;▸af▸ge - ▸d ▸ge;▸gt;;(x_t, t);;^2;",
         desc: "DDPM 去噪扩散概率模型简化均方误差优化目标",
     },
     PresetFormula {
@@ -496,7 +496,7 @@ pub const PRESET_LIBRARY: &[PresetFormula] = &[
     PresetFormula {
         category: "量子力学",
         name: "谐振子阶梯升降算符对易子",
-        source: "[a, a▸u+;] = 1",
+        source: "[a, ▸u a;+;;] = 1",
         desc: "量子谐振子产生湮灭算符李代数对易正则关系",
     },
     PresetFormula {
@@ -560,19 +560,19 @@ pub const PRESET_LIBRARY: &[PresetFormula] = &[
     PresetFormula {
         category: "微分几何与数学物理",
         name: "爱因斯坦引力场方程",
-        source: "G▸d▸gm▸gn; + ▸gL g▸d▸gm▸gn; = ▸f8 ▸gp G;c^4; T▸d▸gm▸gn;",
+        source: "▸d G;▸gm ▸gn;; + ▸gL ▸d g;▸gm ▸gn;; = ▸f8 ▸gp G;c^4; ▸d T;▸gm ▸gn;;",
         desc: "广义相对论核心方程，连接时空几何曲率与物质能量动量张量",
     },
     PresetFormula {
         category: "微分几何与数学物理",
         name: "弯曲时空自由粒子测地线方程",
-        source: "▸f d^2 x▸u▸gm;;d▸gu^2;; + ▸gC▸u▸gm;▸d▸ga▸gb; ▸f dx▸u▸ga;;d▸gu;; ▸f dx▸u▸gb;;d▸gu;; = 0",
+        source: "▸f d^2 ▸u x;▸gm;;;d▸gu^2;; + ▸b ▸gC;▸ga ▸gb;▸gm;; ▸f d ▸u x;▸ga;;;d▸gu;; ▸f d ▸u x;▸gb;;;d▸gu;; = 0",
         desc: "在弯曲时空中受引力影响自由下落粒子的极值轨迹常微分方程",
     },
     PresetFormula {
         category: "微分几何与数学物理",
         name: "电磁场强度 2-形式规范外微分",
-        source: "F = dA = ▸f1;2; F▸d▸gm▸gn;; dx▸u▸gm; ▸qg dx▸u▸gn;",
+        source: "F = dA = ▸f1;2; ▸d F;▸gm ▸gn;; d ▸u x;▸gm;; ▸qg d ▸u x;▸gn;",
         desc: "电磁规范势 1-形式的外微分与反对称场强 2-形式几何展开",
     },
 ];

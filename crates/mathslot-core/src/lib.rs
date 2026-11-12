@@ -940,4 +940,72 @@ mod tests {
         assert!(ed.esc_nav.is_some(), "▸J should enter nav, not a custom macro");
         assert_eq!(ed.source, "▸fx+1;y;");
     }
+
+    #[test]
+    fn test_backward_body_wrap_sub_and_sup() {
+        // 1. 变量 G 键入 ▸d 自动包裹为底数，光标停在下标槽
+        let mut ed1 = StreamEditor::from_source("G");
+        ed1.set_cursor(1);
+        let msg1 = ed1.type_text("▸d");
+        assert_eq!(ed1.source, "▸d G;");
+        assert_eq!(ed1.cursor_char, 5);
+        assert!(msg1.unwrap().contains("已将前置「G」作为下标主体"));
+        ed1.type_text("i;");
+        assert_eq!(ed1.source, "▸d G;i;");
+        assert_eq!(ed1.to_latex(), "{G}_{i}");
+
+        // 2. 变量 x 键入 ▸u 自动包裹为底数，光标停在指数槽
+        let mut ed2 = StreamEditor::from_source("x");
+        ed2.set_cursor(1);
+        let msg2 = ed2.type_text("▸u");
+        assert_eq!(ed2.source, "▸u x;");
+        assert_eq!(ed2.cursor_char, 5);
+        assert!(msg2.unwrap().contains("已将前置「x」作为上标主体"));
+        ed2.type_text("2;");
+        assert_eq!(ed2.source, "▸u x;2;");
+        assert_eq!(ed2.to_latex(), "{x}^{2}");
+
+        // 3. 闭合括号 `(x + 1)` 后键入 ▸u
+        let mut ed3 = StreamEditor::from_source("(x + 1)");
+        ed3.set_cursor(7);
+        ed3.type_text("▸u");
+        assert_eq!(ed3.source, "▸u (x + 1);");
+        assert_eq!(ed3.cursor_char, 11);
+
+        // 4. 希腊字母 `▸gm` 后键入 ▸d
+        let mut ed4 = StreamEditor::from_source("▸gm");
+        ed4.set_cursor(3);
+        ed4.type_text("▸d");
+        assert_eq!(ed4.source, "▸d ▸gm;");
+        assert_eq!(ed4.cursor_char, 7);
+
+        // 5. 数字 `10` 后键入 ▸u
+        let mut ed5 = StreamEditor::from_source("10");
+        ed5.set_cursor(2);
+        ed5.type_text("▸u");
+        assert_eq!(ed5.source, "▸u 10;");
+        assert_eq!(ed5.cursor_char, 6);
+
+        // 6. 运算符或空格后不触发后向包裹
+        let mut ed6 = StreamEditor::from_source("+ ");
+        ed6.set_cursor(2);
+        ed6.type_text("▸d");
+        assert_eq!(ed6.source, "+ ▸d");
+
+        let mut ed7 = StreamEditor::from_source("+");
+        ed7.set_cursor(1);
+        ed7.type_text("▸d");
+        assert_eq!(ed7.source, "+▸d");
+    }
+
+    #[test]
+    fn test_backward_body_wrap_undo() {
+        let mut ed = StreamEditor::from_source("G");
+        ed.set_cursor(1);
+        ed.type_text("▸d");
+        assert_eq!(ed.source, "▸d G;");
+        assert!(ed.can_undo(), "Backward wrap must be undoable");
+        ed.undo();
+        assert_eq!(ed.source, "G▸d");
+    }
 }

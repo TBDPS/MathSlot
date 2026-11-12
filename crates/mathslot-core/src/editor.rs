@@ -359,6 +359,10 @@ impl StreamEditor {
             return Some(tpl_msg);
         }
 
+        if let Some(wrap_msg) = self.try_backward_body_wrap(&old_synced) {
+            return Some(wrap_msg);
+        }
+
         if let Some(wrap_msg) = self.try_smart_wrap_prepend(&old_synced) {
             return Some(wrap_msg);
         }
@@ -1494,6 +1498,80 @@ impl StreamEditor {
         Some(msg)
     }
 
+    /// 后向主体智能包裹 (Backward Body Wrap)：
+    /// 当用户在已有原子（如英文字母 `G`、`x`、数字、希腊字母如 `▸gm`、闭合括号等）后键入 `▸d` (`Tab d`) 或 `▸u` (`Tab u`) 时，
+    /// 自动将前方的原子吞入槽位 1（主体/底数），生成 `▸d <atom>;` 或 `▸u <atom>;`，并将光标精准定位到槽位 2（下标/上标）！
+    /// 实现“键入变量后按 Tab d 即直接填写下标”的人体工程学心流，且支持按 `Ctrl+Z` 撤销。
+    fn try_backward_body_wrap(&mut self, old_synced: &str) -> Option<String> {
+        let chars: Vec<char> = self.source.chars().collect();
+        let old_chars: Vec<char> = old_synced.chars().collect();
+        let new_len = chars.len();
+        let old_len = old_chars.len();
+        if new_len <= old_len {
+            return None;
+        }
+
+        let end = self.cursor_char.min(new_len);
+        if end < 2 {
+            return None;
+        }
+
+        let (struct_label, role_name) = if chars[end - 2] == CMD_PREFIX {
+            let ch = chars[end - 1].to_ascii_lowercase();
+            if ch == 'd' {
+                ("下标", "下标")
+            } else if ch == 'u' {
+                ("上标", "上标")
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
+
+        let cmd_start = end - 2;
+        if cmd_start == 0 {
+            return None;
+        }
+
+        // 确认本次编辑确实落在该指令处
+        let (common_prefix, common_suffix) = common_affixes(&old_chars, &chars);
+        let edit_pos = common_prefix.min(old_len.saturating_sub(common_suffix));
+        if edit_pos >= end {
+            return None;
+        }
+
+        // 从 cmd_start 往前检测紧邻的前置原子
+        let (atom_start, _atom_end, atom_str) = find_backward_atom(&chars, cmd_start, &self.library)?;
+        if atom_str.is_empty() {
+            return None;
+        }
+
+        // 压入未包裹快照，支持 Ctrl+Z 撤销后向包裹
+        self.save_undo_snapshot(Snapshot {
+            source: self.source.clone(),
+            cursor_char: end,
+        });
+
+        let before_atom_str: String = chars[..atom_start].iter().collect();
+        let cmd_str: String = chars[cmd_start..end].iter().collect();
+        let after_str: String = chars[end..].iter().collect();
+
+        let prev_source = self.source.clone();
+        // 构造新源码：将 atom 包入槽位 1，生成 `▸d <atom>;` 或 `▸u <atom>;`
+        let wrapped_lead = format!("{before_atom_str}{cmd_str} {atom_str};");
+        let next_cursor = wrapped_lead.chars().count();
+        self.source = format!("{wrapped_lead}{after_str}");
+        self.cursor_char = next_cursor;
+
+        self.adjust_jump_back_for_edit(&prev_source, &self.source.clone());
+        self.reparse();
+
+        Some(format!(
+            "已将前置「{atom_str}」作为{struct_label}主体，光标已就绪填入{role_name}（Ctrl+Z 可撤销）。"
+        ))
+    }
+
     fn try_consume_inline_jump(&mut self) -> Option<String> {
         let chars: Vec<char> = self.source.chars().collect();
         let end = self.cursor_char.min(chars.len());
@@ -1761,6 +1839,118 @@ fn collect_atomic_cmd_spans(seq: &MathSeq, out: &mut Vec<Span>) {
             _ => {}
         }
     }
+}
+
+/// 从 `cmd_start` 往前逆向探测紧邻的前置原子表达式（用于后向主体智能包裹）
+fn find_backward_atom(
+    chars: &[char],
+    cmd_start: usize,
+    library: &UserLibrary,
+) -> Option<(usize, usize, String)> {
+    if cmd_start == 0 {
+        return None;
+    }
+    let prev_c = chars[cmd_start - 1];
+    if prev_c.is_whitespace() {
+        return None;
+    }
+
+    // 1. 闭合括号 `(...)`, `[...]`, `{...}`
+    if matches!(prev_c, ')' | ']' | '}') {
+        let open_ch = match prev_c {
+            ')' => '(',
+            ']' => '[',
+            '}' => '{',
+            _ => unreachable!(),
+        };
+        let mut depth = 0;
+        let mut open_idx = None;
+        for i in (0..cmd_start).rev() {
+            if chars[i] == prev_c {
+                depth += 1;
+            } else if chars[i] == open_ch {
+                depth -= 1;
+                if depth == 0 {
+                    open_idx = Some(i);
+                    break;
+                }
+            }
+        }
+        if let Some(start) = open_idx {
+            let s: String = chars[start..cmd_start].iter().collect();
+            return Some((start, cmd_start, s));
+        }
+        return None;
+    }
+
+    // 2. 闭合结构（以 `;` 结尾）：利用 AST 快速查找恰好结束在 cmd_start 的 Struct 节点
+    if prev_c == STEP_SEP {
+        let clean_source: String = chars[..cmd_start].iter().collect();
+        let doc = parse_with_library(&clean_source, library);
+        if let Some(start) = find_struct_start_ending_at(&doc.root, cmd_start) {
+            let s: String = chars[start..cmd_start].iter().collect();
+            return Some((start, cmd_start, s));
+        }
+    }
+
+    // 3. 希腊字母或其他两字母子命令符号（形如 `▸gm`, `▸ga`, `▸od` 等，长为 3）
+    if cmd_start >= 3 && chars[cmd_start - 3] == CMD_PREFIX {
+        let c1 = chars[cmd_start - 2];
+        let c2 = chars[cmd_start - 1];
+        if c1.is_ascii_alphabetic() && c2.is_ascii_alphabetic() {
+            let start = cmd_start - 3;
+            let s: String = chars[start..cmd_start].iter().collect();
+            return Some((start, cmd_start, s));
+        }
+    }
+
+    // 4. 单字母直达符号（形如 `▸i`, `▸p`, `▸e` 等，长为 2）
+    if cmd_start >= 2 && chars[cmd_start - 2] == CMD_PREFIX {
+        let c1 = chars[cmd_start - 1];
+        if c1.is_ascii_alphabetic() {
+            let start = cmd_start - 2;
+            let s: String = chars[start..cmd_start].iter().collect();
+            return Some((start, cmd_start, s));
+        }
+    }
+
+    // 5. 纯数字序列（如 `10`, `42`）
+    if prev_c.is_ascii_digit() {
+        let mut start = cmd_start - 1;
+        while start > 0 && chars[start - 1].is_ascii_digit() {
+            start -= 1;
+        }
+        let s: String = chars[start..cmd_start].iter().collect();
+        return Some((start, cmd_start, s));
+    }
+
+    // 6. 单个英文字母（如 `G`, `x`, `T`, `g`）
+    if prev_c.is_ascii_alphabetic() {
+        let start = cmd_start - 1;
+        let s: String = chars[start..cmd_start].iter().collect();
+        return Some((start, cmd_start, s));
+    }
+
+    None
+}
+
+fn find_struct_start_ending_at(seq: &MathSeq, target_end: usize) -> Option<usize> {
+    for item in &seq.items {
+        match item {
+            Expr::Struct { full_span, slots, .. } | Expr::CustomStruct { full_span, slots, .. } => {
+                if full_span.end.char_idx == target_end {
+                    return Some(full_span.start.char_idx);
+                }
+                for slot in slots {
+                    if let Some(st) = find_struct_start_ending_at(&slot.seq, target_end) {
+                        return Some(st);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// 在序列 `seq` 中从 `start_char` 向右扫描，定位应当被前置结构包裹的主体终点（自动停在顶层 `=`, `<`, `>`, `->` 等关系符之前）

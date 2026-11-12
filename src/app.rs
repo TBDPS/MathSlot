@@ -21,7 +21,6 @@ use crate::modals::{LibraryModalState, ModalAction, load_library_from_disk, save
 use crate::render::{PIXELS_PER_POINT, RenderJob, RenderWorker};
 use crate::theme::*;
 
-const TOP_BAR_HEIGHT: f32 = 48.0;
 const STATUS_BAR_HEIGHT: f32 = 26.0;
 const LEFT_PANEL_DEFAULT_WIDTH: f32 = 460.0;
 const PREVIEW_BOX_HEIGHT: f32 = 130.0;
@@ -748,180 +747,90 @@ impl MathSlotApp {
         }
     }
 
-    fn top_ui(&mut self, ui: &mut egui::Ui) {
+    /// 左翼紧凑控制台 Header (约 36~40pt)
+    /// 取代旧全局顶栏，彻底消除双头冗余，为全屏增加整整 44pt 垂直视口空间：
+    /// 第一行：brand_mark + MathSlot (14pt 粗体) + 版本号 + 模式指示胶囊 (status_pill)
+    /// 第二行：↶ 撤销、↷ 重做、[⚡ 槽位直达 (Tab j)] 开关、[↻ 换一个] 范例轮换、[清空]
+    fn left_wing_header_ui(&mut self, ui: &mut egui::Ui) {
         let mut action_undo = false;
         let mut action_redo = false;
         let mut action_clear = false;
         let mut action_preset = false;
-        let mut action_jump_back = false;
-        let mut action_quick_save = false;
         let mut action_toggle_nav = false;
-        let mut open_latex_tab = false;
-        let mut open_custom_mgr = false;
-        let mut open_presets = false;
-        let mut open_help = false;
 
         let (mode_text, mode_color) = self.mode_badge();
         let in_nav = self.editor.esc_nav.is_some();
 
-        ui.horizontal_centered(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
+        egui::Frame::NONE
+            .fill(FIELD)
+            .stroke(Stroke::new(1.0, BORDER_SOFT))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = 5.0;
 
-            brand_mark(ui);
-            ui.label(RichText::new("MathSlot").size(16.0).strong().color(TEXT));
-            ui.label(
-                RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
-                    .size(11.0)
-                    .color(MUTED),
-            );
-            ui.add_space(6.0);
-            status_pill(ui, &mode_text, mode_color);
+                // 第一行：brand_mark + MathSlot (14pt 粗体) + 版本号 + 模式指示胶囊
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    brand_mark(ui);
+                    ui.label(RichText::new("MathSlot").size(14.0).strong().color(TEXT));
+                    ui.label(
+                        RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
+                            .size(10.5)
+                            .color(MUTED),
+                    );
+                    ui.add_space(2.0);
+                    status_pill(ui, &mode_text, mode_color);
+                });
 
-            let (nav_label, nav_color) = if in_nav {
-                ("退出直达 [Tab / Esc / Alt j]", ACCENT)
-            } else {
-                ("槽位直达 [Tab j]", TEXT_DIM)
-            };
-            if tool_button(ui, RichText::new(nav_label).size(12.5).color(nav_color), true)
-                .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
-                .clicked()
-            {
-                action_toggle_nav = true;
-            }
+                // 第二行：↶ 撤销、↷ 重做、[⚡ 槽位直达 (Tab j)] 开关、[↻ 换一个] 范例轮换、[清空]
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    if tool_button(ui, RichText::new("↶").size(14.0), self.editor.can_undo())
+                        .on_hover_text("撤销 (Ctrl+Z)")
+                        .clicked()
+                    {
+                        action_undo = true;
+                    }
+                    if tool_button(ui, RichText::new("↷").size(14.0), self.editor.can_redo())
+                        .on_hover_text("重做 (Ctrl+Y / Ctrl+Shift+Z)")
+                        .clicked()
+                    {
+                        action_redo = true;
+                    }
 
-            // 右侧应用级按钮（从右往左排列）
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
+                    let (nav_label, nav_color) = if in_nav {
+                        ("⚡ 退出直达", ACCENT)
+                    } else {
+                        ("⚡ 槽位直达 (Tab j)", TEXT_DIM)
+                    };
+                    if tool_button_styled(ui, RichText::new(nav_label).size(11.5).color(nav_color), true, in_nav)
+                        .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
+                        .clicked()
+                    {
+                        action_toggle_nav = true;
+                    }
 
-                let help_active = self.active_tab == WorkspaceTab::Help;
-                let help_fg = if help_active { Color32::WHITE } else { TEXT_DIM };
-                if tool_button_styled(ui, RichText::new("帮助").size(13.0).color(help_fg), true, help_active)
-                    .on_hover_text("完整快捷键与操作指南 (F1)")
-                    .clicked()
-                {
-                    open_help = true;
-                }
-                vsep(ui, 22.0);
-                if tool_button(ui, RichText::new("清空").size(13.0).color(TEXT_DIM), true)
-                    .on_hover_text("清空输入栏内容（可撤销）")
-                    .clicked()
-                {
-                    action_clear = true;
-                }
-                let next_preset = &PRESET_LIBRARY[self.preset_index % PRESET_LIBRARY.len()];
-                if tool_button(ui, RichText::new("↻ 换一个").size(13.0).color(TEXT_DIM), true)
-                    .on_hover_text(format!("快速轮换载入下一个范例 [{}]：{}", next_preset.category, next_preset.name))
-                    .clicked()
-                {
-                    action_preset = true;
-                }
-                let corpus_active = self.active_tab == WorkspaceTab::Corpus;
-                let corpus_fg = if corpus_active { Color32::WHITE } else { CYAN };
-                if tool_button_styled(ui, RichText::new("公式库").size(13.0).color(corpus_fg), true, corpus_active)
-                    .on_hover_text("浏览与搜索 88+ 权威数学与物理公式库 (F2 / Alt+2)")
-                    .clicked()
-                {
-                    open_presets = true;
-                }
-                vsep(ui, 22.0);
-                if tool_button(ui, RichText::new("+ 存片段").size(13.0).color(GREEN), true)
-                    .on_hover_text("将当前式子或光标处子结构存为片段模版 (Ctrl+Shift+S)")
-                    .clicked()
-                {
-                    action_quick_save = true;
-                }
-                let formats_active = self.active_tab == WorkspaceTab::Formats;
-                let formats_fg = if formats_active { Color32::WHITE } else { AMBER };
-                if tool_button_styled(ui, RichText::new("格式库").size(13.0).color(formats_fg), true, formats_active)
-                    .on_hover_text("无需改源码：扩展任意 LaTeX 宏与管理片段模版库 (F3 / Alt+3)")
-                    .clicked()
-                {
-                    open_custom_mgr = true;
-                }
-                let latex_active = self.active_tab == WorkspaceTab::LatexImport;
-                let latex_fg = if latex_active { Color32::WHITE } else { ACCENT };
-                if tool_button_styled(ui, RichText::new("⇄ 导入 LaTeX").size(13.0).color(latex_fg), true, latex_active)
-                    .on_hover_text("从标准 LaTeX 语法一键反编译并导入为简码流 (F4 / Alt+4)")
-                    .clicked()
-                {
-                    open_latex_tab = true;
-                }
-                vsep(ui, 22.0);
-                if tool_button(ui, RichText::new("⇤").size(18.0), self.editor.can_jump_back())
-                    .on_hover_text("返回上一个跳转位置 (导航中 - 或 Alt+←)")
-                    .clicked()
-                {
-                    action_jump_back = true;
-                }
-                if tool_button(ui, RichText::new("↷").size(18.0), self.editor.can_redo())
-                    .on_hover_text("重做 (Ctrl+Y / Ctrl+Shift+Z)")
-                    .clicked()
-                {
-                    action_redo = true;
-                }
-                if tool_button(ui, RichText::new("↶").size(18.0), self.editor.can_undo())
-                    .on_hover_text("撤销 (Ctrl+Z)")
-                    .clicked()
-                {
-                    action_undo = true;
-                }
+                    let next_preset = &PRESET_LIBRARY[self.preset_index % PRESET_LIBRARY.len()];
+                    if tool_button(ui, RichText::new("↻ 换一个").size(11.5).color(TEXT_DIM), true)
+                        .on_hover_text(format!("快速轮换载入下一个范例 [{}]：{}", next_preset.category, next_preset.name))
+                        .clicked()
+                    {
+                        action_preset = true;
+                    }
+
+                    if tool_button(ui, RichText::new("清空").size(11.5).color(TEXT_DIM), true)
+                        .on_hover_text("清空输入栏内容（可撤销）")
+                        .clicked()
+                    {
+                        action_clear = true;
+                    }
+                });
             });
-        });
 
         if action_toggle_nav {
             self.status = self.editor.toggle_esc_jump();
-            self.pending_cursor_sync = Some(self.editor.cursor_char);
-            self.request_input_focus = true;
-            self.mark_dirty();
-        }
-        if open_help {
-            self.active_tab = if self.active_tab == WorkspaceTab::Help {
-                WorkspaceTab::Palette
-            } else {
-                WorkspaceTab::Help
-            };
-            if self.active_tab == WorkspaceTab::Palette {
-                self.request_input_focus = true;
-            }
-        }
-        if open_latex_tab {
-            self.active_tab = if self.active_tab == WorkspaceTab::LatexImport {
-                WorkspaceTab::Palette
-            } else {
-                self.modals.open_latex_tab();
-                WorkspaceTab::LatexImport
-            };
-            if self.active_tab == WorkspaceTab::Palette {
-                self.request_input_focus = true;
-            }
-        }
-        if open_custom_mgr {
-            self.active_tab = if self.active_tab == WorkspaceTab::Formats {
-                WorkspaceTab::Palette
-            } else {
-                self.modals.open_custom_tab(&self.editor.library);
-                WorkspaceTab::Formats
-            };
-            if self.active_tab == WorkspaceTab::Palette {
-                self.request_input_focus = true;
-            }
-        }
-        if open_presets {
-            self.active_tab = if self.active_tab == WorkspaceTab::Corpus {
-                WorkspaceTab::Palette
-            } else {
-                WorkspaceTab::Corpus
-            };
-            if self.active_tab == WorkspaceTab::Palette {
-                self.request_input_focus = true;
-            }
-        }
-        if action_quick_save {
-            self.quick_save_snippet(true);
-            self.request_input_focus = true;
-        }
-        if action_jump_back {
-            self.status = self.editor.jump_to_previous_pos();
             self.pending_cursor_sync = Some(self.editor.cursor_char);
             self.request_input_focus = true;
             self.mark_dirty();
@@ -974,6 +883,9 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 8.0;
+
+                // 紧凑左翼控制台 Header（取代旧全局顶栏，增加 44pt 垂直视口空间）
+                self.left_wing_header_ui(ui);
 
                 // 框 1：纯白公式预览框（常驻，固定小尺寸，绝不遮挡公式内容）
                 self.preview_box(ui);
@@ -1825,16 +1737,6 @@ impl eframe::App for MathSlotApp {
         let ctx = ui.ctx().clone();
 
         self.handle_keys_before_ui(&ctx);
-
-        egui::Panel::top("mathslot-top-panel")
-            .resizable(false)
-            .exact_size(TOP_BAR_HEIGHT)
-            .frame(
-                egui::Frame::NONE
-                    .fill(PANEL)
-                    .inner_margin(Margin::symmetric(16, 0)),
-            )
-            .show(ui, |ui| self.top_ui(ui));
 
         egui::Panel::bottom("mathslot-status-bar")
             .resizable(false)
