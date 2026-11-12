@@ -86,6 +86,17 @@ if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   fi
 fi
 
+# Gate 收口时要求外部监督者（OpenCode）对本 HEAD 出具 APPROVE。
+# 用法：REQUIRE_REVIEW=1 scripts/agent/acceptance.sh
+if [[ "${REQUIRE_REVIEW:-0}" == "1" ]]; then
+  if HEAD_SHA="$(git -C "$ROOT" rev-parse --short HEAD)" && \
+     python3 "$ROOT/scripts/agent/check_review.py" --head "$HEAD_SHA" >/dev/null 2>&1; then
+    record PASS "外部监督审查" "APPROVE ($HEAD_SHA)"
+  else
+    record FAIL "外部监督审查" "缺少 APPROVE（REQUIRE_REVIEW=1）"
+  fi
+fi
+
 echo
 printf '%-6s %-28s %s\n' "结果" "检查项" "说明"
 printf '%-6s %-28s %s\n' "------" "----------------------------" "----"

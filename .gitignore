@@ -7,3 +7,9 @@
 
 # docs/ 是审计与验收证据，必须进版本库；不要忽略。
 
+# agent 运行时状态（不进库；REV-*.md 是证据，仍然进库）
+agent-state/turns.jsonl
+agent-state/reviews/.last
+agent-state/reviews/.pending
+agent-state/reviews/index.tsv
+

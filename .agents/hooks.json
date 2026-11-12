@@ -1,0 +1,11 @@
+{
+  "turn-ledger": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "../scripts/agent/hook_stop.sh",
+        "timeout": 10
+      }
+    ]
+  }
+}
