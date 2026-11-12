@@ -33,9 +33,9 @@
     "mode": "swarm-or-serial",
     "roles": ["coordinator", "auditor", "implementer", "verifier"],
     "write_scopes": {
-      "coordinator": ["agent-state/"],
+      "coordinator": ["agent-state/", "scripts/agent/"],
       "auditor": ["agent-state/audits/"],
-      "implementer": ["src/", "crates/", "scripts/", "tests/"],
+      "implementer": ["src/", "crates/", ".github/", "tests/"],
       "verifier": ["agent-state/verify/"]
     }
   }
