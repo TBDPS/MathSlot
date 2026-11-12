@@ -10,6 +10,7 @@
 #   scripts/agent/supervise.sh --since <sha>
 #   scripts/agent/supervise.sh --force
 #   scripts/agent/supervise.sh --clean-worktree         # 审查后删除复用的 worktree
+#   scripts/agent/supervise.sh --final                   # 项目完成后的最终审查（diff 起点=冻结 tag，跑完整门禁）
 #
 # 退出码：0 审查完成且 APPROVE；2 已有 REV 跳过；3 opencode 不可用；
 #         4 未产出 REV；5 worktree 失败；6 审查完成但不是 APPROVE。
@@ -25,6 +26,7 @@ SINCE=""
 DRY=0
 FORCE=0
 CLEAN=0
+FINAL=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY=1; shift ;;
     --force) FORCE=1; shift ;;
     --clean-worktree) CLEAN=1; shift ;;
+    --final) FINAL=1; shift ;;
     -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
@@ -52,9 +55,19 @@ if [[ -f "$REV" && $FORCE -eq 0 ]]; then
   echo "该 HEAD 已有审查：$REV（用 --force 重审）"
   exit 2
 fi
-if [[ -z "$SINCE" ]]; then
+if [[ $FINAL -eq 1 ]]; then
+  SINCE="${SINCE:-freeze/pre-refactor-20261112}"
+elif [[ -z "$SINCE" ]]; then
   SINCE="$(cat agent-state/reviews/.last 2>/dev/null || true)"
   [[ -z "$SINCE" ]] && SINCE="HEAD~1"
+fi
+
+if [[ $FINAL -eq 1 ]]; then
+  ACCEPT_CMD="scripts/agent/acceptance.sh"
+  FINAL_BLOCK="这是项目完成后的最终审查。必须按规范 §16.2 逐项核对：P1/P2 清零、三平台 CI 绿、A-DATA-001..006 / A-RENDER-* / A-UI-* / A-OBS-* / S-001..007 全过、桌面与 Obsidian 功能清单对齐、发布可回滚。不要只看最近一个提交。"
+else
+  ACCEPT_CMD="scripts/agent/acceptance.sh --fast"
+  FINAL_BLOCK=""
 fi
 
 CHANGED="$(git diff --name-status "$SINCE"..HEAD 2>/dev/null | head -40)"
@@ -91,9 +104,11 @@ $CHANGED
 必须自己执行（不要相信报告里的数字）：
 - git diff ${SINCE}..HEAD
 - cargo test --workspace --quiet
-- scripts/agent/acceptance.sh --fast
+- ${ACCEPT_CMD}
 
 判定三档：APPROVE / REJECT / BLOCKED。规则见 .opencode/agents/supervisor.md。
+
+${FINAL_BLOCK}
 
 只允许写一个文件：agent-state/reviews/REV-${HEAD}.md
 front matter 必须含 head（完整 40 位 sha）、verdict、reviewer: opencode-supervisor，

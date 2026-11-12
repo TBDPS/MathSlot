@@ -75,10 +75,12 @@
     }
   },
   "reviews": {
+    "mode": "final-only",
+    "note": "按用户要求关闭逐轮/轮询审查；项目完成后执行 supervise.sh --final",
     "last_head": "2e256cd",
     "last_verdict": "REJECT",
     "last_approved": null,
-    "pending_head": "fa2d447",
-    "blocked_by": "opencode 5-hour quota; resets 2026-11-13T04:24:09+08:00"
+    "pending_head": null,
+    "blocked_by": null
   }
 }

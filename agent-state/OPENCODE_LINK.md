@@ -1,5 +1,9 @@
 # 与 OpenCode 联动：外部监督者
 
+> **当前策略：final-only。** 按用户要求，重构期间不逐轮审查、不启动 watcher（避免配额消耗）。项目完成后再执行：
+> `scripts/agent/supervise.sh --final`（diff 起点=冻结 tag，跑完整门禁，按规范 §16.2 核对）。
+> 期间的本地门禁仍用 `scripts/agent/acceptance.sh`，它不调用模型。
+
 目标：让重构循环里有一个**它自己不能签字**的审查者。Antigravity 负责决策/实现/验收，OpenCode 负责外部复核；两边通过 `agent-state/` 传递状态。
 
 ## 先说实话：我无法"自己一直盯着"

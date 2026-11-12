@@ -28,15 +28,16 @@
 
 ## 卡在哪 / 需要人工
 
-- **外部审查被配额阻塞**：`REV-2e256cd` 为 REJECT，修正已提交（`bac09f4`、`fa2d447`），但对当前 HEAD 的复审在 2026-11-13 00:05 触发时遇到 OpenCode 5 小时配额上限，配额 04:24 恢复。恢复后运行：
-  `scripts/agent/supervise.sh`
-- `OPEN-0001`：外部监督者接线是否登记为 `T0.6`，需要你选 A/B/C（建议 A）。
+- **外部审查已改为 final-only**（按用户要求）：项目跑完前不要运行 `scripts/agent/supervise.sh`，也不要启动 `watch.sh`，避免消耗 OpenCode 配额。
+- 期间的质量保障只用本地、零模型调用的门禁：`scripts/agent/acceptance.sh`、`python3 scripts/agent/audit_palette.py`、`cargo test --workspace`。
+- G0–G4 收口**不要求** `REQUIRE_REVIEW=1`；该开关只在最终审查时使用。
+- `OPEN-0001`（监督者接线是否登记为 T0.6）仍待人工选择；在项目跑完前不阻塞任务。
 - 权限收窄：`permissions.allow` 里的 `command(*)` 建议改成项目白名单。
 
 ## 下一轮入口
 
-1. 配额恢复后先复审：`scripts/agent/supervise.sh`；只有 `verdict: APPROVE` 才算通过。
+1. 按 §14 继续 T0.1；不要触发外部审查。
 2. 读 `AGENTS.md` → 规范 §2/§4/§14 → `state.json`。
 3. 派 `auditor` 复核 D-001..D-007 与 D-101（只读）。
 4. 派 `implementer` 做 T0.1（CI），提交后派 `verifier` 验收。
-5. G0 收口用 `REQUIRE_REVIEW=1 scripts/agent/acceptance.sh`。
+5. G0 收口用 `scripts/agent/acceptance.sh`；项目完成后才跑 `supervise.sh --final`。
