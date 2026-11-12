@@ -36,8 +36,9 @@
 
 ## 下一轮入口
 
-1. 按 §14 继续 T0.1；不要触发外部审查。
-2. 读 `AGENTS.md` → 规范 §2/§4/§14 → `state.json`。
-3. 派 `auditor` 复核 D-001..D-007 与 D-101（只读）。
-4. 派 `implementer` 做 T0.1（CI），提交后派 `verifier` 验收。
+1. 先跑 `scripts/agent/resume.sh`，再读 `AGENT_START.md` §4 的 T0.1 brief。
+2. 派 `auditor` 复核 D-001..D-007、D-101、`cargo fmt --check`，产出 `AUD-1`。
+3. `AUD-1` 合格后派 `implementer` 只写 `.github/workflows/ci.yml`。
+4. 派 `verifier` 产出 `VER-1`；coordinator 更新 `state.json` 与 `HANDOFF.md`。
 5. G0 收口用 `scripts/agent/acceptance.sh`；项目完成后才跑 `supervise.sh --final`。
+6. 不要触发外部审查，不要建 swarm。

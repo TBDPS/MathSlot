@@ -18,7 +18,7 @@
   "round": 0,
   "active_task": null,
   "next_task": "T0.1",
-  "last_verdict": "REJECT",
+  "last_verdict": null,
   "open_p1": [
     "D-001",
     "D-002",

@@ -51,7 +51,9 @@ scripts/agent/audit_palette.py        # 调色板 code/glyph/LaTeX 一致性
 
 基线事实：`cargo test --workspace` = 133 passed；`clippy -D warnings` = 失败。任何"全绿"说法与这两条不符即为伪造。
 
-## 4. 每轮开始前
+## 4. 每轮开始前（含上下文压缩后）
+
+**先运行 `scripts/agent/resume.sh`**，按输出恢复；不要凭记忆继续。
 
 1. 读规范 §0.1（顺序）、§2（不变量）、§4（缺陷）。
 2. 读 `agent-state/state.json` 与 `agent-state/HANDOFF.md`。
