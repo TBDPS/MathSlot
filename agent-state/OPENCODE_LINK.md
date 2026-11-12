@@ -16,30 +16,22 @@ Antigravity 的 `Stop` hook 已经配置好：每轮结束会写 `agent-state/tu
 
 ---
 
-## A. 接着本对话（我在这里）
+## A. 和本对话联动（手动）
 
-先取会话 ID（会话标题变了也能找到）：
+先说清一个限制：本对话是在 `/home/mat` 启动的，session 属于 `/home/mat` 这个项目；在仓库里执行 `opencode session list` 看不到它。所以"从仓库里一条命令继续这条对话"并不可靠，也不是推荐路径。
 
-```bash
-opencode session list | head -5
-```
+实际可用的两种做法：
 
-然后：
-
-```bash
-cd /home/mat/Projects/mathslot-next
-scripts/agent/supervise.sh --session <会话ID>
-```
-
-等价的底层命令：
-
-```bash
-opencode run -s <会话ID> --agent supervisor \
-  -m volcengine-plan/deepseek-v4.1-flash-economy \
-  --auto "审查当前 HEAD，按 .opencode/agents/supervisor.md 输出 REV"
-```
-
-注意：这一模式**不做 worktree 隔离**（会话与真实工作区绑定），只适合你主动想看细节时用。日常与自动触发请用方式 B。
+1. **想和我讨论**：直接在 OpenCode TUI 里说。我读的是同一套 `agent-state/` 与 `REV-*.md`，不需要把对话搬来搬去。
+2. **想要一个固定的"监督者会话"**（可选）：
+   ```bash
+   cd /home/mat/Projects/mathslot-next
+   opencode                     # 在仓库根启动一个新会话
+   # 发一条消息，把标题设为 "MathSlot supervisor"
+   opencode session list | grep -i supervisor   # 取 session id
+   scripts/agent/supervise.sh --session <id>
+   ```
+   注意：`--session` 模式**不做 worktree 隔离**，适合你盯着看的时候用；日常自动审查请用 B。
 
 ## B. 独立归档会话（推荐）
 
