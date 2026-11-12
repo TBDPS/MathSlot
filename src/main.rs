@@ -6,6 +6,9 @@ mod modals;
 mod render;
 mod theme;
 
+#[cfg(test)]
+mod p1_regression_tests;
+
 use eframe::egui;
 
 fn main() -> eframe::Result {
