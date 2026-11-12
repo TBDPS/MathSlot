@@ -4,41 +4,34 @@
 
 ## 当前
 
-- 轮次：0（未开始）
+- 轮次：1
 - Gate：G0
-- 当前任务：无
-- 下一步：`T0.1` 建立 CI（`.github/workflows/ci.yml`：fmt / clippy / test / WASM / plugin build）
+- 当前任务：T0.1 已完成，待进入 T0.2
+- 下一步：`T0.2` 清 clippy 或建立显式 test-only 例外清单（达到绿色 clippy）
 
 ## 本轮做过什么
 
-- 冻结完成：tag `freeze/pre-refactor-20261112`、只读副本 `/home/mat/Projects/mathslot-freeze-20261112`。
-- 建立工作区脚手架：`AGENTS.md`、`.agents/skills/`、`agent-state/`、`scripts/agent/`。
-- `docs/` 从 `.gitignore` 移出并纳入版本库（ADR-0002）；3 个"必须忽略 docs/"的测试已按新策略改写。
-- 新登记 D-101（P1）：验收测试以源码字符串为断言，不验证行为。
-- 接入 OpenCode 外部监督者：`supervise.sh`（隔离 worktree）、`check_review.py`（严格匹配）、`watch.sh`、Stop hook、`REQUIRE_REVIEW` 门禁。
-- `REV-2e256cd` 首轮审查为 **REJECT**；已按 ADR-0003 修正：去掉自造 `T0.0`、严格 sha 匹配、reviewer 校验、worktree 隔离、reviews 独占写域。
-- 产品代码未改；`cargo test --workspace` 仍为 133 passed。
+- 审计产出 `AUD-1.md`：覆盖 D-001..D-007、D-101、`cargo fmt`、`clippy` 存量状态与历史虚假声明取证，定性为 BLOCK。
+- 决策批准 `ADR-0004`：明确流水线技术契约、隔离范围与严禁事项。
+- 实现提交 `17ffa61`：`T0.1: add CI workflow (.github/workflows/ci.yml) (D-023)`，新增流水线定义，无越界改动。
+- 验收产出 `VER-1.md`：YAML 合法、本地命令等价、无吞错逃逸指令、拦截存量债务，判定 PASS（标记未在 GitHub 实跑）。
 
 ## 证据在哪
 
-- `agent-state/reviews/REV-2e256cd.md`：外部监督者的第一份审查（REJECT + 最小复现）。
-- `scripts/agent/tests/test_check_review.py`：6 个门禁安全回归测试，已通过。
-- `scripts/agent/acceptance.sh --fast`：当前 PASS=1 FAIL=1（fmt 失败），clippy 未跑。
-- `agent-state/decisions/ADR-0002`、`ADR-0003`、`OPEN-0001`。
+- `agent-state/audits/AUD-1.md`
+- `agent-state/decisions/ADR-0004-ci-guardrails-t0.1.md`
+- `agent-state/verify/VER-1.md`
+- Commit：`17ffa61` (`T0.1: add CI workflow (.github/workflows/ci.yml) (D-023)`)
 
 ## 卡在哪 / 需要人工
 
-- **外部审查已改为 final-only**（按用户要求）：项目跑完前不要运行 `scripts/agent/supervise.sh`，也不要启动 `watch.sh`，避免消耗 OpenCode 配额。
-- 期间的质量保障只用本地、零模型调用的门禁：`scripts/agent/acceptance.sh`、`python3 scripts/agent/audit_palette.py`、`cargo test --workspace`。
-- G0–G4 收口**不要求** `REQUIRE_REVIEW=1`；该开关只在最终审查时使用。
-- `OPEN-0001`（监督者接线是否登记为 T0.6）仍待人工选择；在项目跑完前不阻塞任务。
-- 权限收窄：`permissions.allow` 里的 `command(*)` 建议改成项目白名单。
+- 无阻塞。
+- 外部审查仍为 final-only。
 
 ## 下一轮入口
 
-1. 先跑 `scripts/agent/resume.sh`，再读 `AGENT_START.md` §4 的 T0.1 brief。
-2. 派 `auditor` 复核 D-001..D-007、D-101、`cargo fmt --check`，产出 `AUD-1`。
-3. `AUD-1` 合格后派 `implementer` 只写 `.github/workflows/ci.yml`。
-4. 派 `verifier` 产出 `VER-1`；coordinator 更新 `state.json` 与 `HANDOFF.md`。
-5. G0 收口用 `scripts/agent/acceptance.sh`；项目完成后才跑 `supervise.sh --final`。
-6. 不要触发外部审查，不要建 swarm。
+1. 读规范 §14 G0 任务 T0.2。
+2. 派 `auditor` 审计当前 clippy 报错（13 处 lib/test 违规位置与类型），产出 `AUD-2`。
+3. 决策批准 `ADR-0005`。
+4. 派 `implementer` 清理 clippy 债务。
+5. 派 `verifier` 产出 `VER-2`。
