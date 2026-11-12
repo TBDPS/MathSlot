@@ -4,24 +4,24 @@
 
 ## 当前
 
-- 轮次：2
+- 轮次：3
 - Gate：G0
-- 当前任务：T0.2 已完成，待进入 T0.3
-- 下一步：`T0.3` 为 P1 缺陷（D-001..D-007）编写失败回归测试
+- 当前任务：T0.3 已完成，待进入 T0.4
+- 下一步：`T0.4` 冻结命令语言与发布基线（生成命令语言与基线快照 tag/baseline）
 
 ## 本轮做过什么
 
-- 审计产出 `AUD-2.md`：发现真实 31 处 clippy 违规（lib: 13, bin: 11, test: 7）与 23 个格式化偏离文件，指出 AST 内存膨胀与绘制参数超限风险，定性 BLOCK。
-- 决策批准 `ADR-0005`：批准对 `CustomStruct` 进行 Box 化、重构 `paint_fitted_text` 参数对象、杜绝 `#[allow]`、直接修复测试警告及全量格式化。
-- 实现提交 `346a1f5`：`T0.2: clean workspace clippy debt and format codebase`，彻底清理 31 处债务，未新增任何 `#[allow]`，未删减任何测试。
-- 验收产出 `VER-2.md`：`cargo fmt --check` (0)、`cargo clippy` (0)、`cargo test` (133 passed)、`acceptance.sh` 全通过，判定 PASS。
+- 审计产出 `AUD-3.md`：详细设计 7 个 P1 缺陷的运行时行为级回归用例，杜绝 D-101 假测试，定性 BLOCK。
+- 决策批准 `ADR-0006`：分层建立核心库与 UI 回归测试，采用 `#[ignore]` 策略在保留 CI/门禁全绿（133 passed）的同时，确保 `-- --ignored` 真实全部失败（7 failed）。
+- 实现提交 `9dc9cae`：`T0.3: add failing regression tests for P1 defects D-001..D-007`，零修改产品业务逻辑，零 D-101 字符串断言。
+- 验收产出 `VER-3.md`：`cargo fmt` (0)、`cargo clippy` (0)、`cargo test` (133 passed; 0 failed; 7 ignored)、`-- --ignored` (7 failed 逐条拦截 D-001..D-007)，判定 PASS。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-2.md`
-- `agent-state/decisions/ADR-0005-clippy-debt-t0.2.md`
-- `agent-state/verify/VER-2.md`
-- Commit：`346a1f5` (`T0.2: clean workspace clippy debt and format codebase`)
+- `agent-state/audits/AUD-3.md`
+- `agent-state/decisions/ADR-0006-p1-regression-tests-t0.3.md`
+- `agent-state/verify/VER-3.md`
+- Commit：`9dc9cae` (`T0.3: add failing regression tests for P1 defects D-001..D-007`)
 
 ## 卡在哪 / 需要人工
 
@@ -30,8 +30,8 @@
 
 ## 下一轮入口
 
-1. 读规范 §14 G0 任务 T0.3（为 P1 编写失败回归测试：D-001..D-007）。
-2. 派 `auditor` 审计 D-001..D-007 的最小可测特征与复现用例，产出 `AUD-3`。
-3. 决策批准 `ADR-0006`。
-4. 派 `implementer` 在对应测试套件中编写失败回归测试（修复前必须失败）。
-5. 派 `verifier` 独立验证新测试是否真实失败、断言是否有效（防 D-101 假测试），产出 `VER-3`。
+1. 读规范 §14 G0 任务 T0.4（冻结命令语言与发布基线，产出 tag/baseline，迁移期间不改命令语义）。
+2. 派 `auditor` 审计当前命令表状态、预设清单及现有 tag/基线，产出 `AUD-4`。
+3. 决策批准 `ADR-0007`。
+4. 派 `implementer` 生成/固化 baseline 语言快照并设立基线。
+5. 派 `verifier` 独立验证基线完整性并出具 `VER-4`。
