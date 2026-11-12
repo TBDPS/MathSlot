@@ -9,7 +9,7 @@
 #   - 用户取消、token 预算耗尽、非 idle → 允许停；
 #   - 配额错误 → 写 STOPPED，允许停；
 #   - 连续 2 次进度哈希不变 → 写 STOPPED，允许停；
-#   - 最多 AUTORUN_MAX 次（默认 30）→ 写 STOPPED，允许停。
+#   - 最多 AUTORUN_MAX 次（默认 80）→ 写 STOPPED，允许停。
 #
 # 永远输出合法 JSON；解析失败时输出 {}。
 
@@ -86,7 +86,7 @@ reason = str(data.get("terminationReason", ""))
 error = str(data.get("error", "") or "").lower()
 fully_idle = data.get("fullyIdle", True)
 continuing = bool(data.get("continuationActive", False))
-max_runs = int(__import__("os").environ.get("AUTORUN_MAX", "30"))
+max_runs = int(__import__("os").environ.get("AUTORUN_MAX", "80"))
 
 decision = {}
 

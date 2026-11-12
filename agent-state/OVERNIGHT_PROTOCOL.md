@@ -7,7 +7,7 @@
 Antigravity 的 Stop hook 已改成"夜间模式"：
 
 - `agent-state/AUTORUN` 存在时，每轮结束返回 `{"decision":"continue"}`，agent 继续下一轮；
-- 最多 30 次（`AUTORUN_MAX` 可调），防止无限烧配额；
+- 最多 80 次（`AUTORUN_MAX` 可调），防止无限烧配额；
 - 连续 2 次进度哈希不变 → 写 `STOPPED`，停止；
 - 配额错误、用户取消、token 预算耗尽 → 写 `STOPPED`，停止；
 - G4 完成 → agent 写 `DONE`，停止；
@@ -212,7 +212,7 @@ scripts/agent/supervise.sh --final   # 配额允许时，项目完成后的那�
 
 ## 4. 已知边界
 
-- 自动续跑最多 30 次；复杂项目可能跑不完，会在 `STOPPED` 里说明停在哪。
+- 自动续跑最多 80 次；复杂项目可能跑不完，会在 `STOPPED` 里说明停在哪。
 - 配额耗尽时，Antigravity 可能直接退出，hook 来不及写 `STOPPED`；看 `turns.jsonl` 最后一行和时间。
 - 上下文压缩后，agent 可能忘记规则；hook 每次续跑都会提醒 `resume.sh`，但不保证 100%。
 - `AUTORUN` 是运行时文件，不进版本库；忘记删会导致你白天发消息时它继续自动续跑。
