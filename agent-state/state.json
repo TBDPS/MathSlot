@@ -10,14 +10,15 @@
   },
   "baseline": {
     "tests_passed": 133,
-    "clippy": "FAIL",
+    "clippy": "PASS",
+    "fmt": "PASS",
     "ci": "added-in-t0.1",
     "builtin_presets": 88
   },
   "gate": "G0",
-  "round": 1,
+  "round": 2,
   "active_task": null,
-  "next_task": "T0.2",
+  "next_task": "T0.3",
   "last_verdict": "PASS",
   "open_p1": [
     "D-001",
@@ -77,7 +78,7 @@
   "reviews": {
     "mode": "final-only",
     "note": "按用户要求关闭逐轮/轮询审查；项目完成后执行 supervise.sh --final",
-    "last_head": "17ffa61",
+    "last_head": "346a1f5",
     "last_verdict": "REJECT",
     "last_approved": null,
     "pending_head": null,
