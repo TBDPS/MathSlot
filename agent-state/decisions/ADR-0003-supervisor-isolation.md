@@ -37,11 +37,21 @@
 
 `supervise.sh` 默认：
 
-- `git worktree add --detach <tmp> HEAD`，监督者在临时 worktree 里审查与跑测试；
+- 固定复用 `$TMPDIR/mathslot-review-wt`（`git worktree`，detached HEAD），每次审查前 `checkout/reset` 到目标 HEAD；
 - 即使它执行写操作，也改不到真实工作区；
-- `CARGO_TARGET_DIR` 指向主仓库 `target/`，避免全量重编；
+- **worktree 使用自己的 `target/`，禁止与主仓库共享 `CARGO_TARGET_DIR`**；
 - 只有 `REV-*.md` 会被复制回 `agent-state/reviews/`；
 - 退出码区分"完成且 APPROVE（0）"与"完成但非 APPROVE（6）"。
+
+### 3.1 修正记录（2026-11-13）
+
+第一版为了省编译时间，把 `CARGO_TARGET_DIR` 指向主仓库 `target/`。结果：
+
+- 监督者在 worktree 里编译的测试二进制，把 `CARGO_MANIFEST_DIR` 固化成了 worktree 路径；
+- worktree 删除后，主仓库复用了这些二进制，测试报 `Read app.rs: NotFound`；
+- 主仓库的 `cargo test --workspace` 因此误红，直到 `cargo clean -p mathslot-core` 才恢复。
+
+结论：测试二进制与源码路径绑定，跨源码根共享 target 不安全。worktree 必须独立编译；首次慢，之后增量。
 
 `--session <id>` 为显式非隔离模式，供人工深聊；不再有硬编码默认会话。
 

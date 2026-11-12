@@ -9,7 +9,7 @@
 #   scripts/agent/supervise.sh --session <id>           # 继续指定 OpenCode 会话（非隔离）
 #   scripts/agent/supervise.sh --since <sha>
 #   scripts/agent/supervise.sh --force
-#   scripts/agent/supervise.sh --keep-worktree          # 调试：保留临时 worktree
+#   scripts/agent/supervise.sh --clean-worktree         # 审查后删除复用的 worktree
 #
 # 退出码：0 审查完成且 APPROVE；2 已有 REV 跳过；3 opencode 不可用；
 #         4 未产出 REV；5 worktree 失败；6 审查完成但不是 APPROVE。
@@ -24,7 +24,7 @@ SESSION=""
 SINCE=""
 DRY=0
 FORCE=0
-KEEP=0
+CLEAN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
     --model) MODEL="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     --force) FORCE=1; shift ;;
-    --keep-worktree) KEEP=1; shift ;;
+    --clean-worktree) CLEAN=1; shift ;;
     -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
@@ -109,38 +109,46 @@ if [[ $DRY -eq 1 ]]; then
   exit 0
 fi
 
-LATEST_CHECK="$(python3 scripts/agent/check_review.py --head "$HEAD" >/dev/null 2>&1; echo $?)"
+WT="${TMPDIR:-/tmp}/mathslot-review-wt"
 
-WT=""
-cleanup() {
-  if [[ -n "$WT" && $KEEP -eq 0 ]]; then
-    git worktree remove --force "$WT" >/dev/null 2>&1 || true
-    rmdir "$(dirname "$WT")" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
+# 同一时间只允许一个审查，避免两个进程同时改 review worktree。
+if command -v flock >/dev/null 2>&1; then
+  exec 8>/tmp/mathslot-review.lock
+  flock -n 8 || { echo "另一个审查正在运行" >&2; exit 2; }
+fi
 
 if [[ -n "$SESSION" ]]; then
   echo "审查 HEAD $HEAD（会话 $SESSION，非隔离）…"
   opencode run -s "$SESSION" --agent supervisor -m "$MODEL" --auto "$(build_prompt "$ROOT")"
   RC=$?
 else
-  TMPBASE="$(mktemp -d /tmp/mathslot-review.XXXXXX)" || { echo "mktemp 失败" >&2; exit 5; }
-  WT="$TMPBASE/wt"
-  if ! git worktree add --detach "$WT" HEAD >/dev/null 2>&1; then
-    echo "git worktree add 失败" >&2
-    exit 5
+  # 复用同一个 review worktree：第一次全量编译，之后增量。
+  # 关键：它有自己的 target/，绝不与主仓库共享 CARGO_TARGET_DIR。
+  # 共享 target 会让测试二进制记住旧的 CARGO_MANIFEST_DIR，回到主仓库后读到不存在的路径。
+  if [[ -d "$WT/.git" ]]; then
+    echo "复用 review worktree $WT"
+    git -C "$WT" checkout --detach "$HEAD_FULL" >/dev/null 2>&1 || true
+    git -C "$WT" reset --hard "$HEAD_FULL" >/dev/null 2>&1 || true
+    git -C "$WT" clean -fd >/dev/null 2>&1 || true
+  else
+    rm -rf "$WT"
+    if ! git worktree add --detach "$WT" "$HEAD_FULL" >/dev/null 2>&1; then
+      echo "git worktree add 失败（$WT）" >&2
+      exit 5
+    fi
   fi
-  echo "审查 HEAD $HEAD（隔离 worktree $WT）…"
-  (
-    cd "$WT" || exit 5
-    CARGO_TARGET_DIR="$ROOT/target" opencode run --archived --agent supervisor -m "$MODEL" --auto "$(build_prompt "$WT")"
-  )
+
+  echo "审查 HEAD $HEAD（隔离 worktree $WT，独立 target/）…"
+  ( cd "$WT" && opencode run --archived --agent supervisor -m "$MODEL" --auto "$(build_prompt "$WT")" )
   RC=$?
 
   if [[ -f "$WT/agent-state/reviews/REV-${HEAD}.md" ]]; then
     mkdir -p agent-state/reviews
     cp "$WT/agent-state/reviews/REV-${HEAD}.md" "$REV"
+  fi
+
+  if [[ $CLEAN -eq 1 ]]; then
+    git worktree remove --force "$WT" >/dev/null 2>&1 || true
   fi
 fi
 

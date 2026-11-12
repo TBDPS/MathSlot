@@ -48,14 +48,15 @@ scripts/agent/supervise.sh            # 审查 HEAD 与上次审查之间的 dif
 scripts/agent/supervise.sh --force    # 同一 HEAD 重审
 scripts/agent/supervise.sh --dry-run  # 只看提示词
 scripts/agent/supervise.sh --since <sha>
-scripts/agent/supervise.sh --keep-worktree   # 调试：保留临时 worktree
+scripts/agent/supervise.sh --clean-worktree  # 审查后删除复用的 worktree
 ```
 
 默认行为（ADR-0003）：
 
-- 用 `git worktree add --detach <tmp> HEAD` 建临时工作区，监督者在里面审查、跑测试；
+- 复用固定 worktree `$TMPDIR/mathslot-review-wt`，每次 `checkout --detach` 到目标 HEAD；
 - 即使它执行写操作，也改不到真实仓库；
-- `CARGO_TARGET_DIR` 指向主仓库 `target/`，避免全量重编；
+- worktree 有自己的 `target/`，**不与主仓库共享**（共享会把测试二进制里的 `CARGO_MANIFEST_DIR` 指到 worktree，回到主仓库后误报文件不存在）；
+- 首次审查需要全量编译（Rust workspace，可能几分钟），之后增量；
 - 只把 `REV-<sha>.md` 复制回 `agent-state/reviews/`。
 
 产物：
