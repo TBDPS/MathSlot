@@ -2,6 +2,8 @@
 **/*.rs.bk
 *.log
 .DS_Store
-docs/
 *.tmp
 *.bak
+
+# docs/ 是审计与验收证据，必须进版本库；不要忽略。
+
