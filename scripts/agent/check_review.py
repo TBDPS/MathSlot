@@ -83,7 +83,15 @@ def main() -> int:
     args = ap.parse_args()
 
     root = Path(args.root)
-    head = args.head
+    head = args.head.strip()
+    if head and len(head) < 40:
+        # 允许调用者传短 sha（acceptance.sh 传 7 位），先解析成完整 sha 再比对。
+        try:
+            head = subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", head], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except Exception:
+            pass
     if not head:
         head = subprocess.check_output(
             ["git", "-C", str(root), "rev-parse", "--short", "HEAD"], text=True

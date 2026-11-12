@@ -13,3 +13,7 @@ agent-state/reviews/.last
 agent-state/reviews/.pending
 agent-state/reviews/index.tsv
 
+
+# Python 缓存
+__pycache__/
+*.pyc
