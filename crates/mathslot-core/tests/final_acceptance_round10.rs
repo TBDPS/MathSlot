@@ -215,11 +215,11 @@ fn test_acc_r10_two_segment_full_width_list_layout_inspection() {
 }
 
 // =============================================================================
-// 4. Git 忽略合约核验（.gitignore 必须阻断 docs/ 跟踪）
+// 4. Git 跟踪合约核验（docs/ 必须进版本库，见 ADR-0002）
 // =============================================================================
 
 #[test]
-fn test_acc_r10_gitignore_isolation_contract() {
+fn test_acc_r10_docs_versioned_contract() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
     let gitignore_path = repo_root.join(".gitignore");
@@ -228,8 +228,12 @@ fn test_acc_r10_gitignore_isolation_contract() {
     let content = std::fs::read_to_string(&gitignore_path).expect("Read .gitignore");
     let lines: Vec<&str> = content.lines().map(str::trim).collect();
     assert!(
-        lines.contains(&"docs/"),
-        ".gitignore 必须包含 docs/ 规则以屏蔽设计文档跟踪"
+        !lines.contains(&"docs/") && !lines.contains(&"docs") && !lines.contains(&"/docs/"),
+        ".gitignore 不得屏蔽 docs/：审计与验收证据必须进版本库（ADR-0002）"
+    );
+    assert!(
+        lines.contains(&"/target"),
+        ".gitignore 必须继续忽略 /target，避免提交构建产物"
     );
 }
 

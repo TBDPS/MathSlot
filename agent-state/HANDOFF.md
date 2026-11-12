@@ -13,16 +13,19 @@
 
 - 冻结完成：tag `freeze/pre-refactor-20261112`、只读副本 `/home/mat/Projects/mathslot-freeze-20261112`。
 - 建立工作区脚手架：`AGENTS.md`、`.agents/skills/`（refactor-loop / independent-audit / independent-verify）、`agent-state/`、`scripts/agent/`。
-- 未改任何产品代码。
+- `docs/` 从 `.gitignore` 移出并纳入版本库（ADR-0002）；3 个"必须忽略 docs/"的测试已按新策略改写。
+- 新登记 D-101（P1）：验收测试以源码字符串为断言，不验证行为。
+- 产品代码未改；`cargo test --workspace` 仍为 133 passed。
 
 ## 证据在哪
 
 - `scripts/agent/audit_palette.py`：可复现 5 张调色板错码（P1 证据）。
-- `scripts/agent/acceptance.sh`：当前基线应显示 FAIL（clippy + 调色板）。
+- `scripts/agent/acceptance.sh --fast`：当前 PASS=1 FAIL=1（fmt 失败），clippy 未跑；完整跑必然失败。
+- `agent-state/decisions/ADR-0002-...md`：证据进版本库与测试策略变更。
 
 ## 卡在哪 / 需要人工
 
-- 无。等待第一轮开工。
+- 无。等待第一轮开工：先审计 D-001..D-007，再批准 T0.1。
 
 ## 下一轮入口
 

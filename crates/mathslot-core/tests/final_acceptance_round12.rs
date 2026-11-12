@@ -125,12 +125,12 @@ fn test_acc_r12_zero_unsafe_and_git_isolation_contract() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
 
-    // 5.1 docs/ 目录必须严格在 .gitignore 中屏蔽
+    // 5.1 docs/ 目录必须进版本库（ADR-0002：证据不得游离于 VCS 之外）
     let gitignore = std::fs::read_to_string(repo_root.join(".gitignore")).expect("Read .gitignore");
     let lines: Vec<&str> = gitignore.lines().map(str::trim).collect();
     assert!(
-        lines.contains(&"docs/") || lines.contains(&"docs") || lines.contains(&"/docs/"),
-        ".gitignore 必须严格包含 docs/，杜绝文档被误提交至 Git 追踪！"
+        !lines.contains(&"docs/") && !lines.contains(&"docs") && !lines.contains(&"/docs/"),
+        ".gitignore 不得屏蔽 docs/：审计与验收证据必须可追溯（ADR-0002）"
     );
 
     // 5.2 全 workspace 必须 forbid(unsafe_code)

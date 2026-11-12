@@ -460,7 +460,9 @@ fn test_adv_acc_09_semantic_forms_and_zero_voids_contract() {
 // =============================================================================
 
 #[test]
-fn test_adv_acc_10_gitignore_isolation_contract() {
+fn test_adv_acc_10_docs_are_versioned_contract() {
+    // ADR-0002：证据必须进版本库。旧断言要求忽略 docs/，导致 48 份审计/验收报告
+    // 全部游离于 VCS 之外，签署无法对应提交。这里把策略方向反过来。
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
     let gitignore_path = repo_root.join(".gitignore");
@@ -468,8 +470,13 @@ fn test_adv_acc_10_gitignore_isolation_contract() {
     assert!(gitignore_path.exists(), ".gitignore file must exist");
     let content = std::fs::read_to_string(&gitignore_path).expect("Read .gitignore");
     let rules: Vec<&str> = content.lines().map(str::trim).collect();
+
     assert!(
-        rules.contains(&"docs/"),
-        ".gitignore must contain 'docs/' rule to protect documentation from accidental staging"
+        !rules.contains(&"docs/") && !rules.contains(&"docs"),
+        ".gitignore must NOT ignore docs/: audit and acceptance evidence must be versioned (ADR-0002)"
+    );
+    assert!(
+        rules.contains(&"/target"),
+        ".gitignore must keep ignoring /target to avoid committing build artifacts"
     );
 }

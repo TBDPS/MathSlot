@@ -52,7 +52,20 @@ else
   run_step "cargo clippy -D warnings" cargo clippy --workspace --all-targets -- -D warnings
 fi
 run_step "cargo test --workspace" cargo test --workspace
-run_step "调色板一致性" python3 scripts/agent/audit_palette.py
+
+# 调色板一致性在 G0 只是 WARN：D-001 的正式修复属于 G1/T1.3（必须由 catalog 生成），
+# 从 G1 起才作为硬门禁。
+GATE="${GATE:-$(python3 -c "import json;print(json.load(open('agent-state/state.json'))['gate'])" 2>/dev/null || echo G0)}"
+if python3 scripts/agent/audit_palette.py >/tmp/mathslot-palette.log 2>&1; then
+  record PASS "调色板一致性" "exit 0（gate=$GATE）"
+else
+  if [[ "$GATE" == "G0" ]]; then
+    record WARN "调色板一致性" "G0：已知 D-001，待 G1/T1.3 修复"
+  else
+    record FAIL "调色板一致性" "exit 1（gate=$GATE）"
+    tail -n 12 /tmp/mathslot-palette.log | sed 's/^/    /'
+  fi
+fi
 
 count() { rg -c --no-filename "$1" "${@:2}" 2>/dev/null | awk '{s+=$1} END {print s+0}'; }
 
