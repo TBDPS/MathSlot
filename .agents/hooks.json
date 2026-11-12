@@ -3,7 +3,7 @@
     "Stop": [
       {
         "type": "command",
-        "command": "../scripts/agent/hook_stop.sh",
+        "command": "/home/mat/Projects/mathslot-next/scripts/agent/hook_stop.sh",
         "timeout": 10
       }
     ]

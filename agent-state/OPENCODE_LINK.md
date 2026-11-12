@@ -18,23 +18,28 @@ Antigravity 的 `Stop` hook 已经配置好：每轮结束会写 `agent-state/tu
 
 ## A. 接着本对话（我在这里）
 
-本会话 ID：`ses_e3003baccffeSQWqEzl3WNnH9o`（标题：Mathslot 项目审查与重写方案）
+先取会话 ID（会话标题变了也能找到）：
+
+```bash
+opencode session list | head -5
+```
+
+然后：
 
 ```bash
 cd /home/mat/Projects/mathslot-next
-scripts/agent/supervise.sh --continue-session
+scripts/agent/supervise.sh --session <会话ID>
 ```
 
-等价于：
+等价的底层命令：
 
 ```bash
-opencode run -s ses_e3003baccffeSQWqEzl3WNnH9o \
-  --agent supervisor \
+opencode run -s <会话ID> --agent supervisor \
   -m volcengine-plan/deepseek-v4.1-flash-economy \
   --auto "审查当前 HEAD，按 .opencode/agents/supervisor.md 输出 REV"
 ```
 
-注意：如果这条对话正在 TUI 里开着，审查结果会作为一轮新消息追加进来。只想拿结论时用方式 B。
+注意：这一模式**不做 worktree 隔离**（会话与真实工作区绑定），只适合你主动想看细节时用。日常与自动触发请用方式 B。
 
 ## B. 独立归档会话（推荐）
 
@@ -43,17 +48,25 @@ scripts/agent/supervise.sh            # 审查 HEAD 与上次审查之间的 dif
 scripts/agent/supervise.sh --force    # 同一 HEAD 重审
 scripts/agent/supervise.sh --dry-run  # 只看提示词
 scripts/agent/supervise.sh --since <sha>
+scripts/agent/supervise.sh --keep-worktree   # 调试：保留临时 worktree
 ```
+
+默认行为（ADR-0003）：
+
+- 用 `git worktree add --detach <tmp> HEAD` 建临时工作区，监督者在里面审查、跑测试；
+- 即使它执行写操作，也改不到真实仓库；
+- `CARGO_TARGET_DIR` 指向主仓库 `target/`，避免全量重编；
+- 只把 `REV-<sha>.md` 复制回 `agent-state/reviews/`。
 
 产物：
 
 ```
-agent-state/reviews/REV-<short-sha>.md     # 进版本库
+agent-state/reviews/REV-<short-sha>.md     # 进版本库；只能由 supervisor 写
 agent-state/reviews/.last                  # 上次审查的 HEAD（忽略）
 agent-state/reviews/index.tsv              # 审查台账（忽略）
 ```
 
-退出码：`0` 成功；`2` 已有审查跳过；`3` opencode 不可用；`4` 未产出 REV。
+退出码：`0` 完成且 APPROVE；`2` 已有审查跳过；`3` opencode 不可用；`4` 未产出 REV；`5` worktree 失败；`6` 完成但不是 APPROVE。
 
 ## C. 无人值守轮询
 
@@ -121,7 +134,7 @@ REQUIRE_REVIEW=1 scripts/agent/acceptance.sh
 - 最新 `AUD-*.md`、`VER-*.md`；
 - 要求监督者自己跑 `cargo test --workspace` 与 `acceptance.sh --fast`。
 
-监督者只允许写一个 `REV-*.md`，不改代码、不改规范、不改门禁脚本。
+监督者只允许写一个 `REV-*.md`，不改代码、不改规范、不改门禁脚本；`agent-state/reviews/**` 是它的独占写域。
 
 ---
 

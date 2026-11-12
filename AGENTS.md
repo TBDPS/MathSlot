@@ -26,12 +26,15 @@
 
 | 角色 | 可写 | 只读 | 产物 |
 |---|---|---|---|
-| coordinator（主 agent/决策） | `agent-state/**`、`scripts/agent/**` | 全部 | `state.json`、`decisions/ADR-*.md`、board 决策 |
+| coordinator（主 agent/决策） | `agent-state/**`（不含 `reviews/**`）、`scripts/agent/**`、`.agents/**`、`.opencode/**` | 全部 | `state.json`、`decisions/ADR-*.md`、board 决策 |
 | auditor | `agent-state/audits/**` | 代码、规范 | `AUD-*.md` + 新缺陷登记 |
 | implementer | `src/**`、`crates/**`、`.github/**`、测试 | 规范、审计、`scripts/agent/**` | 代码 + 测试 + 提交 |
 | verifier | `agent-state/verify/**` | 代码、diff、命令输出 | `VER-*.md` + PASS/FAIL |
+| supervisor（OpenCode，仓库外进程） | `agent-state/reviews/**` | 全部 | `REV-*.md` |
 
-> `scripts/agent/**`（`acceptance.sh`、`audit_palette.py`）是门禁工具，**implementer 不得修改**；否则等于自己改考卷。需要改门禁时由 coordinator 单独提交并说明理由。
+> `agent-state/reviews/**` 只能由 supervisor 写。coordinator、implementer、verifier 都不得创建或修改 REV 文件——否则等于自己给自己签字。
+>
+> 工具链（`.agents/**`、`.opencode/**`、`scripts/agent/**`）的改动必须单独提交并附 ADR，不要混在任务提交里。
 
 同一文件同一时刻只能有一个写者。并行实现必须用隔离工作区（swarm 的 `workspace:"branch"` 或 `"share"`）。
 

@@ -10,6 +10,8 @@
 | `decisions/OPEN-*.md` | coordinator | 规范未覆盖的问题，等人工确认 |
 | `audits/AUD-*.md` | auditor | 只读审计，判定 OPEN/FIXED/NOT-REPRODUCIBLE |
 | `verify/VER-*.md` | verifier | 独立验收，判定 PASS/FAIL，必须贴命令输出 |
+| `reviews/REV-*.md` | supervisor（OpenCode） | 外部审查，APPROVE/REJECT/BLOCKED；不允许其他人写 |
+| `OPENCODE_LINK.md` | coordinator | 与 OpenCode 联动的用法与边界 |
 | `backlog.jsonl` | coordinator | 新功能提案，`needs: human`，未批准不得开工 |
 
 ## ID 规则
@@ -19,6 +21,8 @@
 | 已有缺陷 | `D-001..D-030`（来自规范 §4，不要改号） |
 | 新发现缺陷 | `D-101` 起，递增，不复用 |
 | 任务 | `T0.1..T4.6`（来自规范 §14，不要自造） |
+| 外部审查 | `REV-<short-sha>.md`（只由 supervisor 写） |
+| 工具链接线 | 未登记进 §14 前只引用 `OPEN-0001`，不要用 `T-*` |
 | 审计 | `AUD-<round>-<slug>.md` |
 | 验收 | `VER-<round>.md` |
 | 决策 | `ADR-<n>.md` |
