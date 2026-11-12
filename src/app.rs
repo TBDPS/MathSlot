@@ -27,6 +27,16 @@ const LEFT_PANEL_DEFAULT_WIDTH: f32 = 460.0;
 const PREVIEW_BOX_HEIGHT: f32 = 130.0;
 const NAV_BOX_HEIGHT: f32 = 96.0;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum WorkspaceTab {
+    #[default]
+    Palette,      // 符号结构网格
+    Corpus,       // 权威公式库 88+
+    Formats,      // 扩展中心：自定义宏与复用片段
+    LatexImport,  // LaTeX 逆向反编译工作台
+    Help,         // 使用指南与快捷键图谱
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaletteCategory {
     Direct,    // 常用结构 (12项单键直达)
@@ -68,6 +78,7 @@ pub struct MathSlotApp {
     preview_scale: f32,
     copy_feedback_until: Option<Instant>,
     palette_tab: PaletteCategory,
+    pub active_tab: WorkspaceTab,
     modals: LibraryModalState,
     devshot: Option<crate::devshot::DevShot>,
     /// `Alt` 轻按后进入的短暂 leader 窗口；窗口内按 `j` 打开导航。
@@ -84,6 +95,7 @@ impl MathSlotApp {
         let mut modals = LibraryModalState::new(&library, config_path_hint);
         let devshot = crate::devshot::DevShot::from_env();
         let mut editor = StreamEditor::with_library(library);
+        let mut active_tab = WorkspaceTab::Palette;
         if let Some(shot) = &devshot {
             if let Some(src) = &shot.source {
                 editor.source = src.clone();
@@ -91,11 +103,20 @@ impl MathSlotApp {
                 editor.sync_after_edit(editor.cursor_char);
             }
             match shot.modal.as_deref() {
-                Some("help") => modals.show_help = true,
-                Some("latex") => modals.open_latex_tab(),
-                Some("custom") => modals.open_custom_tab(&editor.library),
-                Some("snippets") => modals.open_snippets_tab(&editor.library),
-                Some("presets") => modals.open_presets(),
+                Some("help") => active_tab = WorkspaceTab::Help,
+                Some("latex") => {
+                    active_tab = WorkspaceTab::LatexImport;
+                    modals.open_latex_tab();
+                }
+                Some("custom") => {
+                    active_tab = WorkspaceTab::Formats;
+                    modals.open_custom_tab(&editor.library);
+                }
+                Some("snippets") => {
+                    active_tab = WorkspaceTab::Formats;
+                    modals.open_snippets_tab(&editor.library);
+                }
+                Some("presets") | Some("corpus") => active_tab = WorkspaceTab::Corpus,
                 Some("esc") => {
                     editor.toggle_esc_jump();
                 }
@@ -122,6 +143,7 @@ impl MathSlotApp {
             preview_scale: 1.25,
             copy_feedback_until: None,
             palette_tab: PaletteCategory::Direct,
+            active_tab,
             modals,
             devshot,
             nav_leader_until: None,
@@ -326,25 +348,69 @@ impl MathSlotApp {
 
     fn handle_keys_before_ui(&mut self, ctx: &egui::Context) {
         self.update_nav_leader(ctx);
+        // 工作区切换快捷键
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) {
-            self.modals.show_help = !self.modals.show_help;
-            if !self.modals.any_open() {
+            self.active_tab = if self.active_tab == WorkspaceTab::Help {
+                WorkspaceTab::Palette
+            } else {
+                WorkspaceTab::Help
+            };
+            if self.active_tab == WorkspaceTab::Palette {
                 self.request_input_focus = true;
             }
             return;
         }
 
-        if self.modals.any_open() {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F2) || i.consume_key(Modifiers::ALT, Key::Num2)) {
+            self.active_tab = if self.active_tab == WorkspaceTab::Corpus {
+                WorkspaceTab::Palette
+            } else {
+                WorkspaceTab::Corpus
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
+            return;
+        }
+
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F3) || i.consume_key(Modifiers::ALT, Key::Num3)) {
+            self.active_tab = if self.active_tab == WorkspaceTab::Formats {
+                WorkspaceTab::Palette
+            } else {
+                self.modals.open_custom_tab(&self.editor.library);
+                WorkspaceTab::Formats
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
+            return;
+        }
+
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F4) || i.consume_key(Modifiers::ALT, Key::Num4)) {
+            self.active_tab = if self.active_tab == WorkspaceTab::LatexImport {
+                WorkspaceTab::Palette
+            } else {
+                self.modals.open_latex_tab();
+                WorkspaceTab::LatexImport
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
+            return;
+        }
+
+        if ctx.input_mut(|i| i.consume_key(Modifiers::ALT, Key::Num1)) {
+            self.active_tab = WorkspaceTab::Palette;
+            self.request_input_focus = true;
+            return;
+        }
+
+        if self.active_tab != WorkspaceTab::Palette {
             self.nav_leader_until = None;
             if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-                if self.modals.show_help {
-                    self.modals.show_help = false;
-                } else {
-                    self.modals.show_library = false;
-                }
-                if !self.modals.any_open() {
-                    self.request_input_focus = true;
-                }
+                self.active_tab = WorkspaceTab::Palette;
+                self.request_input_focus = true;
+                return;
             }
             return;
         }
@@ -727,7 +793,9 @@ impl MathSlotApp {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
 
-                if tool_button(ui, RichText::new("帮助").size(13.0).color(TEXT_DIM), true)
+                let help_active = self.active_tab == WorkspaceTab::Help;
+                let help_fg = if help_active { Color32::WHITE } else { TEXT_DIM };
+                if tool_button_styled(ui, RichText::new("帮助").size(13.0).color(help_fg), true, help_active)
                     .on_hover_text("完整快捷键与操作指南 (F1)")
                     .clicked()
                 {
@@ -747,8 +815,10 @@ impl MathSlotApp {
                 {
                     action_preset = true;
                 }
-                if tool_button(ui, RichText::new("公式库").size(13.0).color(CYAN), true)
-                    .on_hover_text("浏览与搜索 88+ 权威数学与物理公式库")
+                let corpus_active = self.active_tab == WorkspaceTab::Corpus;
+                let corpus_fg = if corpus_active { Color32::WHITE } else { CYAN };
+                if tool_button_styled(ui, RichText::new("公式库").size(13.0).color(corpus_fg), true, corpus_active)
+                    .on_hover_text("浏览与搜索 88+ 权威数学与物理公式库 (F2 / Alt+2)")
                     .clicked()
                 {
                     open_presets = true;
@@ -760,14 +830,18 @@ impl MathSlotApp {
                 {
                     action_quick_save = true;
                 }
-                if tool_button(ui, RichText::new("格式库").size(13.0).color(AMBER), true)
-                    .on_hover_text("无需改源码：扩展任意 LaTeX 宏与管理片段模版库")
+                let formats_active = self.active_tab == WorkspaceTab::Formats;
+                let formats_fg = if formats_active { Color32::WHITE } else { AMBER };
+                if tool_button_styled(ui, RichText::new("格式库").size(13.0).color(formats_fg), true, formats_active)
+                    .on_hover_text("无需改源码：扩展任意 LaTeX 宏与管理片段模版库 (F3 / Alt+3)")
                     .clicked()
                 {
                     open_custom_mgr = true;
                 }
-                if tool_button(ui, RichText::new("⇄ 导入 LaTeX").size(13.0).color(ACCENT), true)
-                    .on_hover_text("从标准 LaTeX 语法一键反编译并导入为简码流")
+                let latex_active = self.active_tab == WorkspaceTab::LatexImport;
+                let latex_fg = if latex_active { Color32::WHITE } else { ACCENT };
+                if tool_button_styled(ui, RichText::new("⇄ 导入 LaTeX").size(13.0).color(latex_fg), true, latex_active)
+                    .on_hover_text("从标准 LaTeX 语法一键反编译并导入为简码流 (F4 / Alt+4)")
                     .clicked()
                 {
                     open_latex_tab = true;
@@ -801,16 +875,46 @@ impl MathSlotApp {
             self.mark_dirty();
         }
         if open_help {
-            self.modals.show_help = true;
+            self.active_tab = if self.active_tab == WorkspaceTab::Help {
+                WorkspaceTab::Palette
+            } else {
+                WorkspaceTab::Help
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
         }
         if open_latex_tab {
-            self.modals.open_latex_tab();
+            self.active_tab = if self.active_tab == WorkspaceTab::LatexImport {
+                WorkspaceTab::Palette
+            } else {
+                self.modals.open_latex_tab();
+                WorkspaceTab::LatexImport
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
         }
         if open_custom_mgr {
-            self.modals.open_custom_tab(&self.editor.library);
+            self.active_tab = if self.active_tab == WorkspaceTab::Formats {
+                WorkspaceTab::Palette
+            } else {
+                self.modals.open_custom_tab(&self.editor.library);
+                WorkspaceTab::Formats
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
         }
         if open_presets {
-            self.modals.open_presets();
+            self.active_tab = if self.active_tab == WorkspaceTab::Corpus {
+                WorkspaceTab::Palette
+            } else {
+                WorkspaceTab::Corpus
+            };
+            if self.active_tab == WorkspaceTab::Palette {
+                self.request_input_focus = true;
+            }
         }
         if action_quick_save {
             self.quick_save_snippet(true);
@@ -1304,6 +1408,73 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
     }
 
     // -----------------------------------------------------------------------
+    // 右侧工作区五联分段导航胶囊栏 (高度 38pt)
+    // -----------------------------------------------------------------------
+
+    fn workspace_tab_bar_ui(&mut self, ui: &mut egui::Ui) {
+        let tabs = [
+            (WorkspaceTab::Palette, "∑ 符号结构", "Alt+1", "符号与高阶数学结构网格面板 (Alt+1)"),
+            (WorkspaceTab::Corpus, "📚 公式库", "F2", "浏览与检索 88+ 权威学术公式库 (F2 / Alt+2)"),
+            (WorkspaceTab::Formats, "⚙ 扩展中心", "F3", "自定义 LaTeX 宏与复用模版库 (F3 / Alt+3)"),
+            (WorkspaceTab::LatexImport, "⇄ LaTeX 导入", "F4", "标准 LaTeX 逆向反编译工作台 (F4 / Alt+4)"),
+            (WorkspaceTab::Help, "💡 使用指南", "F1", "快捷键图谱与极速编辑技巧速查 (F1)"),
+        ];
+
+        let total_w = ui.available_width();
+        let tab_count = tabs.len() as f32;
+        let spacing = 5.0;
+        let pad = 4.0;
+        let tab_w = ((total_w - pad * 2.0 - spacing * (tab_count - 1.0)) / tab_count).max(60.0);
+
+        egui::Frame::NONE
+            .fill(FIELD)
+            .stroke(Stroke::new(1.0, BORDER_SOFT))
+            .corner_radius(CornerRadius::same(10))
+            .inner_margin(Margin::symmetric(pad as i8, 3))
+            .show(ui, |ui| {
+                ui.set_height(38.0);
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = spacing;
+                    for (tab, title, shortcut, tip) in tabs {
+                        let is_active = self.active_tab == tab;
+                        let text_color = if is_active {
+                            Color32::WHITE
+                        } else {
+                            TEXT_DIM
+                        };
+                        let btn = egui::Button::new(
+                            RichText::new(title)
+                                .size(13.0)
+                                .strong()
+                                .color(text_color),
+                        )
+                        .fill(if is_active { ACCENT_BG } else { Color32::TRANSPARENT })
+                        .stroke(if is_active {
+                            Stroke::new(1.0, ACCENT.gamma_multiply(0.75))
+                        } else {
+                            Stroke::NONE
+                        })
+                        .min_size(Vec2::new(tab_w, 32.0))
+                        .corner_radius(CornerRadius::same(7))
+                        .frame_when_inactive(is_active);
+
+                        let resp = ui
+                            .add_sized(Vec2::new(tab_w, 32.0), btn)
+                            .on_hover_text(format!("{tip} · [{shortcut}]"));
+                        if resp.clicked() {
+                            self.active_tab = tab;
+                            if tab == WorkspaceTab::Palette {
+                                self.request_input_focus = true;
+                            } else if tab == WorkspaceTab::LatexImport {
+                                self.modals.open_latex_tab();
+                            }
+                        }
+                    }
+                });
+            });
+    }
+
+    // -----------------------------------------------------------------------
     // 右侧核心主体：结构提示主面板（The Grand Structure Guidance HERO）
     // 视觉核心：大而精美、直观数学符号、中文名称、快捷键提示、一键点击即插！
     // 专为不熟悉 LaTeX 的用户设计：无需死记语法，点选或看键即用！
@@ -1590,9 +1761,11 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             self.mark_dirty();
         }
         if act.open_custom_mgr {
+            self.active_tab = WorkspaceTab::Formats;
             self.modals.open_custom_tab(&self.editor.library);
         }
         if act.open_snip_mgr {
+            self.active_tab = WorkspaceTab::Formats;
             self.modals.open_snippets_tab(&self.editor.library);
         }
         if act.quick_save_snip {
@@ -1686,18 +1859,46 @@ impl eframe::App for MathSlotApp {
             )
             .show(ui, |ui| self.left_panel_ui(ui, &mut act));
 
+        let mut inline_modal_action: Option<ModalAction> = None;
+
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::NONE
                     .fill(PANEL)
                     .inner_margin(Margin::symmetric(16, 12)),
             )
-            .show(ui, |ui| self.structure_palette_ui(ui, &mut act));
+            .show(ui, |ui| {
+                self.workspace_tab_bar_ui(ui);
+                ui.add_space(8.0);
+
+                match self.active_tab {
+                    WorkspaceTab::Palette => {
+                        self.structure_palette_ui(ui, &mut act);
+                    }
+                    WorkspaceTab::Corpus => {
+                        if let Some(m_act) = self.modals.render_corpus_workspace(ui, &mut self.editor) {
+                            inline_modal_action = Some(m_act);
+                        }
+                    }
+                    WorkspaceTab::Formats => {
+                        if let Some(m_act) = self.modals.render_formats_workspace(ui, &mut self.editor) {
+                            inline_modal_action = Some(m_act);
+                        }
+                    }
+                    WorkspaceTab::LatexImport => {
+                        if let Some(m_act) = self.modals.render_latex_workspace(ui, &mut self.editor) {
+                            inline_modal_action = Some(m_act);
+                        }
+                    }
+                    WorkspaceTab::Help => {
+                        self.modals.render_help_workspace(ui);
+                    }
+                }
+            });
 
         self.apply_ui_actions(&ctx, act);
 
-        let was_modal_open = self.modals.any_open();
-        if let Some(modal_action) = self.modals.show(&ctx, &mut self.editor) {
+        if let Some(modal_action) = inline_modal_action {
             match modal_action {
                 ModalAction::InsertCode(code) => {
                     self.status = self.editor.apply_card_click(&code);
@@ -1710,7 +1911,7 @@ impl eframe::App for MathSlotApp {
                     self.editor.cursor_char = self.editor.source.chars().count();
                     self.editor.sync_after_edit(self.editor.cursor_char);
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
-                    self.status = "✓ 已成功导入并载入 MathSlot 简码流！".to_owned();
+                    self.status = "✓ 已成功载入公式！".to_owned();
                     self.request_input_focus = true;
                     self.mark_dirty();
                 }
@@ -1723,17 +1924,20 @@ impl eframe::App for MathSlotApp {
                 }
             }
         }
-        if was_modal_open && !self.modals.any_open() {
-            self.request_input_focus = true;
-        }
 
-        if !self.modals.any_open() {
+        // 智能焦点管理：
+        // 1. 当处于 Palette 结构网格且非导航模式时，主输入框保持常驻活跃焦点，点击任意卡片均不失焦；
+        // 2. 当处于其他内联工作区（公式库搜索、表单录入、LaTeX 输入等）时，不强行夺取焦点，让用户顺畅键入；
+        // 3. 当点击了“载入”、“追加”或切回 Palette 时，通过 self.request_input_focus 平滑归还主输入框焦点。
+        if self.active_tab == WorkspaceTab::Palette {
             if self.editor.esc_nav.is_none() {
-                // 当无模态弹出框且非导航模式时，输入框保持永久活跃焦点；点击标签页、卡片或任意功能按钮均不发生失焦
                 ctx.memory_mut(|m| m.request_focus(self.input_id));
             } else {
                 ctx.memory_mut(|m| m.surrender_focus(self.input_id));
             }
+            self.request_input_focus = false;
+        } else if self.request_input_focus {
+            ctx.memory_mut(|m| m.request_focus(self.input_id));
             self.request_input_focus = false;
         }
 

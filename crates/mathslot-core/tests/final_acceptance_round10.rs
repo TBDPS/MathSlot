@@ -22,74 +22,61 @@ fn test_acc_r10_window_viewport_stability_and_zero_jump_contracts() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
     let modals_rs_path = repo_root.join("src/modals.rs");
+    let app_rs_path = repo_root.join("src/app.rs");
 
     assert!(
         modals_rs_path.exists(),
         "src/modals.rs 源码文件必须存在于 {}",
         modals_rs_path.display()
     );
+    assert!(
+        app_rs_path.exists(),
+        "src/app.rs 源码文件必须存在于 {}",
+        app_rs_path.display()
+    );
 
     let src = std::fs::read_to_string(&modals_rs_path)
         .expect("Read src/modals.rs must succeed");
+    let app_src = std::fs::read_to_string(&app_rs_path)
+        .expect("Read src/app.rs must succeed");
 
-    // 1.1 验证三大模态弹窗全部开启水平锁定 resizable([false, true])
-    let resizable_matches: Vec<_> = src.match_indices(".resizable([false, true])").collect();
-    assert_eq!(
-        resizable_matches.len(),
-        3,
-        "show_library、show_help、show_presets 三大窗口必须全部显式配置 .resizable([false, true])，实测匹配到 {} 处",
-        resizable_matches.len()
-    );
-
-    // 1.2 验证 show_library (扩展中心) 宽度锁定：780px
+    // Round 11 架构升级：彻底废除 egui::Window 模态浮窗弹出机制，全面转为右侧一等公民内联工作区体系
+    // 1.1 验证源码中已彻底清除 egui::Window 浮窗机制（实现真正 0 浮窗、0 视口跳变、0 遮挡）
     assert!(
-        src.contains(".default_size([780.0, 580.0])"),
-        "show_library 默认宽度必须为 780.0"
-    );
-    assert!(
-        src.contains(".min_size([780.0, 460.0])"),
-        "show_library 最小宽度必须为 780.0（锁死水平下限）"
-    );
-    assert!(
-        src.contains(".max_size([780.0, 780.0])"),
-        "show_library 最大宽度必须为 780.0（锁死水平上限，实现 0px 视口跳变）"
+        !src.contains("egui::Window::new"),
+        "Round 11 必须彻底清除 egui::Window::new 浮窗弹出机制！"
     );
 
-    // 1.3 验证 show_help (使用指南速查) 宽度锁定：740px
+    // 1.2 验证四大一等公民内联工作区渲染接口已就绪
     assert!(
-        src.contains(".default_size([740.0, 560.0])"),
-        "show_help 默认宽度必须为 740.0"
+        src.contains("pub fn render_corpus_workspace"),
+        "必须提供 render_corpus_workspace 内联工作区接口"
     );
     assert!(
-        src.contains(".min_size([740.0, 420.0])"),
-        "show_help 最小宽度必须为 740.0"
+        src.contains("pub fn render_formats_workspace"),
+        "必须提供 render_formats_workspace 内联工作区接口"
     );
     assert!(
-        src.contains(".max_size([740.0, 760.0])"),
-        "show_help 最大宽度必须为 740.0"
-    );
-
-    // 1.4 验证 show_presets (公式库) 宽度锁定：880px
-    assert!(
-        src.contains(".default_size([880.0, 640.0])"),
-        "show_presets 默认宽度必须为 880.0"
+        src.contains("pub fn render_latex_workspace"),
+        "必须提供 render_latex_workspace 内联工作区接口"
     );
     assert!(
-        src.contains(".min_size([880.0, 500.0])"),
-        "show_presets 最小宽度必须为 880.0"
-    );
-    assert!(
-        src.contains(".max_size([880.0, 840.0])"),
-        "show_presets 最大宽度必须为 880.0"
+        src.contains("pub fn render_help_workspace"),
+        "必须提供 render_help_workspace 内联工作区接口"
     );
 
-    // 1.5 验证均开启顶部绝对居中 pivot(Align2::CENTER_TOP)
-    let pivot_matches: Vec<_> = src.match_indices(".pivot(Align2::CENTER_TOP)").collect();
-    assert_eq!(
-        pivot_matches.len(),
-        3,
-        "三大弹窗必须均配置 .pivot(Align2::CENTER_TOP)，实测匹配到 {} 处",
-        pivot_matches.len()
+    // 1.3 验证工作区状态机与胶囊标签栏在 app.rs 中就绪
+    assert!(
+        app_src.contains("pub enum WorkspaceTab"),
+        "app.rs 必须定义 WorkspaceTab 状态枚举"
+    );
+    assert!(
+        app_src.contains("pub active_tab: WorkspaceTab"),
+        "MathSlotApp 必须包含 active_tab 字段"
+    );
+    assert!(
+        app_src.contains("fn workspace_tab_bar_ui"),
+        "必须实现 workspace_tab_bar_ui 五联工作区导航胶囊"
     );
 }
 

@@ -239,6 +239,22 @@ pub fn tool_button(ui: &mut egui::Ui, text: RichText, enabled: bool) -> Response
     ui.add_enabled(enabled, btn)
 }
 
+/// 支持高亮激活态的顶栏工具按钮
+pub fn tool_button_styled(ui: &mut egui::Ui, text: RichText, enabled: bool, active: bool) -> Response {
+    let mut btn = egui::Button::new(text)
+        .min_size(Vec2::new(30.0, 30.0))
+        .corner_radius(CornerRadius::same(7));
+    if active {
+        btn = btn
+            .fill(ACCENT_BG)
+            .stroke(Stroke::new(1.0, ACCENT.gamma_multiply(0.7)))
+            .frame_when_inactive(true);
+    } else {
+        btn = btn.frame_when_inactive(false);
+    }
+    ui.add_enabled(enabled, btn)
+}
+
 /// 主操作按钮（实心）
 pub fn primary_button(ui: &mut egui::Ui, text: &str, fill: Color32) -> Response {
     let btn = egui::Button::new(RichText::new(text).size(13.0).strong().color(Color32::WHITE))
