@@ -7,6 +7,7 @@
 //! 3. 公式库 (Corpus) 响应式宽度缩放与零横向溢出 (Responsive Scaling Invariant)
 //! 4. 自定义格式与模版表单全域垂直滚动、高度紧凑与保存按钮就近对齐 (Clustered Buttons Contract)
 //! 5. 源码安全与 docs/ 目录绝对隔离契约 (Zero Unsafe & Git Shielding)
+//!
 //! =============================================================================
 
 use std::path::Path;
@@ -97,13 +98,19 @@ fn test_acc_r12_forms_compact_vertical_and_clustered_buttons_contract() {
     let modals_src = std::fs::read_to_string(&modals_path).expect("Read modals.rs");
 
     // 4.1 表单必须内联于 ScrollArea 内部自然滚动
-    let custom_scroll_split = modals_src.split("id_salt(\"mathslot-custom-list-scroll\")").nth(1).unwrap();
+    let custom_scroll_split = modals_src
+        .split("id_salt(\"mathslot-custom-list-scroll\")")
+        .nth(1)
+        .unwrap();
     assert!(
         custom_scroll_split.contains("if self.show_custom_form {"),
         "show_custom_form 必须处于 custom-list-scroll 的 ScrollArea 内部！"
     );
 
-    let snippet_scroll_split = modals_src.split("id_salt(\"mathslot-snippet-list-scroll\")").nth(1).unwrap();
+    let snippet_scroll_split = modals_src
+        .split("id_salt(\"mathslot-snippet-list-scroll\")")
+        .nth(1)
+        .unwrap();
     assert!(
         snippet_scroll_split.contains("if self.show_snippet_form {"),
         "show_snippet_form 必须处于 snippet-list-scroll 的 ScrollArea 内部！"
@@ -151,14 +158,26 @@ fn test_acc_r12_einstein_preset_and_backward_wrap_functional() {
         .iter()
         .find(|f| f.name == "爱因斯坦引力场方程")
         .expect("预置库必须包含爱因斯坦引力场方程");
-    
+
     let mut ed = StreamEditor::default();
     ed.load_preset(einstein.source, einstein.name);
     let latex = ed.to_latex();
-    assert!(latex.contains(r"{G}_{\mu \nu}"), "爱因斯坦张量必须正确渲染: {latex}");
-    assert!(latex.contains(r"\Lambda {g}_{\mu \nu}"), "宇宙学常数项必须正确渲染: {latex}");
-    assert!(latex.contains(r"\frac{8 \pi G}{c^{4}}"), "引力耦合常数分式必须正确渲染: {latex}");
-    assert!(latex.contains(r"{T}_{\mu \nu}"), "能动张量必须正确渲染: {latex}");
+    assert!(
+        latex.contains(r"{G}_{\mu \nu}"),
+        "爱因斯坦张量必须正确渲染: {latex}"
+    );
+    assert!(
+        latex.contains(r"\Lambda {g}_{\mu \nu}"),
+        "宇宙学常数项必须正确渲染: {latex}"
+    );
+    assert!(
+        latex.contains(r"\frac{8 \pi G}{c^{4}}"),
+        "引力耦合常数分式必须正确渲染: {latex}"
+    );
+    assert!(
+        latex.contains(r"{T}_{\mu \nu}"),
+        "能动张量必须正确渲染: {latex}"
+    );
 
     // 2. 模拟真实键盘键入心流：输入变量 G 后紧接着键入 ▸d (Tab d)
     let mut ed2 = StreamEditor::default();
@@ -193,12 +212,7 @@ fn test_acc_r12_section13_lossless_roundtrip_and_no_ghost_slots() {
     use mathslot_core::{Session, exprs_structurally_equal, parse};
 
     // 1. e^{-x^{2}}、x^{a+b}、a_{i+1}、e^{-\frac{x}{2}} 全部无损往返
-    let cases = [
-        r"e^{-x^{2}}",
-        r"x^{a+b}",
-        r"a_{i+1}",
-        r"e^{-\frac{x}{2}}",
-    ];
+    let cases = [r"e^{-x^{2}}", r"x^{a+b}", r"a_{i+1}", r"e^{-\frac{x}{2}}"];
     for latex in cases {
         let (session, report) = Session::from_latex(latex);
         assert!(

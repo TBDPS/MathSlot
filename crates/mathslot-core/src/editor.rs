@@ -73,9 +73,7 @@ pub fn resolve_nav_sequence<'a>(root_scope: &'a NavScope, seq_str: &str) -> NavS
         {
             rem = &rem[entry.label.len()..];
             match &entry.kind {
-                NavEntryKind::ScopeStart
-                | NavEntryKind::ScopeEnd
-                | NavEntryKind::Leaf { .. } => {
+                NavEntryKind::ScopeStart | NavEntryKind::ScopeEnd | NavEntryKind::Leaf { .. } => {
                     if rem.is_empty() {
                         let mut full_path = path;
                         full_path.push(entry.label.clone());
@@ -89,11 +87,7 @@ pub fn resolve_nav_sequence<'a>(root_scope: &'a NavScope, seq_str: &str) -> NavS
                     cur_scope = sub_scope.as_ref();
                 }
             }
-        } else if cur_scope
-            .entries
-            .iter()
-            .any(|e| e.label.starts_with(rem))
-        {
+        } else if cur_scope.entries.iter().any(|e| e.label.starts_with(rem)) {
             return NavSeqResolution::InScope {
                 path,
                 scope: cur_scope,
@@ -193,10 +187,10 @@ impl StreamEditor {
 
     pub fn prefix_menu_state(&self) -> PrefixMenuState {
         let state = detect_prefix_menu_state(&self.source, self.cursor_char);
-        if let PrefixMenuState::InvalidPrefix(ch) = state {
-            if self.library.lookup_custom(ch).is_some() {
-                return PrefixMenuState::Idle;
-            }
+        if let PrefixMenuState::InvalidPrefix(ch) = state
+            && self.library.lookup_custom(ch).is_some()
+        {
+            return PrefixMenuState::Idle;
         }
         state
     }
@@ -395,7 +389,9 @@ impl StreamEditor {
             }
             SubCategory::Template => {
                 let Some(snip) = self.library.default_snippet().cloned() else {
-                    return Some("当前片段库为空，可点击「+存片段」将复杂式子存为模版。".to_owned());
+                    return Some(
+                        "当前片段库为空，可点击「+存片段」将复杂式子存为模版。".to_owned(),
+                    );
                 };
                 self.push_current_to_undo();
                 let cur = self.cursor_char;
@@ -812,6 +808,7 @@ impl StreamEditor {
     /// 导航模式下的括号专用跳转：
     /// - `(`：跳到当前最内层括号的内部起点；
     /// - `)`：跳到配对右括号的外侧。
+    ///
     /// 跳转后保持导航模式，方便连续向内/向外切换。
     pub fn jump_bracket(&mut self, to_close: bool) -> String {
         let Some(pair) = self.enclosing_bracket_pair() else {
@@ -1109,8 +1106,9 @@ impl StreamEditor {
         prefer_inner_struct: bool,
     ) -> Result<(char, String), String> {
         let (auto_title, raw_slice) = if prefer_inner_struct
-            && let Some((kind_label, sub_slice)) =
-                self.parsed.innermost_struct_substr(&self.source, self.cursor_char)
+            && let Some((kind_label, sub_slice)) = self
+                .parsed
+                .innermost_struct_substr(&self.source, self.cursor_char)
         {
             (format!("{kind_label}子式"), sub_slice.to_owned())
         } else {
@@ -1321,7 +1319,7 @@ impl StreamEditor {
             return None;
         }
         if chars[end - 3] != CMD_PREFIX
-            || chars[end - 2].to_ascii_lowercase() != 't'
+            || !chars[end - 2].eq_ignore_ascii_case(&'t')
             || !chars[end - 1].is_ascii_alphabetic()
         {
             return None;
@@ -1370,19 +1368,15 @@ impl StreamEditor {
         {
             let body = kind.wrap_body_slot_index()?;
             let roles: Vec<String> = kind.slot_roles().iter().map(|r| (*r).to_owned()).collect();
-            (
-                end - 2,
-                kind.label().to_owned(),
-                kind.arity(),
-                body,
-                roles,
-            )
+            (end - 2, kind.label().to_owned(), kind.arity(), body, roles)
         } else if end >= 2
             && chars[end - 2] == CMD_PREFIX
             && chars[end - 1].is_ascii_alphabetic()
             && !chars[end - 1].eq_ignore_ascii_case(&'j')
             && SubCategory::from_key(chars[end - 1].to_ascii_lowercase()).is_none()
-            && let Some(fmt) = self.library.lookup_custom(chars[end - 1].to_ascii_lowercase())
+            && let Some(fmt) = self
+                .library
+                .lookup_custom(chars[end - 1].to_ascii_lowercase())
         {
             let body = fmt.wrap_body_slot_index()?;
             (
@@ -1409,17 +1403,13 @@ impl StreamEditor {
                     body,
                     fmt.slot_roles.clone(),
                 )
-            } else if let Some(CommandTarget::Struct(kind)) = lookup_sub_command(c1, c2).or_else(|| lookup_sub_command(c1, c2.to_ascii_lowercase())) {
+            } else if let Some(CommandTarget::Struct(kind)) = lookup_sub_command(c1, c2)
+                .or_else(|| lookup_sub_command(c1, c2.to_ascii_lowercase()))
+            {
                 let body = kind.wrap_body_slot_index()?;
                 let roles: Vec<String> =
                     kind.slot_roles().iter().map(|r| (*r).to_owned()).collect();
-                (
-                    end - 3,
-                    kind.label().to_owned(),
-                    kind.arity(),
-                    body,
-                    roles,
-                )
+                (end - 3, kind.label().to_owned(), kind.arity(), body, roles)
             } else {
                 return None;
             }
@@ -1464,8 +1454,9 @@ impl StreamEditor {
             } else {
                 String::new()
             };
-            self.source =
-                format!("{before_str}{cmd_str}{leading}{body_str}{close_body}{trailing}{after_str}");
+            self.source = format!(
+                "{before_str}{cmd_str}{leading}{body_str}{close_body}{trailing}{after_str}"
+            );
             self.cursor_char = end;
             let cur_role = roles.first().map(String::as_str).unwrap_or("条件");
             let body_role = roles.get(body_slot).map(String::as_str).unwrap_or("主体");
@@ -1542,7 +1533,8 @@ impl StreamEditor {
         }
 
         // 从 cmd_start 往前检测紧邻的前置原子
-        let (atom_start, _atom_end, atom_str) = find_backward_atom(&chars, cmd_start, &self.library)?;
+        let (atom_start, _atom_end, atom_str) =
+            find_backward_atom(&chars, cmd_start, &self.library)?;
         if atom_str.is_empty() {
             return None;
         }
@@ -1697,7 +1689,9 @@ impl StreamEditor {
                             .library
                             .default_custom()
                             .map(|f| format!("按 Enter/空格 选默认 [{}] 或按键", f.label))
-                            .unwrap_or_else(|| "点击右上角「扩展/模版」可新增任意 LaTeX 格式".to_owned());
+                            .unwrap_or_else(|| {
+                                "点击右上角「扩展/模版」可新增任意 LaTeX 格式".to_owned()
+                            });
                         Some(format!(
                             "已展开「{} ({CMD_PREFIX}k)」：{def_hint}。",
                             sub.title()
@@ -1759,7 +1753,9 @@ impl StreamEditor {
                 };
             }
             if SubCategory::from_key(c1).is_some() {
-                return match lookup_sub_command(c1, c2).or_else(|| lookup_sub_command(c1, c2.to_ascii_lowercase())) {
+                return match lookup_sub_command(c1, c2)
+                    .or_else(|| lookup_sub_command(c1, c2.to_ascii_lowercase()))
+                {
                     Some(CommandTarget::Struct(kind)) => {
                         let first_role = kind.slot_roles().first().copied().unwrap_or("内容");
                         Some(format!(
@@ -1815,7 +1811,9 @@ fn adjust_pos_for_edit(pos: usize, old_src: &str, new_src: &str) -> usize {
     if pos <= prefix {
         pos
     } else if pos >= old_edit_end {
-        new_chars.len().saturating_sub(old_chars.len().saturating_sub(pos))
+        new_chars
+            .len()
+            .saturating_sub(old_chars.len().saturating_sub(pos))
     } else {
         new_edit_end
     }
@@ -1937,7 +1935,12 @@ fn find_backward_atom(
 fn find_struct_start_ending_at(seq: &MathSeq, target_end: usize) -> Option<usize> {
     for item in &seq.items {
         match item {
-            Expr::Struct { full_span, slots, .. } | Expr::CustomStruct { full_span, slots, .. } => {
+            Expr::Struct {
+                full_span, slots, ..
+            }
+            | Expr::CustomStruct {
+                full_span, slots, ..
+            } => {
                 if full_span.end.char_idx == target_end {
                     return Some(full_span.start.char_idx);
                 }
@@ -1969,7 +1972,22 @@ fn find_wrap_end_in_seq(seq: &MathSeq, clean_chars: &[char], start_char: usize) 
     let has_left_operand = left_trimmed_last.is_some_and(|c| {
         !matches!(
             c,
-            '=' | '<' | '>' | '+' | '-' | '*' | '/' | '(' | '[' | '{' | ',' | ':' | '≤' | '≥' | '≠' | '≈' | '→'
+            '=' | '<'
+                | '>'
+                | '+'
+                | '-'
+                | '*'
+                | '/'
+                | '('
+                | '['
+                | '{'
+                | ','
+                | ':'
+                | '≤'
+                | '≥'
+                | '≠'
+                | '≈'
+                | '→'
         )
     });
 
@@ -2008,10 +2026,7 @@ fn find_wrap_end_in_seq(seq: &MathSeq, clean_chars: &[char], start_char: usize) 
                 if has_content
                     && matches!(
                         cmd,
-                        SymbolCmd::To
-                            | SymbolCmd::In
-                            | SymbolCmd::NotIn
-                            | SymbolCmd::SubsetEq
+                        SymbolCmd::To | SymbolCmd::In | SymbolCmd::NotIn | SymbolCmd::SubsetEq
                     )
                 {
                     break;
@@ -2085,7 +2100,19 @@ fn relational_token_at(slice: &[char]) -> Option<usize> {
         let word: String = slice[1..w].iter().collect();
         if matches!(
             word.as_str(),
-            "le" | "leq" | "ge" | "geq" | "ne" | "neq" | "to" | "rightarrow" | "approx" | "equiv" | "sim" | "in" | "notin" | "subseteq"
+            "le" | "leq"
+                | "ge"
+                | "geq"
+                | "ne"
+                | "neq"
+                | "to"
+                | "rightarrow"
+                | "approx"
+                | "equiv"
+                | "sim"
+                | "in"
+                | "notin"
+                | "subseteq"
         ) {
             return Some(w);
         }
@@ -2172,7 +2199,15 @@ fn is_latex_delimiter(chars: &[char], idx: usize, open: char) -> bool {
     let word: String = chars[word_start..idx].iter().collect();
     matches!(
         word.as_str(),
-        "left" | "right" | "bigl" | "bigr" | "Bigl" | "Bigr" | "biggl" | "biggr" | "Biggl"
+        "left"
+            | "right"
+            | "bigl"
+            | "bigr"
+            | "Bigl"
+            | "Bigr"
+            | "biggl"
+            | "biggr"
+            | "Biggl"
             | "Biggr"
     )
 }

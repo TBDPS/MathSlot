@@ -1,6 +1,4 @@
-use crate::ast::{
-    Expr, MathSeq, NavEntry, NavEntryKind, ParsedDoc, ResolvedStage, SlotNode, Span,
-};
+use crate::ast::{Expr, MathSeq, NavEntry, NavEntryKind, ParsedDoc, ResolvedStage, SlotNode, Span};
 use crate::command::StructKind;
 use crate::latex::{
     canonical_macro, ends_with_latex_macro_word, is_known_bare_word, matching_delim, multi_symbol,
@@ -443,8 +441,7 @@ fn render_slot_preview(
     dialect: VisualDialect,
     fallback_custom: bool,
 ) -> String {
-    let is_active_slot =
-        slot.seq.missing_semis_at_eof == 0 && Some(slot.seq.span) == active_slot;
+    let is_active_slot = slot.seq.missing_semis_at_eof == 0 && Some(slot.seq.span) == active_slot;
 
     if slot.is_empty && slot.seq.items.is_empty() {
         return empty_slot_box(dialect, is_active_slot, is_active_slot);
@@ -472,7 +469,11 @@ fn render_slot_preview(
     }
 }
 
-fn render_custom_fallback(scheme_a_name: &str, item_key: char, rendered_slots: &[String]) -> String {
+fn render_custom_fallback(
+    scheme_a_name: &str,
+    item_key: char,
+    rendered_slots: &[String],
+) -> String {
     let safe_head: String = scheme_a_name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -485,7 +486,10 @@ fn render_custom_fallback(scheme_a_name: &str, item_key: char, rendered_slots: &
     if rendered_slots.is_empty() {
         format!("\\mathtt{{{head}}}")
     } else {
-        format!("\\mathtt{{{head}}}\\left( {} \\right)", rendered_slots.join(", "))
+        format!(
+            "\\mathtt{{{head}}}\\left( {} \\right)",
+            rendered_slots.join(", ")
+        )
     }
 }
 
@@ -665,7 +669,10 @@ fn render_pure_badge(
     dialect: VisualDialect,
 ) -> String {
     let is_composite = matches!(entry.kind, NavEntryKind::Composite { .. });
-    let is_boundary = matches!(entry.kind, NavEntryKind::ScopeStart | NavEntryKind::ScopeEnd);
+    let is_boundary = matches!(
+        entry.kind,
+        NavEntryKind::ScopeStart | NavEntryKind::ScopeEnd
+    );
     let is_empty = matches!(entry.kind, NavEntryKind::Leaf { is_empty: true, .. });
 
     let display = if is_composite {
@@ -928,13 +935,7 @@ fn preview_range(
                 let open_idx = i;
                 let close = matching_delim(chars, open_idx, end, '{', '}');
                 let inner_end = close.unwrap_or(end);
-                let inner_cur = cursor_idx.and_then(|c| {
-                    if c > open_idx && c <= inner_end {
-                        Some(c)
-                    } else {
-                        None
-                    }
-                });
+                let inner_cur = cursor_idx.filter(|&c| c > open_idx && c <= inner_end);
                 let inner = preview_range(chars, open_idx + 1, inner_end, inner_cur, dialect);
                 if inner_cur.is_some() {
                     caret_emitted = true;

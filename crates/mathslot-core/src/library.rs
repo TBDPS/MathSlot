@@ -1,19 +1,14 @@
-/// 用户可扩展数学格式与公式复用片段库（零外部依赖 JSON 持久化，桌面端与 Obsidian 插件同源共享）
+//! 用户可扩展数学格式与公式复用片段库（零外部依赖 JSON 持久化，桌面端与 Obsidian 插件同源共享）
 
 /// 自定义格式的布局种类（层级一声明式 schema：免改源码支持矩阵式结构与槽间自动拼接）
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum LayoutKind {
     /// 默认：线性槽位模板，输出完全由 `latex_template` 的 `$1..$N` 决定
+    #[default]
     Linear,
     /// 矩阵式环境：槽位按 `cols` 列逐行排列，渲染为
     /// `\begin{env} s1 & s2 \\ s3 & s4 \end{env}`（`latex_template` 不参与渲染）
     Env { env: String, cols: usize },
-}
-
-impl Default for LayoutKind {
-    fn default() -> Self {
-        LayoutKind::Linear
-    }
 }
 
 /// 槽间自动拼接（层级一）：条件槽内容非空时，把 `macro_tex` 与其拼接在基槽内容之后。
@@ -197,14 +192,14 @@ impl FormulaSnippet {
 /// 具备独立生命周期与所有权的公式实体项
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormulaEntry {
-    pub id: String,           // 唯一标识 (例如 "preset-euler" 或 "user-1710123456")
-    pub name: String,         // 公式标题 (如 "多头自注意力机制 Multi-Head Attention")
-    pub category: String,     // 学科或领域分类 (如 "深度学习", "量子力学")
-    pub source: String,       // MathSlot 流式简码源文本
-    pub desc: String,         // 学术背景、数学原理或工程用途说明
-    pub tags: Vec<String>,    // 检索与智能联想标签
-    pub is_builtin: bool,     // 是否为系统内置种子公式
-    pub created_at: u64,      // 创建时间戳 (秒级 Unix Epoch)
+    pub id: String,        // 唯一标识 (例如 "preset-euler" 或 "user-1710123456")
+    pub name: String,      // 公式标题 (如 "多头自注意力机制 Multi-Head Attention")
+    pub category: String,  // 学科或领域分类 (如 "深度学习", "量子力学")
+    pub source: String,    // MathSlot 流式简码源文本
+    pub desc: String,      // 学术背景、数学原理或工程用途说明
+    pub tags: Vec<String>, // 检索与智能联想标签
+    pub is_builtin: bool,  // 是否为系统内置种子公式
+    pub created_at: u64,   // 创建时间戳 (秒级 Unix Epoch)
 }
 
 /// 动态公式容器 (FormulaLibrary / FormulaCorpus)
@@ -226,7 +221,11 @@ impl FormulaLibrary {
         for (i, p) in crate::presets::PRESET_LIBRARY.iter().enumerate() {
             let id = format!("preset-{:03}", i + 1);
             let mut tags = Vec::new();
-            for word in p.name.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|s| !s.is_empty()) {
+            for word in p
+                .name
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .filter(|s| !s.is_empty())
+            {
                 if word.len() >= 2 {
                     tags.push(word.to_ascii_lowercase());
                 }
@@ -259,7 +258,13 @@ impl FormulaLibrary {
             entry.category = "自定义公式".to_owned();
         }
         if entry.id.trim().is_empty() {
-            entry.id = format!("user-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
+            entry.id = format!(
+                "user-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            );
         }
         let id = entry.id.clone();
         if let Some(pos) = self.entries.iter().position(|e| e.id == id) {
@@ -286,7 +291,12 @@ impl FormulaLibrary {
 
     pub fn restore_defaults(&mut self) {
         let mut seeded = Self::default_seeded();
-        let user_entries: Vec<FormulaEntry> = self.entries.iter().filter(|e| !e.is_builtin).cloned().collect();
+        let user_entries: Vec<FormulaEntry> = self
+            .entries
+            .iter()
+            .filter(|e| !e.is_builtin)
+            .cloned()
+            .collect();
         seeded.entries.extend(user_entries);
         *self = seeded;
     }
@@ -303,21 +313,26 @@ impl FormulaLibrary {
 
     pub fn filter<'a>(&'a self, category: Option<&str>, query: &str) -> Vec<&'a FormulaEntry> {
         let q = query.trim().to_lowercase();
-        self.entries.iter().filter(|e| {
-            if let Some(cat) = category {
-                if cat != "全部" && !cat.is_empty() && e.category != cat {
+        self.entries
+            .iter()
+            .filter(|e| {
+                if let Some(cat) = category
+                    && cat != "全部"
+                    && !cat.is_empty()
+                    && e.category != cat
+                {
                     return false;
                 }
-            }
-            if q.is_empty() {
-                return true;
-            }
-            e.name.to_lowercase().contains(&q)
-                || e.desc.to_lowercase().contains(&q)
-                || e.source.to_lowercase().contains(&q)
-                || e.category.to_lowercase().contains(&q)
-                || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
-        }).collect()
+                if q.is_empty() {
+                    return true;
+                }
+                e.name.to_lowercase().contains(&q)
+                    || e.desc.to_lowercase().contains(&q)
+                    || e.source.to_lowercase().contains(&q)
+                    || e.category.to_lowercase().contains(&q)
+                    || e.tags.iter().any(|t| t.to_lowercase().contains(&q))
+            })
+            .collect()
     }
 
     pub fn export_json(&self) -> String {
@@ -366,7 +381,10 @@ impl FormulaLibrary {
                 if id.is_empty() {
                     id = format!("imported-{}", count + 1);
                 }
-                let category = get_str(&obj, "category").unwrap_or("自定义公式").trim().to_owned();
+                let category = get_str(&obj, "category")
+                    .unwrap_or("自定义公式")
+                    .trim()
+                    .to_owned();
                 let desc = get_str(&obj, "desc").unwrap_or("").trim().to_owned();
                 let mut tags = Vec::new();
                 if let Some(JsonVal::Arr(t_arr)) = find_field(&obj, "tags") {
@@ -376,12 +394,16 @@ impl FormulaLibrary {
                         }
                     }
                 }
-                let is_builtin = match find_field(&obj, "is_builtin").or_else(|| find_field(&obj, "isBuiltin")) {
+                let is_builtin = match find_field(&obj, "is_builtin")
+                    .or_else(|| find_field(&obj, "isBuiltin"))
+                {
                     Some(JsonVal::Bool(b)) => *b,
                     _ => false,
                 };
-                let created_at = match find_field(&obj, "created_at").or_else(|| find_field(&obj, "createdAt")) {
-                    Some(JsonVal::Num(n)) => *n as u64,
+                let created_at = match find_field(&obj, "created_at")
+                    .or_else(|| find_field(&obj, "createdAt"))
+                {
+                    Some(JsonVal::Num(n)) => *n,
                     _ => 0,
                 };
 
@@ -437,7 +459,8 @@ impl UserLibrary {
                     slot_roles: vec!["上标n".to_owned(), "下标k".to_owned()],
                     latex_template: "\\binom{$1}{$2}".to_owned(),
                     scheme_a_name: "binom".to_owned(),
-layout: LayoutKind::Linear, auto_join: None,
+                    layout: LayoutKind::Linear,
+                    auto_join: None,
                 },
                 CustomFormat {
                     item_key: 'b',
@@ -446,7 +469,8 @@ layout: LayoutKind::Linear, auto_join: None,
                     slot_roles: vec!["向量".to_owned()],
                     latex_template: "\\left\\Vert $1 \\right\\Vert".to_owned(),
                     scheme_a_name: "norm".to_owned(),
-layout: LayoutKind::Linear, auto_join: None,
+                    layout: LayoutKind::Linear,
+                    auto_join: None,
                 },
                 CustomFormat {
                     item_key: 'c',
@@ -455,7 +479,8 @@ layout: LayoutKind::Linear, auto_join: None,
                     slot_roles: vec!["下方条件".to_owned(), "上方标注".to_owned()],
                     latex_template: "\\xrightarrow[$1]{$2}".to_owned(),
                     scheme_a_name: "xto".to_owned(),
-layout: LayoutKind::Linear, auto_join: None,
+                    layout: LayoutKind::Linear,
+                    auto_join: None,
                 },
                 CustomFormat {
                     item_key: 'd',
@@ -464,7 +489,8 @@ layout: LayoutKind::Linear, auto_join: None,
                     slot_roles: vec!["左项".to_owned(), "右项".to_owned()],
                     latex_template: "\\left\\langle $1, $2 \\right\\rangle".to_owned(),
                     scheme_a_name: "inner".to_owned(),
-layout: LayoutKind::Linear, auto_join: None,
+                    layout: LayoutKind::Linear,
+                    auto_join: None,
                 },
                 CustomFormat {
                     item_key: 'e',
@@ -473,7 +499,8 @@ layout: LayoutKind::Linear, auto_join: None,
                     slot_roles: vec!["大写字母".to_owned()],
                     latex_template: "\\mathbb{$1}".to_owned(),
                     scheme_a_name: "bb".to_owned(),
-layout: LayoutKind::Linear, auto_join: None,
+                    layout: LayoutKind::Linear,
+                    auto_join: None,
                 },
                 CustomFormat {
                     item_key: 'f',
@@ -597,9 +624,12 @@ layout: LayoutKind::Linear, auto_join: None,
                 if env.is_empty() || !env.chars().all(|c| c.is_ascii_alphabetic()) {
                     return Err("env 环境名必须为非空 ASCII 字母（如 pmatrix）。".to_owned());
                 }
-                if *cols == 0 || fmt.slot_roles.is_empty() || fmt.slot_roles.len() % cols != 0 {
+                if *cols == 0
+                    || fmt.slot_roles.is_empty()
+                    || !fmt.slot_roles.len().is_multiple_of(*cols)
+                {
                     return Err(
-                        "env 布局要求槽位数量为列数的整数倍（roles = 行数 × cols）。".to_owned()
+                        "env 布局要求槽位数量为列数的整数倍（roles = 行数 × cols）。".to_owned(),
                     );
                 }
                 fmt.layout = LayoutKind::Env { env, cols: *cols };
@@ -663,7 +693,11 @@ layout: LayoutKind::Linear, auto_join: None,
         Ok(key)
     }
 
-    pub fn add_snippet_auto(&mut self, label: String, stream_source: String) -> Result<char, String> {
+    pub fn add_snippet_auto(
+        &mut self,
+        label: String,
+        stream_source: String,
+    ) -> Result<char, String> {
         let Some(key) = self.next_free_snippet_key() else {
             return Err("片段库 a-z (26 个槽位) 已满，请先删除不再使用的旧片段。".to_owned());
         };
@@ -682,7 +716,10 @@ layout: LayoutKind::Linear, auto_join: None,
     }
 
     pub fn to_json_pretty(&self) -> String {
-        let mut out = format!("{{\n  \"schema_version\": {},\n  \"customFormats\": [\n", CURRENT_SCHEMA_VERSION);
+        let mut out = format!(
+            "{{\n  \"schema_version\": {},\n  \"customFormats\": [\n",
+            CURRENT_SCHEMA_VERSION
+        );
         for (idx, f) in self.custom_formats.iter().enumerate() {
             if idx > 0 {
                 out.push_str(",\n");
@@ -891,7 +928,10 @@ layout: LayoutKind::Linear, auto_join: None,
                     if id.is_empty() {
                         id = format!("formula-{}", f_entries.len() + 1);
                     }
-                    let category = get_str(obj, "category").unwrap_or("自定义公式").trim().to_owned();
+                    let category = get_str(obj, "category")
+                        .unwrap_or("自定义公式")
+                        .trim()
+                        .to_owned();
                     let desc = get_str(obj, "desc").unwrap_or("").trim().to_owned();
                     let mut tags = Vec::new();
                     if let Some(JsonVal::Arr(t_arr)) = find_field(obj, "tags") {
@@ -901,12 +941,16 @@ layout: LayoutKind::Linear, auto_join: None,
                             }
                         }
                     }
-                    let is_builtin = match find_field(obj, "is_builtin").or_else(|| find_field(obj, "isBuiltin")) {
+                    let is_builtin = match find_field(obj, "is_builtin")
+                        .or_else(|| find_field(obj, "isBuiltin"))
+                    {
                         Some(JsonVal::Bool(b)) => *b,
                         _ => false,
                     };
-                    let created_at = match find_field(obj, "created_at").or_else(|| find_field(obj, "createdAt")) {
-                        Some(JsonVal::Num(n)) => *n as u64,
+                    let created_at = match find_field(obj, "created_at")
+                        .or_else(|| find_field(obj, "createdAt"))
+                    {
+                        Some(JsonVal::Num(n)) => *n,
                         _ => 0,
                     };
 
@@ -1206,9 +1250,8 @@ impl JsonParser {
                                     if !(0xDC00..=0xDFFF).contains(&low) {
                                         return Err("JSON 代理对低半区非法".to_owned());
                                     }
-                                    let combined = 0x10000
-                                        + ((code - 0xD800) << 10)
-                                        + (low - 0xDC00);
+                                    let combined =
+                                        0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
                                     out.push(
                                         char::from_u32(combined)
                                             .ok_or("JSON 代理对合并后码点非法")?,
@@ -1239,7 +1282,11 @@ mod tests {
     #[test]
     fn test_formula_library_crud_and_filter() {
         let mut lib = FormulaLibrary::default_seeded();
-        assert!(lib.entries.len() >= 88, "应当收录 88+ 项权威预置公式，当前 {}", lib.entries.len());
+        assert!(
+            lib.entries.len() >= 88,
+            "应当收录 88+ 项权威预置公式，当前 {}",
+            lib.entries.len()
+        );
 
         // 检索测试
         let dl = lib.filter(Some("现代深度学习与人工智能"), "Attention");
@@ -1283,7 +1330,9 @@ mod tests {
         let json = lib.export_json();
         assert!(json.contains("Attention(Q, K, V)"));
 
-        let mut imported_lib = FormulaLibrary { entries: Vec::new() };
+        let mut imported_lib = FormulaLibrary {
+            entries: Vec::new(),
+        };
         let count = imported_lib.import_json(&json, true).expect("导入成功");
         assert_eq!(count, initial_len);
         assert_eq!(imported_lib.entries.len(), initial_len);
@@ -1295,7 +1344,10 @@ mod tests {
         assert!(u_json.contains("\"formulas\": ["));
 
         let parsed_u = UserLibrary::from_json(&u_json).expect("解析 Schema 2 必须成功");
-        assert_eq!(parsed_u.formulas.entries.len(), user_lib.formulas.entries.len());
+        assert_eq!(
+            parsed_u.formulas.entries.len(),
+            user_lib.formulas.entries.len()
+        );
 
         // 测试向后兼容 v1（无 formulas 字段）
         let v1_json = r#"{
@@ -1304,6 +1356,10 @@ mod tests {
             "snippets": []
         }"#;
         let parsed_v1 = UserLibrary::from_json(v1_json).expect("解析 v1 配置必须成功");
-        assert_eq!(parsed_v1.formulas.entries.len(), initial_len, "v1 必须自动以种子数据填充 formulas");
+        assert_eq!(
+            parsed_v1.formulas.entries.len(),
+            initial_len,
+            "v1 必须自动以种子数据填充 formulas"
+        );
     }
 }

@@ -31,23 +31,18 @@ fn test_gt01_gaussian_integral_script_nesting() {
         let mut found_gaussian_exp = false;
         for item in body {
             if let Expr::Script {
-                base: _,
-                sub: _,
-                sup,
+                sup: Some(sup_box), ..
             } = &item.node
+                && let Expr::Group(group_items) = &sup_box.node
             {
-                if let Some(sup_box) = sup {
-                    if let Expr::Group(group_items) = &sup_box.node {
-                        // 组内应包含一元负号与 x^2
-                        for inner in group_items {
-                            if let Expr::Script { base, sub: _, sup } = &inner.node {
-                                if let Expr::Text(base_text) = &base.node {
-                                    if base_text == "x" && sup.is_some() {
-                                        found_gaussian_exp = true;
-                                    }
-                                }
-                            }
-                        }
+                // 组内应包含一元负号与 x^2
+                for inner in group_items {
+                    if let Expr::Script { base, sub: _, sup } = &inner.node
+                        && let Expr::Text(base_text) = &base.node
+                        && base_text == "x"
+                        && sup.is_some()
+                    {
+                        found_gaussian_exp = true;
                     }
                 }
             }

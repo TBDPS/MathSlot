@@ -8,8 +8,8 @@
 //! 5. Git 跟踪与 `.gitignore` 隔离合约
 
 use mathslot_core::{
-    exprs_structurally_equal, inspect_environment, parse, Edit,
-    EnvironmentShape, MatrixEnv, Session, SlotId,
+    Edit, EnvironmentShape, MatrixEnv, Session, SlotId, exprs_structurally_equal,
+    inspect_environment, parse,
 };
 use std::path::Path;
 
@@ -35,10 +35,8 @@ fn test_acc_r10_window_viewport_stability_and_zero_jump_contracts() {
         app_rs_path.display()
     );
 
-    let src = std::fs::read_to_string(&modals_rs_path)
-        .expect("Read src/modals.rs must succeed");
-    let app_src = std::fs::read_to_string(&app_rs_path)
-        .expect("Read src/app.rs must succeed");
+    let src = std::fs::read_to_string(&modals_rs_path).expect("Read src/modals.rs must succeed");
+    let app_src = std::fs::read_to_string(&app_rs_path).expect("Read src/app.rs must succeed");
 
     // Round 11 架构升级：彻底废除 egui::Window 模态浮窗弹出机制，全面转为右侧一等公民内联工作区体系
     // 1.1 验证源码中已彻底清除 egui::Window 浮窗机制（实现真正 0 浮窗、0 视口跳变、0 遮挡）
@@ -124,7 +122,8 @@ fn test_acc_r10_cards_and_forms_semantic_layout_inspection() {
     );
     // 第二层 LaTeX 模板输入框 100% 通栏
     assert!(
-        src.contains(".desired_width(ui.available_width())") && src.contains(".hint_text(r\"$1 \\equiv $2 \\pmod{$3}\")"),
+        src.contains(".desired_width(ui.available_width())")
+            && src.contains(".hint_text(r\"$1 \\equiv $2 \\pmod{$3}\")"),
         "LaTeX 模板必须采用 desired_width(ui.available_width()) 100% 通栏布局"
     );
 
@@ -136,12 +135,14 @@ fn test_acc_r10_cards_and_forms_semantic_layout_inspection() {
     );
     // 模版名称: 220px
     assert!(
-        src.contains(".desired_width(220.0)") && src.contains(".hint_text(\"如：高斯核 / 泰勒余项\")"),
+        src.contains(".desired_width(220.0)")
+            && src.contains(".hint_text(\"如：高斯核 / 泰勒余项\")"),
         "模版名称 desired_width 必须为 220.0"
     );
     // 简码流源码: 100% 通栏
     assert!(
-        src.contains(".desired_width(ui.available_width())") && src.contains(".hint_text(\"如 ▸rb^2 - 4ac;\")"),
+        src.contains(".desired_width(ui.available_width())")
+            && src.contains(".hint_text(\"如 ▸rb^2 - 4ac;\")"),
         "片段简码源码必须采用 desired_width(ui.available_width()) 100% 通栏布局"
     );
 
@@ -273,15 +274,27 @@ fn test_acc_r10_rewrite_design_section13_comprehensive_matrix() {
 
     // 5.2 大算子后接 \left(...\right) 幽灵空槽根除
     let big_op_cases = [
-        ("Sum with delimiters", r"\sum_{i=1}^{n} \left( x_{i} + y_{i} \right)"),
-        ("Integral with delimiters", r"\int_{-\infty}^{\infty} \left( 1 - \frac{t}{2} \right) dt"),
-        ("Product with delimiters", r"\prod_{k=1}^{\infty} \left( 1 + \frac{1}{k^{2}} \right)"),
+        (
+            "Sum with delimiters",
+            r"\sum_{i=1}^{n} \left( x_{i} + y_{i} \right)",
+        ),
+        (
+            "Integral with delimiters",
+            r"\int_{-\infty}^{\infty} \left( 1 - \frac{t}{2} \right) dt",
+        ),
+        (
+            "Product with delimiters",
+            r"\prod_{k=1}^{\infty} \left( 1 + \frac{1}{k^{2}} \right)",
+        ),
     ];
     for (name, formula) in big_op_cases {
         let (session, report) = Session::from_latex(formula);
         assert_eq!(report.empty_slots, 0, "[{name}] Empty slots must be 0");
         assert!(report.lossless, "[{name}] Must be lossless");
-        assert!(!session.to_latex().contains("▸j"), "Must have no control chars");
+        assert!(
+            !session.to_latex().contains("▸j"),
+            "Must have no control chars"
+        );
     }
 
     // 5.3 矩阵与分支结构精准解析
@@ -354,6 +367,9 @@ fn test_acc_r10_rewrite_design_section13_comprehensive_matrix() {
     let lossy_input = r"\myExoticMacro[3]{foo}{bar}";
     let (_session, lossy_rep) = Session::from_latex(lossy_input);
     assert!(!lossy_rep.lossless, "Exotic macro must be lossy");
-    assert!(lossy_rep.raw_nodes > 0, "Exotic macro must produce raw node");
+    assert!(
+        lossy_rep.raw_nodes > 0,
+        "Exotic macro must produce raw node"
+    );
     assert!(!lossy_rep.diagnostics.is_empty(), "Must have diagnostics");
 }

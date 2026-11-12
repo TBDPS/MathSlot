@@ -3,8 +3,7 @@ use crate::ast::{
     Span,
 };
 use crate::command::{
-    CMD_PREFIX, CommandTarget, STEP_SEP, StructKind, SubCategory, lookup_direct,
-    lookup_sub_command,
+    CMD_PREFIX, CommandTarget, STEP_SEP, StructKind, SubCategory, lookup_direct, lookup_sub_command,
 };
 use crate::library::{CustomFormat, UserLibrary};
 
@@ -553,7 +552,9 @@ impl<'a> Parser<'a> {
                             start: cmd_start,
                             end: cmd_end,
                         };
-                        return match lookup_sub_command(k1, c2).or_else(|| lookup_sub_command(k1, c2.to_ascii_lowercase())) {
+                        return match lookup_sub_command(k1, c2)
+                            .or_else(|| lookup_sub_command(k1, c2.to_ascii_lowercase()))
+                        {
                             Some(CommandTarget::Symbol(sym)) => Expr::Symbol {
                                 cmd: sym,
                                 span: cmd_span,
@@ -662,7 +663,7 @@ impl<'a> Parser<'a> {
         self.depth -= 1;
         let full_end = self.current_pos();
         Expr::CustomStruct {
-            format,
+            format: Box::new(format),
             cmd_span,
             slots,
             full_span: Span {

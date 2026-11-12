@@ -1,7 +1,7 @@
-use latex_rust::{latex_to_png, Color, Dim, MathFont, PngBackground, PngOptions};
+use latex_rust::{Color, Dim, MathFont, PngBackground, PngOptions, latex_to_png};
 use mathslot_core::editor::StreamEditor;
 use mathslot_core::latex::{latex_to_mathslot, text_to_latex};
-use mathslot_core::visual::{build_preview_latex, VisualDialect};
+use mathslot_core::visual::{VisualDialect, build_preview_latex};
 use tiny_skia::Pixmap;
 
 fn render_png_strict(latex_src: &str) -> (u32, u32) {
@@ -50,7 +50,10 @@ fn test_overhaul_m1_gaussian_integral_paste_and_rasterization() {
 
     // 3. 验证真实 latex-rust 3.0.1 编译与 tiny-skia 光栅化
     let (w, h) = render_png_strict(&exported);
-    assert!(w > 50 && h > 20, "Rasterized Gaussian integral must be a valid formula bitmap (got {w}x{h})");
+    assert!(
+        w > 50 && h > 20,
+        "Rasterized Gaussian integral must be a valid formula bitmap (got {w}x{h})"
+    );
 
     // 4. 穷举该公式全部字符光标位置（0..=doc.char_len），验证实时预览无双重上标且 100% 可光栅化
     let doc = &editor.parsed;

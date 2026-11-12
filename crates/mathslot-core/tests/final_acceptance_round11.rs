@@ -23,15 +23,28 @@ fn test_acc_r11_workspace_tab_state_model_contract() {
         app_src.contains("pub enum WorkspaceTab"),
         "必须定义 pub enum WorkspaceTab"
     );
-    assert!(app_src.contains("Palette,"), "WorkspaceTab 必须包含 Palette 变体");
-    assert!(app_src.contains("Corpus,"), "WorkspaceTab 必须包含 Corpus 变体");
-    assert!(app_src.contains("Formats,"), "WorkspaceTab 必须包含 Formats 变体");
-    assert!(app_src.contains("LatexImport,"), "WorkspaceTab 必须包含 LatexImport 变体");
+    assert!(
+        app_src.contains("Palette,"),
+        "WorkspaceTab 必须包含 Palette 变体"
+    );
+    assert!(
+        app_src.contains("Corpus,"),
+        "WorkspaceTab 必须包含 Corpus 变体"
+    );
+    assert!(
+        app_src.contains("Formats,"),
+        "WorkspaceTab 必须包含 Formats 变体"
+    );
+    assert!(
+        app_src.contains("LatexImport,"),
+        "WorkspaceTab 必须包含 LatexImport 变体"
+    );
     assert!(app_src.contains("Help,"), "WorkspaceTab 必须包含 Help 变体");
 
     // 1.2 验证默认态为 Palette
     assert!(
-        app_src.contains("#[default]\n    Palette,") || app_src.contains("#[default]\r\n    Palette,"),
+        app_src.contains("#[default]\n    Palette,")
+            || app_src.contains("#[default]\r\n    Palette,"),
         "WorkspaceTab 默认项必须为 Palette"
     );
 
@@ -128,16 +141,28 @@ fn test_acc_r11_tab_bar_capsule_and_hotkey_routing() {
     assert!(app_src.contains("∑ 符号结构"), "必须包含 [∑ 符号结构] 标签");
     assert!(app_src.contains("📚 公式库"), "必须包含 [📚 公式库] 标签");
     assert!(app_src.contains("⚙ 扩展中心"), "必须包含 [⚙ 扩展中心] 标签");
-    assert!(app_src.contains("⇄ LaTeX 导入"), "必须包含 [⇄ LaTeX 导入] 标签");
-    assert!(app_src.contains("💡 使用指南"), "必须包含 [💡 使用指南] 标签");
+    assert!(
+        app_src.contains("⇄ LaTeX 导入"),
+        "必须包含 [⇄ LaTeX 导入] 标签"
+    );
+    assert!(
+        app_src.contains("💡 使用指南"),
+        "必须包含 [💡 使用指南] 标签"
+    );
 
     // 4.3 快捷键映射核验
     assert!(app_src.contains("Key::F1"), "必须支持 F1 切换指南");
     assert!(app_src.contains("Key::F2"), "必须支持 F2 切换公式库");
     assert!(app_src.contains("Key::F3"), "必须支持 F3 切换扩展中心");
     assert!(app_src.contains("Key::F4"), "必须支持 F4 切换 LaTeX 导入");
-    assert!(app_src.contains("Key::Num1") && app_src.contains("Modifiers::ALT"), "必须支持 Alt+1 切回 Palette");
-    assert!(app_src.contains("Key::Escape"), "非 Palette 状态必须支持 Escape 切回 Palette");
+    assert!(
+        app_src.contains("Key::Num1") && app_src.contains("Modifiers::ALT"),
+        "必须支持 Alt+1 切回 Palette"
+    );
+    assert!(
+        app_src.contains("Key::Escape"),
+        "非 Palette 状态必须支持 Escape 切回 Palette"
+    );
 }
 
 #[test]

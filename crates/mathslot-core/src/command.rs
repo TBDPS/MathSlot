@@ -45,23 +45,23 @@ pub enum StructKind {
     Det2,    // mc
     Cases2,  // md
     // 顶部标注与定界子菜单 (a*)
-    Hat,   // aa (默认)
-    Bar,   // ab
-    Vec,   // ac
-    Tilde, // ad
-    Dot,   // ae
-    Norm,     // af
-    Overline, // ag
-    DDot,     // ah
-    Underline,// ai
-    Overbrace,// aj
-    Underbrace,// ak
-    Bracket,  // al
-    Brace,    // am
-    Angle,    // an
-    Floor,    // ao
-    Ceil,     // ap
-    EvalBar,  // aq
+    Hat,        // aa (默认)
+    Bar,        // ab
+    Vec,        // ac
+    Tilde,      // ad
+    Dot,        // ae
+    Norm,       // af
+    Overline,   // ag
+    DDot,       // ah
+    Underline,  // ai
+    Overbrace,  // aj
+    Underbrace, // ak
+    Bracket,    // al
+    Brace,      // am
+    Angle,      // an
+    Floor,      // ao
+    Ceil,       // ap
+    EvalBar,    // aq
     // 二项式系数（单字母直达 e）
     Binom, // e
     // 矩阵与分段子菜单扩展 (m*)
@@ -74,29 +74,29 @@ pub enum StructKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SymbolCmd {
     // 希腊字母子菜单 (g*) - 完整 24 个小写希腊字母 + 11 个大写希腊字母
-    Alpha,      // ga (默认)
-    Beta,       // gb
-    Gamma,      // gc
-    Delta,      // gd
-    Epsilon,    // ge
-    Zeta,       // gz
-    Eta,        // gh
-    Theta,      // gt
-    Iota,       // gi
-    Kappa,      // gk
-    Lambda,     // gl
-    Mu,         // gm
-    Nu,         // gn
-    Xi,         // gx
-    Pi,         // gp
-    Rho,        // gr
-    Sigma,      // gs
-    Tau,        // gu
-    Upsilon,    // gv
-    Phi,        // gf
-    Chi,        // gq
-    Psi,        // gy
-    Omega,      // go
+    Alpha,   // ga (默认)
+    Beta,    // gb
+    Gamma,   // gc
+    Delta,   // gd
+    Epsilon, // ge
+    Zeta,    // gz
+    Eta,     // gh
+    Theta,   // gt
+    Iota,    // gi
+    Kappa,   // gk
+    Lambda,  // gl
+    Mu,      // gm
+    Nu,      // gn
+    Xi,      // gx
+    Pi,      // gp
+    Rho,     // gr
+    Sigma,   // gs
+    Tau,     // gu
+    Upsilon, // gv
+    Phi,     // gf
+    Chi,     // gq
+    Psi,     // gy
+    Omega,   // go
     // 大写希腊字母
     CapGamma,   // gC
     CapDelta,   // gD
@@ -127,19 +127,19 @@ pub enum SymbolCmd {
     Parallel, // oo
     Perp,     // op
     // 关系符与箭头子菜单 (x*)
-    Equiv,      // xa (默认)
-    Approx,     // xb
-    Sim,        // xc
-    Propto,     // xd
-    Implies,    // xe
-    Iff,        // xf
-    Mapsto,     // xg
-    Therefore,  // xh
-    Because,    // xi
-    Cong,       // xj
-    Ll,         // xk
-    Gg,         // xl
-    Simeq,      // xm
+    Equiv,     // xa (默认)
+    Approx,    // xb
+    Sim,       // xc
+    Propto,    // xd
+    Implies,   // xe
+    Iff,       // xf
+    Mapsto,    // xg
+    Therefore, // xh
+    Because,   // xi
+    Cong,      // xj
+    Ll,        // xk
+    Gg,        // xl
+    Simeq,     // xm
     // 集合与逻辑子菜单 (q*)
     Cup,        // qa (默认)
     Cap,        // qb
@@ -1577,9 +1577,7 @@ impl StructKind {
             StructKind::EvalBar => &["表达式", "下限", "上限"],
             StructKind::Binom => &["上标 n", "下标 k"],
             StructKind::BMatrix2 => &["(1,1)", "(1,2)", "(2,1)", "(2,2)"],
-            StructKind::Cases3 => &[
-                "表达式1", "条件1", "表达式2", "条件2", "表达式3", "条件3",
-            ],
+            StructKind::Cases3 => &["表达式1", "条件1", "表达式2", "条件2", "表达式3", "条件3"],
         }
     }
 
@@ -1591,10 +1589,9 @@ impl StructKind {
     /// 返回应当自动接收该已有表达式的「主体槽位下标」：
     pub fn wrap_body_slot_index(self) -> Option<usize> {
         match self {
-            StructKind::Limit
-            | StructKind::Integral
-            | StructKind::Sum
-            | StructKind::Product => Some(2),
+            StructKind::Limit | StructKind::Integral | StructKind::Sum | StructKind::Product => {
+                Some(2)
+            }
             StructKind::NthRoot
             | StructKind::DoubleIntegral
             | StructKind::ContourIntegral
@@ -2021,10 +2018,7 @@ impl SymbolCmd {
 }
 
 pub fn lookup_direct(ch: char) -> Option<StructKind> {
-    DIRECT_ENTRIES
-        .iter()
-        .find(|e| e.key == ch)
-        .map(|e| e.kind)
+    DIRECT_ENTRIES.iter().find(|e| e.key == ch).map(|e| e.kind)
 }
 
 pub fn lookup_sub_command(c1: char, c2: char) -> Option<CommandTarget> {

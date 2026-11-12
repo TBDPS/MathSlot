@@ -8,18 +8,18 @@ use eframe::egui::{
     Key, Layout, Margin, Modifiers, Rect, RichText, Sense, Stroke, StrokeKind, Vec2,
 };
 
+use crate::modals::{LibraryModalState, ModalAction, load_library_from_disk, save_library_to_disk};
+use crate::render::{PIXELS_PER_POINT, RenderJob, RenderWorker};
+use crate::theme::*;
 use mathslot_core::ast::NavEntryKind;
 use mathslot_core::command::{
-    CMD_PREFIX, DIRECT_ENTRIES, PrefixMenuState, STEP_SEP, SubCategory,
-    lookup_direct, lookup_sub_command,
+    CMD_PREFIX, DIRECT_ENTRIES, PrefixMenuState, STEP_SEP, SubCategory, lookup_direct,
+    lookup_sub_command,
 };
 use mathslot_core::editor::{Snapshot, StreamEditor};
 use mathslot_core::latex;
 use mathslot_core::library::UserLibrary;
 use mathslot_core::scheme_a;
-use crate::modals::{LibraryModalState, ModalAction, load_library_from_disk, save_library_to_disk};
-use crate::render::{PIXELS_PER_POINT, RenderJob, RenderWorker};
-use crate::theme::*;
 
 const STATUS_BAR_HEIGHT: f32 = 26.0;
 const LEFT_PANEL_DEFAULT_WIDTH: f32 = 460.0;
@@ -29,23 +29,23 @@ const NAV_BOX_HEIGHT: f32 = 96.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum WorkspaceTab {
     #[default]
-    Palette,      // 符号结构网格
-    Corpus,       // 权威公式库 88+
-    Formats,      // 扩展中心：自定义宏与复用片段
-    LatexImport,  // LaTeX 逆向反编译工作台
-    Help,         // 使用指南与快捷键图谱
+    Palette, // 符号结构网格
+    Corpus,      // 权威公式库 88+
+    Formats,     // 扩展中心：自定义宏与复用片段
+    LatexImport, // LaTeX 逆向反编译工作台
+    Help,        // 使用指南与快捷键图谱
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PaletteCategory {
-    Direct,    // 常用结构 (12项单键直达)
-    Calculus,  // 微积分 (c▸)
-    Matrix,    // 矩阵定界 (m▸)
-    Accent,    // 标注向量 (a▸)
-    Operator,  // 常用算子 (o▸)
-    Greek,     // 希腊字母 (g▸)
-    Relation,  // 关系逻辑 (x▸ / q▸)
-    Custom,    // 自定义与模版 (k▸ / t▸)
+    Direct,   // 常用结构 (12项单键直达)
+    Calculus, // 微积分 (c▸)
+    Matrix,   // 矩阵定界 (m▸)
+    Accent,   // 标注向量 (a▸)
+    Operator, // 常用算子 (o▸)
+    Greek,    // 希腊字母 (g▸)
+    Relation, // 关系逻辑 (x▸ / q▸)
+    Custom,   // 自定义与模版 (k▸ / t▸)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -257,11 +257,12 @@ impl MathSlotApp {
             self.alt_combo_active = true;
         }
         if alt_released {
-            if let Some(started) = self.alt_press_at.take() {
-                if !self.alt_combo_active && started.elapsed() <= Duration::from_millis(500) {
-                    self.nav_leader_until = Some(now + Duration::from_millis(800));
-                    self.status = "Alt 已就绪：按 j 进入导航。".to_owned();
-                }
+            if let Some(started) = self.alt_press_at.take()
+                && !self.alt_combo_active
+                && started.elapsed() <= Duration::from_millis(500)
+            {
+                self.nav_leader_until = Some(now + Duration::from_millis(800));
+                self.status = "Alt 已就绪：按 j 进入导航。".to_owned();
             }
             self.alt_combo_active = false;
         }
@@ -278,9 +279,7 @@ impl MathSlotApp {
 
     /// 选区 + 左括号：在 TextEdit 处理前拦截，按选区字面范围包裹。
     fn try_wrap_bracket_selection(&mut self, ctx: &egui::Context) -> bool {
-        if self.editor.esc_nav.is_some()
-            || !ctx.memory(|m| m.has_focus(self.input_id))
-        {
+        if self.editor.esc_nav.is_some() || !ctx.memory(|m| m.has_focus(self.input_id)) {
             return false;
         }
         let modifiers = ctx.input(|input| input.modifiers);
@@ -360,7 +359,9 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F2) || i.consume_key(Modifiers::ALT, Key::Num2)) {
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::NONE, Key::F2) || i.consume_key(Modifiers::ALT, Key::Num2)
+        }) {
             self.active_tab = if self.active_tab == WorkspaceTab::Corpus {
                 WorkspaceTab::Palette
             } else {
@@ -372,7 +373,9 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F3) || i.consume_key(Modifiers::ALT, Key::Num3)) {
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::NONE, Key::F3) || i.consume_key(Modifiers::ALT, Key::Num3)
+        }) {
             self.active_tab = if self.active_tab == WorkspaceTab::Formats {
                 WorkspaceTab::Palette
             } else {
@@ -385,7 +388,9 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F4) || i.consume_key(Modifiers::ALT, Key::Num4)) {
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::NONE, Key::F4) || i.consume_key(Modifiers::ALT, Key::Num4)
+        }) {
             self.active_tab = if self.active_tab == WorkspaceTab::LatexImport {
                 WorkspaceTab::Palette
             } else {
@@ -488,9 +493,7 @@ impl MathSlotApp {
         }
 
         // Alt 轻按松开后按 j：同样是两个顺序动作，不是 Alt+J 组合键。
-        if self.nav_leader_active()
-            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::J))
-        {
+        if self.nav_leader_active() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::J)) {
             self.nav_leader_until = None;
             self.consume_text_char(ctx, 'j');
             self.status = self.editor.toggle_esc_jump();
@@ -595,14 +598,13 @@ impl MathSlotApp {
 
         if matches!(self.editor.prefix_menu_state(), PrefixMenuState::SubMenu(_))
             && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space))
+            && let Some(msg) = self.editor.accept_submenu_default()
         {
-            if let Some(msg) = self.editor.accept_submenu_default() {
-                self.status = msg;
-                self.pending_cursor_sync = Some(self.editor.cursor_char);
-                self.request_input_focus = true;
-                self.mark_dirty();
-                return;
-            }
+            self.status = msg;
+            self.pending_cursor_sync = Some(self.editor.cursor_char);
+            self.request_input_focus = true;
+            self.mark_dirty();
+            return;
         }
 
         if matches!(self.editor.prefix_menu_state(), PrefixMenuState::Idle) {
@@ -738,9 +740,10 @@ impl MathSlotApp {
             match self.editor.prefix_menu_state() {
                 PrefixMenuState::Idle => ("流式书写".to_owned(), GREEN),
                 PrefixMenuState::Root => ("Tab 就绪 · 按单键插入".to_owned(), AMBER),
-                PrefixMenuState::SubMenu(sub) => {
-                    (format!("子菜单 {CMD_PREFIX}{} · {}", sub.key(), sub.title()), AMBER)
-                }
+                PrefixMenuState::SubMenu(sub) => (
+                    format!("子菜单 {CMD_PREFIX}{} · {}", sub.key(), sub.title()),
+                    AMBER,
+                ),
                 PrefixMenuState::Jump(seq) => (format!("内联跳转 {CMD_PREFIX}j{seq}"), CYAN),
                 PrefixMenuState::InvalidPrefix(c) => (format!("未知按键 {CMD_PREFIX}{c}"), RED),
             }
@@ -805,17 +808,29 @@ impl MathSlotApp {
                     } else {
                         ("⚡ 槽位直达 (Tab j)", TEXT_DIM)
                     };
-                    if tool_button_styled(ui, RichText::new(nav_label).size(11.5).color(nav_color), true, in_nav)
-                        .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
-                        .clicked()
+                    if tool_button_styled(
+                        ui,
+                        RichText::new(nav_label).size(11.5).color(nav_color),
+                        true,
+                        in_nav,
+                    )
+                    .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
+                    .clicked()
                     {
                         action_toggle_nav = true;
                     }
 
                     let next_preset = &PRESET_LIBRARY[self.preset_index % PRESET_LIBRARY.len()];
-                    if tool_button(ui, RichText::new("↻ 换一个").size(11.5).color(TEXT_DIM), true)
-                        .on_hover_text(format!("快速轮换载入下一个范例 [{}]：{}", next_preset.category, next_preset.name))
-                        .clicked()
+                    if tool_button(
+                        ui,
+                        RichText::new("↻ 换一个").size(11.5).color(TEXT_DIM),
+                        true,
+                    )
+                    .on_hover_text(format!(
+                        "快速轮换载入下一个范例 [{}]：{}",
+                        next_preset.category, next_preset.name
+                    ))
+                    .clicked()
                     {
                         action_preset = true;
                     }
@@ -863,18 +878,22 @@ impl MathSlotApp {
         }
     }
 
-// 新版 UI 核心实现：
-// 左栏三框常驻（预览框、导航结构框、输入输出框，无标题、零跳变、固定高度、一键无痛复制）
-// 中间全宽主体为结构提示（大卡片、直观数学符号、中文名称、快捷键提示、一键点击即插）
+    // 新版 UI 核心实现：
+    // 左栏三框常驻（预览框、导航结构框、输入输出框，无标题、零跳变、固定高度、一键无痛复制）
+    // 中间全宽主体为结构提示（大卡片、直观数学符号、中文名称、快捷键提示、一键点击即插）
 
     // -----------------------------------------------------------------------
     // 左栏：三框常驻工作台（无标题、固定高度、零跳动、不突兀多出卡片）
     // -----------------------------------------------------------------------
 
-fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-    add_contents(&mut child)
-}
+    fn allocate_ui_at_rect<R>(
+        ui: &mut egui::Ui,
+        rect: Rect,
+        add_contents: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> R {
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        add_contents(&mut child)
+    }
 
     fn left_panel_ui(&mut self, ui: &mut egui::Ui, act: &mut UiActions) {
         egui::ScrollArea::vertical()
@@ -909,7 +928,12 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
 
             // 1. 顶部独立 Header 栏（物理隔离坐标，杜绝与公式重叠，右侧预留充足宽度 Toolbar）
             ui.horizontal(|ui| {
-                ui.label(RichText::new("公式预览").strong().size(12.5).color(PAPER_DARK));
+                ui.label(
+                    RichText::new("公式预览")
+                        .strong()
+                        .size(12.5)
+                        .color(PAPER_DARK),
+                );
 
                 if let Some(err) = &self.render_error {
                     ui.add_space(4.0);
@@ -923,7 +947,10 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                 // 右侧独立排布预留充足宽度（>= 140pt）的缩放 Toolbar
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
-                    if paper_button(ui, "+", false).on_hover_text("放大预览").clicked() {
+                    if paper_button(ui, "+", false)
+                        .on_hover_text("放大预览")
+                        .clicked()
+                    {
                         self.preview_scale = (self.preview_scale + 0.15).min(2.5);
                     }
                     if paper_button(ui, &format!("{:.0}%", self.preview_scale * 80.0), false)
@@ -932,7 +959,10 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     {
                         self.preview_scale = 1.25;
                     }
-                    if paper_button(ui, "−", false).on_hover_text("缩小预览").clicked() {
+                    if paper_button(ui, "−", false)
+                        .on_hover_text("缩小预览")
+                        .clicked()
+                    {
                         self.preview_scale = (self.preview_scale - 0.15).max(0.4);
                     }
                 });
@@ -987,7 +1017,8 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             ui.set_width(avail_w);
             ui.set_height(NAV_BOX_HEIGHT);
 
-            let (rect, _) = ui.allocate_exact_size(Vec2::new(avail_w, NAV_BOX_HEIGHT), Sense::hover());
+            let (rect, _) =
+                ui.allocate_exact_size(Vec2::new(avail_w, NAV_BOX_HEIGHT), Sense::hover());
             let in_nav = self.editor.esc_nav.is_some();
 
             if in_nav {
@@ -996,7 +1027,8 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     let img_h = 52.0;
                     let size = fitted_size(texture, (avail_w - 12.0).max(100.0), img_h, 1.15);
                     let img_center = egui::pos2(rect.center().x, rect.top() + 29.0);
-                    egui::Image::new(texture).paint_at(ui, Rect::from_center_size(img_center, size));
+                    egui::Image::new(texture)
+                        .paint_at(ui, Rect::from_center_size(img_center, size));
                 }
 
                 // 下部区域：常驻槽位跳转徽章，按键或点击直接跳改
@@ -1014,74 +1046,74 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
-                                if let Some(pair) = bracket_pair {
-                                    for (ch, hint, close) in [
-                                        ('(', "括号内", false),
-                                        (')', "括号外", true),
-                                    ] {
-                                        let tag = format!("[{ch}] {hint}");
-                                        let color = CYAN;
-                                        let btn = egui::Button::new(
-                                            RichText::new(tag)
-                                                .size(10.5)
-                                                .monospace()
-                                                .color(color),
-                                        )
-                                        .fill(FIELD)
-                                        .stroke(Stroke::new(1.0, color.gamma_multiply(0.45)))
-                                        .corner_radius(CornerRadius::same(5));
-                                        if ui
-                                            .add(btn)
-                                            .on_hover_text(format!(
-                                                "跳到 {} 配对括号的{}",
-                                                pair.open,
-                                                if close { "外侧" } else { "内侧" }
-                                            ))
-                                            .clicked()
+                                    ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
+                                    if let Some(pair) = bracket_pair {
+                                        for (ch, hint, close) in
+                                            [('(', "括号内", false), (')', "括号外", true)]
                                         {
-                                            act.clicked_jump = Some(ch.to_string());
-                                        }
-                                    }
-                                }
-                                if let Some(esc) = &self.editor.esc_nav {
-                                    let chain = self.editor.parsed.resolve_scope_chain(&esc.path);
-                                    let active_stage = chain.last().expect("root stage exists");
-                                    let path_prefix = esc.path.join("");
-
-                                    for entry in &active_stage.scope.entries {
-                                        if !esc.partial.is_empty()
-                                            && !entry.label.starts_with(&esc.partial)
-                                        {
-                                            continue;
-                                        }
-                                        let (glyph, color) = match &entry.kind {
-                                            NavEntryKind::ScopeStart => ("⇤首", CYAN),
-                                            NavEntryKind::ScopeEnd => ("⇥尾", CYAN),
-                                            NavEntryKind::Leaf { is_empty: true, .. } => {
-                                                ("∅空", RED)
+                                            let tag = format!("[{ch}] {hint}");
+                                            let color = CYAN;
+                                            let btn = egui::Button::new(
+                                                RichText::new(tag)
+                                                    .size(10.5)
+                                                    .monospace()
+                                                    .color(color),
+                                            )
+                                            .fill(FIELD)
+                                            .stroke(Stroke::new(1.0, color.gamma_multiply(0.45)))
+                                            .corner_radius(CornerRadius::same(5));
+                                            if ui
+                                                .add(btn)
+                                                .on_hover_text(format!(
+                                                    "跳到 {} 配对括号的{}",
+                                                    pair.open,
+                                                    if close { "外侧" } else { "内侧" }
+                                                ))
+                                                .clicked()
+                                            {
+                                                act.clicked_jump = Some(ch.to_string());
                                             }
-                                            NavEntryKind::Leaf { .. } => ("•槽", TEXT),
-                                            NavEntryKind::Composite { .. } => ("+子式", VIOLET),
-                                        };
-                                        let tag = format!("[{}] {}", entry.label, glyph);
-                                        let btn = egui::Button::new(
-                                            RichText::new(tag)
-                                                .size(10.5)
-                                                .monospace()
-                                                .color(color),
-                                        )
-                                        .fill(FIELD)
-                                        .stroke(Stroke::new(1.0, color.gamma_multiply(0.45)))
-                                        .corner_radius(CornerRadius::same(5));
-                                        if ui.add(btn).clicked() {
-                                            act.clicked_jump =
-                                                Some(format!("{path_prefix}{}", entry.label));
                                         }
                                     }
-                                }
+                                    if let Some(esc) = &self.editor.esc_nav {
+                                        let chain =
+                                            self.editor.parsed.resolve_scope_chain(&esc.path);
+                                        let active_stage = chain.last().expect("root stage exists");
+                                        let path_prefix = esc.path.join("");
+
+                                        for entry in &active_stage.scope.entries {
+                                            if !esc.partial.is_empty()
+                                                && !entry.label.starts_with(&esc.partial)
+                                            {
+                                                continue;
+                                            }
+                                            let (glyph, color) = match &entry.kind {
+                                                NavEntryKind::ScopeStart => ("⇤首", CYAN),
+                                                NavEntryKind::ScopeEnd => ("⇥尾", CYAN),
+                                                NavEntryKind::Leaf { is_empty: true, .. } => {
+                                                    ("∅空", RED)
+                                                }
+                                                NavEntryKind::Leaf { .. } => ("•槽", TEXT),
+                                                NavEntryKind::Composite { .. } => ("+子式", VIOLET),
+                                            };
+                                            let tag = format!("[{}] {}", entry.label, glyph);
+                                            let btn = egui::Button::new(
+                                                RichText::new(tag)
+                                                    .size(10.5)
+                                                    .monospace()
+                                                    .color(color),
+                                            )
+                                            .fill(FIELD)
+                                            .stroke(Stroke::new(1.0, color.gamma_multiply(0.45)))
+                                            .corner_radius(CornerRadius::same(5));
+                                            if ui.add(btn).clicked() {
+                                                act.clicked_jump =
+                                                    Some(format!("{path_prefix}{}", entry.label));
+                                            }
+                                        }
+                                    }
+                                });
                             });
-                        });
                         if ghost_button(ui, "退出", MUTED)
                             .on_hover_text("退出导航 (Tab / Esc / Alt j)")
                             .clicked()
@@ -1101,12 +1133,21 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                         PAPER_MUTED,
                     );
                 } else if let Some(texture) = &self.nav_tex {
-                    let size = fitted_size(texture, (avail_w - 12.0).max(100.0), NAV_BOX_HEIGHT - 12.0, 1.15);
-                    egui::Image::new(texture).paint_at(ui, Rect::from_center_size(rect.center(), size));
+                    let size = fitted_size(
+                        texture,
+                        (avail_w - 12.0).max(100.0),
+                        NAV_BOX_HEIGHT - 12.0,
+                        1.15,
+                    );
+                    egui::Image::new(texture)
+                        .paint_at(ui, Rect::from_center_size(rect.center(), size));
                 }
 
                 // 右上角提供快捷导航触发
-                let trigger_rect = Rect::from_min_size(rect.right_top() + Vec2::new(-86.0, 5.0), Vec2::new(80.0, 22.0));
+                let trigger_rect = Rect::from_min_size(
+                    rect.right_top() + Vec2::new(-86.0, 5.0),
+                    Vec2::new(80.0, 22.0),
+                );
                 Self::allocate_ui_at_rect(ui, trigger_rect, |ui| {
                     if paper_button(ui, "槽位直达", false)
                         .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
@@ -1147,9 +1188,18 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 if in_nav {
-                    ui.label(RichText::new("槽位直达模式 · 按字母跳改（Tab / Esc / Alt j 退出）").size(11.5).strong().color(ACCENT));
+                    ui.label(
+                        RichText::new("槽位直达模式 · 按字母跳改（Tab / Esc / Alt j 退出）")
+                            .size(11.5)
+                            .strong()
+                            .color(ACCENT),
+                    );
                 } else if breadcrumbs.is_empty() {
-                    ui.label(RichText::new("键入简码，或点击右侧数学结构直接插入…").size(11.0).color(MUTED));
+                    ui.label(
+                        RichText::new("键入简码，或点击右侧数学结构直接插入…")
+                            .size(11.0)
+                            .color(MUTED),
+                    );
                 } else {
                     for (depth, bc) in breadcrumbs.iter().enumerate() {
                         if depth > 0 {
@@ -1180,7 +1230,11 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     state.cursor.set_char_range(Some(CCursorRange::one(c)));
                     state.store(&ctx, self.input_id);
                 } else if state.cursor.char_range().is_none() {
-                    let c = CCursor::new(self.editor.cursor_char.min(self.editor.source.chars().count()));
+                    let c = CCursor::new(
+                        self.editor
+                            .cursor_char
+                            .min(self.editor.source.chars().count()),
+                    );
                     state.cursor.set_char_range(Some(CCursorRange::one(c)));
                     state.store(&ctx, self.input_id);
                 }
@@ -1268,7 +1322,11 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     (DelimiterStyle::None, "LaTeX", "裸代码（无定界符）"),
                     (DelimiterStyle::Inline, "$…$", "行内公式 $...$"),
                     (DelimiterStyle::Display, "$$…$$", "行间公式 $$...$$"),
-                    (DelimiterStyle::MarkdownCode, "```", "Markdown 代码块 ```latex"),
+                    (
+                        DelimiterStyle::MarkdownCode,
+                        "```",
+                        "Markdown 代码块 ```latex",
+                    ),
                 ];
                 let options: Vec<(&str, &str)> = DELIMS.iter().map(|d| (d.1, d.2)).collect();
                 let selected = DELIMS
@@ -1300,14 +1358,21 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
 
             // LaTeX 代码框：点击框体本身也能直接一键复制！
             let is_empty = latex_str.is_empty();
-            let display_tex = if is_empty { "（尚无公式输出）" } else { &latex_str };
+            let display_tex = if is_empty {
+                "（尚无公式输出）"
+            } else {
+                &latex_str
+            };
             let tex_color = if is_empty { MUTED } else { TEXT };
 
             field_frame().show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let resp = ui.add(
                     egui::Label::new(
-                        RichText::new(display_tex).monospace().size(12.5).color(tex_color),
+                        RichText::new(display_tex)
+                            .monospace()
+                            .size(12.5)
+                            .color(tex_color),
                     )
                     .selectable(true)
                     .wrap(),
@@ -1325,11 +1390,36 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
 
     fn workspace_tab_bar_ui(&mut self, ui: &mut egui::Ui) {
         let tabs = [
-            (WorkspaceTab::Palette, "∑ 符号结构", "Alt+1", "符号与高阶数学结构网格面板 (Alt+1)"),
-            (WorkspaceTab::Corpus, "📚 公式库", "F2", "浏览与检索 88+ 权威学术公式库 (F2 / Alt+2)"),
-            (WorkspaceTab::Formats, "⚙ 扩展中心", "F3", "自定义 LaTeX 宏与复用模版库 (F3 / Alt+3)"),
-            (WorkspaceTab::LatexImport, "⇄ LaTeX 导入", "F4", "标准 LaTeX 逆向反编译工作台 (F4 / Alt+4)"),
-            (WorkspaceTab::Help, "💡 使用指南", "F1", "快捷键图谱与极速编辑技巧速查 (F1)"),
+            (
+                WorkspaceTab::Palette,
+                "∑ 符号结构",
+                "Alt+1",
+                "符号与高阶数学结构网格面板 (Alt+1)",
+            ),
+            (
+                WorkspaceTab::Corpus,
+                "📚 公式库",
+                "F2",
+                "浏览与检索 88+ 权威学术公式库 (F2 / Alt+2)",
+            ),
+            (
+                WorkspaceTab::Formats,
+                "⚙ 扩展中心",
+                "F3",
+                "自定义 LaTeX 宏与复用模版库 (F3 / Alt+3)",
+            ),
+            (
+                WorkspaceTab::LatexImport,
+                "⇄ LaTeX 导入",
+                "F4",
+                "标准 LaTeX 逆向反编译工作台 (F4 / Alt+4)",
+            ),
+            (
+                WorkspaceTab::Help,
+                "💡 使用指南",
+                "F1",
+                "快捷键图谱与极速编辑技巧速查 (F1)",
+            ),
         ];
 
         let total_w = ui.available_width();
@@ -1349,18 +1439,15 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     ui.spacing_mut().item_spacing.x = spacing;
                     for (tab, title, shortcut, tip) in tabs {
                         let is_active = self.active_tab == tab;
-                        let text_color = if is_active {
-                            Color32::WHITE
-                        } else {
-                            TEXT_DIM
-                        };
+                        let text_color = if is_active { Color32::WHITE } else { TEXT_DIM };
                         let btn = egui::Button::new(
-                            RichText::new(title)
-                                .size(13.0)
-                                .strong()
-                                .color(text_color),
+                            RichText::new(title).size(13.0).strong().color(text_color),
                         )
-                        .fill(if is_active { ACCENT_BG } else { Color32::TRANSPARENT })
+                        .fill(if is_active {
+                            ACCENT_BG
+                        } else {
+                            Color32::TRANSPARENT
+                        })
                         .stroke(if is_active {
                             Stroke::new(1.0, ACCENT.gamma_multiply(0.75))
                         } else {
@@ -1461,7 +1548,13 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     label: e.label.to_owned(),
                     is_default: e.is_default,
                     armed: active_sub == Some(sub),
-                    hover: format!("{} · Tab {} {}\n{}", e.label, sub.key(), e.item_key, e.detail),
+                    hover: format!(
+                        "{} · Tab {} {}\n{}",
+                        e.label,
+                        sub.key(),
+                        e.item_key,
+                        e.detail
+                    ),
                     code: e.code.to_owned(),
                 })
                 .collect()
@@ -1478,7 +1571,10 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                         label: entry.label.to_owned(),
                         is_default: false,
                         armed: root_armed,
-                        hover: format!("{} · Tab {}\n槽位：{}", entry.label, entry.key, entry.detail),
+                        hover: format!(
+                            "{} · Tab {}\n槽位：{}",
+                            entry.label, entry.key, entry.detail
+                        ),
                         code: entry.key.to_string(),
                     })
                     .collect();
@@ -1486,37 +1582,154 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
 
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("高频数学符号与关系").size(11.5).strong().color(TEXT_DIM));
+                    ui.label(
+                        RichText::new("高频数学符号与关系")
+                            .size(11.5)
+                            .strong()
+                            .color(TEXT_DIM),
+                    );
                 });
                 ui.add_space(3.0);
 
                 let common_symbols = [
-                    Tile { badge: "gp".into(), glyph: "π".into(), label: "圆周率".into(), is_default: false, armed: false, hover: "圆周率 \\pi (Tab g p)".into(), code: "gp".into() },
-                    Tile { badge: "oa".into(), glyph: "∞".into(), label: "无穷".into(), is_default: false, armed: false, hover: "无穷大 \\infty (Tab o a)".into(), code: "oa".into() },
-                    Tile { badge: "ob".into(), glyph: "∂".into(), label: "偏导".into(), is_default: false, armed: false, hover: "偏导算子 \\partial (Tab o b)".into(), code: "ob".into() },
-                    Tile { badge: "+-".into(), glyph: "±".into(), label: "正负号".into(), is_default: false, armed: false, hover: "正负号 \\pm (直输 +-)".into(), code: "+-".into() },
-                    Tile { badge: "<=".into(), glyph: "≤".into(), label: "小于等于".into(), is_default: false, armed: false, hover: "小于等于 \\le (直输 <=)".into(), code: "<=".into() },
-                    Tile { badge: ">=".into(), glyph: "≥".into(), label: "大于等于".into(), is_default: false, armed: false, hover: "大于等于 \\ge (直输 >=)".into(), code: ">=".into() },
-                    Tile { badge: "!=".into(), glyph: "≠".into(), label: "不等于".into(), is_default: false, armed: false, hover: "不等于 \\neq (直输 !=)".into(), code: "!=".into() },
-                    Tile { badge: "xa".into(), glyph: "≈".into(), label: "约等于".into(), is_default: false, armed: false, hover: "约等于 \\approx (Tab x a)".into(), code: "xa".into() },
-                    Tile { badge: "->".into(), glyph: "→".into(), label: "趋向箭头".into(), is_default: false, armed: false, hover: "趋向箭头 \\to (直输 ->)".into(), code: "->".into() },
-                    Tile { badge: "oe".into(), glyph: "·".into(), label: "点乘".into(), is_default: false, armed: false, hover: "点乘 \\cdot (Tab o e)".into(), code: "oe".into() },
-                    Tile { badge: "od".into(), glyph: "×".into(), label: "叉乘".into(), is_default: false, armed: false, hover: "叉乘 \\times (Tab o d)".into(), code: "od".into() },
-                    Tile { badge: "xb".into(), glyph: "≡".into(), label: "恒等于".into(), is_default: false, armed: false, hover: "恒等于 \\equiv (Tab x b)".into(), code: "xb".into() },
+                    Tile {
+                        badge: "gp".into(),
+                        glyph: "π".into(),
+                        label: "圆周率".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "圆周率 \\pi (Tab g p)".into(),
+                        code: "gp".into(),
+                    },
+                    Tile {
+                        badge: "oa".into(),
+                        glyph: "∞".into(),
+                        label: "无穷".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "无穷大 \\infty (Tab o a)".into(),
+                        code: "oa".into(),
+                    },
+                    Tile {
+                        badge: "ob".into(),
+                        glyph: "∂".into(),
+                        label: "偏导".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "偏导算子 \\partial (Tab o b)".into(),
+                        code: "ob".into(),
+                    },
+                    Tile {
+                        badge: "+-".into(),
+                        glyph: "±".into(),
+                        label: "正负号".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "正负号 \\pm (直输 +-)".into(),
+                        code: "+-".into(),
+                    },
+                    Tile {
+                        badge: "<=".into(),
+                        glyph: "≤".into(),
+                        label: "小于等于".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "小于等于 \\le (直输 <=)".into(),
+                        code: "<=".into(),
+                    },
+                    Tile {
+                        badge: ">=".into(),
+                        glyph: "≥".into(),
+                        label: "大于等于".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "大于等于 \\ge (直输 >=)".into(),
+                        code: ">=".into(),
+                    },
+                    Tile {
+                        badge: "!=".into(),
+                        glyph: "≠".into(),
+                        label: "不等于".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "不等于 \\neq (直输 !=)".into(),
+                        code: "!=".into(),
+                    },
+                    Tile {
+                        badge: "xa".into(),
+                        glyph: "≈".into(),
+                        label: "约等于".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "约等于 \\approx (Tab x a)".into(),
+                        code: "xa".into(),
+                    },
+                    Tile {
+                        badge: "->".into(),
+                        glyph: "→".into(),
+                        label: "趋向箭头".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "趋向箭头 \\to (直输 ->)".into(),
+                        code: "->".into(),
+                    },
+                    Tile {
+                        badge: "oe".into(),
+                        glyph: "·".into(),
+                        label: "点乘".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "点乘 \\cdot (Tab o e)".into(),
+                        code: "oe".into(),
+                    },
+                    Tile {
+                        badge: "od".into(),
+                        glyph: "×".into(),
+                        label: "叉乘".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "叉乘 \\times (Tab o d)".into(),
+                        code: "od".into(),
+                    },
+                    Tile {
+                        badge: "xb".into(),
+                        glyph: "≡".into(),
+                        label: "恒等于".into(),
+                        is_default: false,
+                        armed: false,
+                        hover: "恒等于 \\equiv (Tab x b)".into(),
+                        code: "xb".into(),
+                    },
                 ];
                 tile_grid(ui, common_symbols.to_vec(), &mut act.clicked_code);
             }
             PaletteCategory::Calculus => {
-                tile_grid(ui, sub_tiles(SubCategory::CalculusMore, &all), &mut act.clicked_code);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::CalculusMore, &all),
+                    &mut act.clicked_code,
+                );
             }
             PaletteCategory::Matrix => {
-                tile_grid(ui, sub_tiles(SubCategory::Matrix, &all), &mut act.clicked_code);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::Matrix, &all),
+                    &mut act.clicked_code,
+                );
             }
             PaletteCategory::Accent => {
-                tile_grid(ui, sub_tiles(SubCategory::Accent, &all), &mut act.clicked_code);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::Accent, &all),
+                    &mut act.clicked_code,
+                );
             }
             PaletteCategory::Operator => {
-                tile_grid(ui, sub_tiles(SubCategory::Symbol, &all), &mut act.clicked_code);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::Symbol, &all),
+                    &mut act.clicked_code,
+                );
             }
             PaletteCategory::Greek => {
                 ui.horizontal(|ui| {
@@ -1541,21 +1754,41 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
             }
             PaletteCategory::Relation => {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("关系符 / 箭头 (Tab x)").size(11.0).color(MUTED));
+                    ui.label(
+                        RichText::new("关系符 / 箭头 (Tab x)")
+                            .size(11.0)
+                            .color(MUTED),
+                    );
                 });
                 ui.add_space(3.0);
-                tile_grid(ui, sub_tiles(SubCategory::Relations, &all), &mut act.clicked_code);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::Relations, &all),
+                    &mut act.clicked_code,
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("集合 / 逻辑 / 数集 (Tab q)").size(11.0).color(MUTED));
+                    ui.label(
+                        RichText::new("集合 / 逻辑 / 数集 (Tab q)")
+                            .size(11.0)
+                            .color(MUTED),
+                    );
                 });
                 ui.add_space(3.0);
-                tile_grid(ui, sub_tiles(SubCategory::SetLogic, &all), &mut act.clicked_code);
+                tile_grid(
+                    ui,
+                    sub_tiles(SubCategory::SetLogic, &all),
+                    &mut act.clicked_code,
+                );
             }
             PaletteCategory::Custom => {
                 let lib = &self.editor.library;
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("自定义数学格式 (Tab k)").size(11.0).color(MUTED));
+                    ui.label(
+                        RichText::new("自定义数学格式 (Tab k)")
+                            .size(11.0)
+                            .color(MUTED),
+                    );
                 });
                 ui.add_space(3.0);
                 let def_custom_key = lib.default_custom().map(|d| d.item_key);
@@ -1587,7 +1820,11 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("复用片段 / 填空模版 (Tab t)").size(11.0).color(MUTED));
+                    ui.label(
+                        RichText::new("复用片段 / 填空模版 (Tab t)")
+                            .size(11.0)
+                            .color(MUTED),
+                    );
                 });
                 ui.add_space(3.0);
                 let def_snip_key = lib.default_snippet().map(|s| s.item_key);
@@ -1656,10 +1893,12 @@ fn allocate_ui_at_rect<R>(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOn
                     } else {
                         self.status.as_str()
                     };
-                    let color = if msg.starts_with('✓') { GREEN } else { TEXT_DIM };
-                    ui.add(
-                        egui::Label::new(RichText::new(msg).size(11.5).color(color)).truncate(),
-                    );
+                    let color = if msg.starts_with('✓') {
+                        GREEN
+                    } else {
+                        TEXT_DIM
+                    };
+                    ui.add(egui::Label::new(RichText::new(msg).size(11.5).color(color)).truncate());
                 });
             });
         });
@@ -1778,17 +2017,23 @@ impl eframe::App for MathSlotApp {
                         self.structure_palette_ui(ui, &mut act);
                     }
                     WorkspaceTab::Corpus => {
-                        if let Some(m_act) = self.modals.render_corpus_workspace(ui, &mut self.editor) {
+                        if let Some(m_act) =
+                            self.modals.render_corpus_workspace(ui, &mut self.editor)
+                        {
                             inline_modal_action = Some(m_act);
                         }
                     }
                     WorkspaceTab::Formats => {
-                        if let Some(m_act) = self.modals.render_formats_workspace(ui, &mut self.editor) {
+                        if let Some(m_act) =
+                            self.modals.render_formats_workspace(ui, &mut self.editor)
+                        {
                             inline_modal_action = Some(m_act);
                         }
                     }
                     WorkspaceTab::LatexImport => {
-                        if let Some(m_act) = self.modals.render_latex_workspace(ui, &mut self.editor) {
+                        if let Some(m_act) =
+                            self.modals.render_latex_workspace(ui, &mut self.editor)
+                        {
                             inline_modal_action = Some(m_act);
                         }
                     }
@@ -1869,14 +2114,54 @@ struct UiActions {
 
 /// 分类标签：(分类, 触发键, 标题, 悬停说明)
 const PALETTE_TABS: [(PaletteCategory, &str, &str, &str); 8] = [
-    (PaletteCategory::Direct, "常用", "常用结构", "12 项核心数学结构（分式、上标、下标、根号、极限、积分等，单键直达）"),
-    (PaletteCategory::Greek, "g", "希腊", "希腊字母全集：小写 + 大写 (Tab g)"),
-    (PaletteCategory::Calculus, "c", "微积分", "不定积分、连乘、重积分、偏导 (Tab c)"),
-    (PaletteCategory::Matrix, "m", "矩阵", "方阵、行列式、分段函数 (Tab m)"),
-    (PaletteCategory::Accent, "a", "标注", "帽子、横线、向量、导点、范数 (Tab a)"),
-    (PaletteCategory::Operator, "o", "算子", "无穷、偏导、梯度、叉乘、属于 (Tab o)"),
-    (PaletteCategory::Relation, "x·q", "关系逻辑", "关系符/箭头 (Tab x) · 集合/逻辑 (Tab q)"),
-    (PaletteCategory::Custom, "k·t", "自定义", "自定义 LaTeX 格式 (Tab k) · 片段模版 (Tab t)"),
+    (
+        PaletteCategory::Direct,
+        "常用",
+        "常用结构",
+        "12 项核心数学结构（分式、上标、下标、根号、极限、积分等，单键直达）",
+    ),
+    (
+        PaletteCategory::Greek,
+        "g",
+        "希腊",
+        "希腊字母全集：小写 + 大写 (Tab g)",
+    ),
+    (
+        PaletteCategory::Calculus,
+        "c",
+        "微积分",
+        "不定积分、连乘、重积分、偏导 (Tab c)",
+    ),
+    (
+        PaletteCategory::Matrix,
+        "m",
+        "矩阵",
+        "方阵、行列式、分段函数 (Tab m)",
+    ),
+    (
+        PaletteCategory::Accent,
+        "a",
+        "标注",
+        "帽子、横线、向量、导点、范数 (Tab a)",
+    ),
+    (
+        PaletteCategory::Operator,
+        "o",
+        "算子",
+        "无穷、偏导、梯度、叉乘、属于 (Tab o)",
+    ),
+    (
+        PaletteCategory::Relation,
+        "x·q",
+        "关系逻辑",
+        "关系符/箭头 (Tab x) · 集合/逻辑 (Tab q)",
+    ),
+    (
+        PaletteCategory::Custom,
+        "k·t",
+        "自定义",
+        "自定义 LaTeX 格式 (Tab k) · 片段模版 (Tab t)",
+    ),
 ];
 
 fn category_of(sub: SubCategory) -> PaletteCategory {
@@ -1911,7 +2196,9 @@ fn tile_grid(ui: &mut egui::Ui, tiles: Vec<Tile>, clicked: &mut Option<String>) 
     const TILE_H: f32 = 64.0;
     let avail = ui.available_width();
     let cols = ((avail + GAP) / (MIN_W + GAP)).floor().max(1.0);
-    let w = ((avail - GAP * (cols - 1.0)) / cols - 0.5).floor().max(40.0);
+    let w = ((avail - GAP * (cols - 1.0)) / cols - 0.5)
+        .floor()
+        .max(40.0);
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(GAP);
         for tile in &tiles {
@@ -1931,7 +2218,10 @@ fn palette_tile(ui: &mut egui::Ui, size: Vec2, tile: &Tile) -> bool {
     let (bg, stroke) = if hovered {
         (CARD_HI, Stroke::new(1.0, ACCENT.gamma_multiply(0.8)))
     } else if tile.armed {
-        (Color32::from_rgb(34, 31, 25), Stroke::new(1.0, AMBER.gamma_multiply(0.3)))
+        (
+            Color32::from_rgb(34, 31, 25),
+            Stroke::new(1.0, AMBER.gamma_multiply(0.3)),
+        )
     } else {
         (CARD, Stroke::new(1.0, BORDER_SOFT))
     };
@@ -1939,7 +2229,8 @@ fn palette_tile(ui: &mut egui::Ui, size: Vec2, tile: &Tile) -> bool {
 
     // 键位徽章
     let badge_color = if tile.armed { AMBER } else { MUTED };
-    let badge_galley = painter.layout_no_wrap(tile.badge.clone(), FontId::monospace(10.0), badge_color);
+    let badge_galley =
+        painter.layout_no_wrap(tile.badge.clone(), FontId::monospace(10.0), badge_color);
     let badge_pos = rect.left_top() + Vec2::new(7.0, 6.0);
     if tile.armed {
         painter.rect_filled(
@@ -1956,25 +2247,29 @@ fn palette_tile(ui: &mut egui::Ui, size: Vec2, tile: &Tile) -> bool {
 
     paint_fitted_text(
         painter,
-        rect.center() + Vec2::new(0.0, -1.0),
-        Align2::CENTER_CENTER,
-        &tile.glyph,
-        size.x - 12.0,
-        18.5,
-        11.0,
-        if hovered { Color32::WHITE } else { TEXT },
-        false,
+        FittedTextOptions {
+            pos: rect.center() + Vec2::new(0.0, -1.0),
+            anchor: Align2::CENTER_CENTER,
+            text: &tile.glyph,
+            max_width: size.x - 12.0,
+            size: 18.5,
+            min_size: 11.0,
+            color: if hovered { Color32::WHITE } else { TEXT },
+            monospace: false,
+        },
     );
     paint_fitted_text(
         painter,
-        rect.center_bottom() - Vec2::new(0.0, 5.0),
-        Align2::CENTER_BOTTOM,
-        &tile.label,
-        size.x - 8.0,
-        11.0,
-        9.0,
-        if hovered { Color32::WHITE } else { TEXT_DIM },
-        false,
+        FittedTextOptions {
+            pos: rect.center_bottom() - Vec2::new(0.0, 5.0),
+            anchor: Align2::CENTER_BOTTOM,
+            text: &tile.label,
+            max_width: size.x - 8.0,
+            size: 11.0,
+            min_size: 9.0,
+            color: if hovered { Color32::WHITE } else { TEXT_DIM },
+            monospace: false,
+        },
     );
 
     let hover = if tile.is_default {
@@ -1994,7 +2289,11 @@ fn category_chip(
     sub_active: bool,
     root_armed: bool,
 ) -> egui::Response {
-    let key_color = if sub_active || root_armed { AMBER } else { MUTED };
+    let key_color = if sub_active || root_armed {
+        AMBER
+    } else {
+        MUTED
+    };
     let title_color = if sub_active {
         AMBER
     } else if selected {
@@ -2063,8 +2362,8 @@ fn brand_mark(ui: &mut egui::Ui) {
         )
     };
 
-    let electric_blue = Color32::from_rgb(33, 99, 234);     // #2163EA
-    let navy_blue = Color32::from_rgb(1, 29, 96);           // #011D60
+    let electric_blue = Color32::from_rgb(33, 99, 234); // #2163EA
+    let navy_blue = Color32::from_rgb(1, 29, 96); // #011D60
     let slot_periwinkle = Color32::from_rgb(143, 172, 253); // #8FACFD
 
     // 2. 顶部与底部胶囊 (严格水平居中对称 x: 94..340, y: 76..116, 396..436)
@@ -2135,10 +2434,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
                 {
                     end_idx += 1;
                 }
-                let byte_end = chars
-                    .get(end_idx)
-                    .map(|(b, _)| *b)
-                    .unwrap_or(source.len());
+                let byte_end = chars.get(end_idx).map(|(b, _)| *b).unwrap_or(source.len());
                 job.append(
                     &source[byte_start..byte_end],
                     0.0,
@@ -2156,10 +2452,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
             if i + 1 < chars.len() && chars[i + 1].1.is_ascii_alphabetic() {
                 let c1 = chars[i + 1].1.to_ascii_lowercase();
                 if lookup_direct(c1).is_some() {
-                    let byte_end = chars
-                        .get(i + 2)
-                        .map(|(b, _)| *b)
-                        .unwrap_or(source.len());
+                    let byte_end = chars.get(i + 2).map(|(b, _)| *b).unwrap_or(source.len());
                     job.append(
                         &source[byte_start..byte_end],
                         0.0,
@@ -2177,10 +2470,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
                     if i + 2 < chars.len() && chars[i + 2].1.is_ascii_alphabetic() {
                         let orig_c2 = chars[i + 2].1;
                         let c2 = orig_c2.to_ascii_lowercase();
-                        let byte_end = chars
-                            .get(i + 3)
-                            .map(|(b, _)| *b)
-                            .unwrap_or(source.len());
+                        let byte_end = chars.get(i + 3).map(|(b, _)| *b).unwrap_or(source.len());
                         let valid = match c1 {
                             'k' => lib.lookup_custom(c2).is_some(),
                             't' => lib.lookup_snippet(c2).is_some(),
@@ -2202,10 +2492,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
                         continue;
                     }
 
-                    let byte_end = chars
-                        .get(i + 2)
-                        .map(|(b, _)| *b)
-                        .unwrap_or(source.len());
+                    let byte_end = chars.get(i + 2).map(|(b, _)| *b).unwrap_or(source.len());
                     let color = if i + 2 < chars.len() { AMBER } else { GREEN };
                     job.append(
                         &source[byte_start..byte_end],
@@ -2221,10 +2508,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
                 }
 
                 // 无效首字母
-                let byte_end = chars
-                    .get(i + 2)
-                    .map(|(b, _)| *b)
-                    .unwrap_or(source.len());
+                let byte_end = chars.get(i + 2).map(|(b, _)| *b).unwrap_or(source.len());
                 job.append(
                     &source[byte_start..byte_end],
                     0.0,
@@ -2239,10 +2523,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
             }
 
             // 孤立 `▸`
-            let byte_end = chars
-                .get(i + 1)
-                .map(|(b, _)| *b)
-                .unwrap_or(source.len());
+            let byte_end = chars.get(i + 1).map(|(b, _)| *b).unwrap_or(source.len());
             job.append(
                 &source[byte_start..byte_end],
                 0.0,
@@ -2257,10 +2538,7 @@ fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
         }
 
         if ch == STEP_SEP {
-            let byte_end = chars
-                .get(i + 1)
-                .map(|(b, _)| *b)
-                .unwrap_or(source.len());
+            let byte_end = chars.get(i + 1).map(|(b, _)| *b).unwrap_or(source.len());
             job.append(
                 &source[byte_start..byte_end],
                 0.0,
@@ -2332,37 +2610,47 @@ fn consume_esc_jump_key(ctx: &egui::Context) -> Option<char> {
     ctx.input_mut(|input| {
         // 括号专用锚点：Shift+9 / Shift+0（避免和 0 行首别名冲突）
         if input.consume_key(Modifiers::SHIFT, Key::Num9) {
-            input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
+            input
+                .events
+                .retain(|ev| !matches!(ev, egui::Event::Text(_)));
             return Some('(');
         }
         if input.consume_key(Modifiers::SHIFT, Key::Num0) {
-            input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
+            input
+                .events
+                .retain(|ev| !matches!(ev, egui::Event::Text(_)));
             return Some(')');
         }
         for (key, ch) in KEYS {
             if input.consume_key(Modifiers::NONE, key) || input.consume_key(Modifiers::SHIFT, key) {
-                input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
+                input
+                    .events
+                    .retain(|ev| !matches!(ev, egui::Event::Text(_)));
                 return Some(ch);
             }
         }
         let mut consumed: Option<(usize, char)> = None;
         for (i, ev) in input.events.iter().enumerate() {
-            if let egui::Event::Text(txt) = ev {
-                if let Some(c) = txt.chars().find(|&c| {
+            if let egui::Event::Text(txt) = ev
+                && let Some(c) = txt.chars().find(|&c| {
                     c.is_ascii_alphabetic()
                         || matches!(c, ';' | '.' | '$' | '-' | '`' | '0' | '(' | ')')
-                }) {
-                    consumed = Some((i, c));
-                    break;
-                }
+                })
+            {
+                consumed = Some((i, c));
+                break;
             }
         }
         if let Some((i, c)) = consumed {
             input.events.remove(i);
-            input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
+            input
+                .events
+                .retain(|ev| !matches!(ev, egui::Event::Text(_)));
             return Some(c.to_ascii_lowercase());
         }
-        input.events.retain(|ev| !matches!(ev, egui::Event::Text(_)));
+        input
+            .events
+            .retain(|ev| !matches!(ev, egui::Event::Text(_)));
         None
     })
 }
@@ -2395,38 +2683,37 @@ fn update_texture(
     }
 }
 
-
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
 
-    if let Some(prop) = fonts.families.get_mut(&FontFamily::Proportional) {
-        if !prop.iter().any(|name| name == "Hack") {
-            let insert_pos = prop.len().min(1);
-            prop.insert(insert_pos, "Hack".to_owned());
-        }
+    if let Some(prop) = fonts.families.get_mut(&FontFamily::Proportional)
+        && !prop.iter().any(|name| name == "Hack")
+    {
+        let insert_pos = prop.len().min(1);
+        prop.insert(insert_pos, "Hack".to_owned());
     }
 
     // 辅助闭包：查找候选列表中的首个有效文件；若未命中且在 Linux 下，则尝试 fc-match 查询
     let find_font = |candidates: &[&str], _fc_pattern: Option<&str>| -> Option<Vec<u8>> {
         for path in candidates {
-            if Path::new(path).is_file() {
-                if let Ok(bytes) = std::fs::read(path) {
-                    return Some(bytes);
-                }
+            if Path::new(path).is_file()
+                && let Ok(bytes) = std::fs::read(path)
+            {
+                return Some(bytes);
             }
         }
         #[cfg(target_os = "linux")]
-        if let Some(pattern) = _fc_pattern {
-            if let Ok(output) = std::process::Command::new("fc-match")
+        if let Some(pattern) = _fc_pattern
+            && let Ok(output) = std::process::Command::new("fc-match")
                 .args(["-f", "%{file}", pattern])
                 .output()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if !path.is_empty()
+                && Path::new(&path).is_file()
+                && let Ok(bytes) = std::fs::read(&path)
             {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-                if !path.is_empty() && Path::new(&path).is_file() {
-                    if let Ok(bytes) = std::fs::read(&path) {
-                        return Some(bytes);
-                    }
-                }
+                return Some(bytes);
             }
         }
         None

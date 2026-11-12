@@ -7,8 +7,8 @@
 //! - Complete static and dynamic coverage of Zero-Modal, Live Preview, and Semantic Layouts
 
 use mathslot_core::{
-    exprs_structurally_equal, inspect_environment, parse, Edit, EnvironmentShape,
-    MatrixEnv, Session, SlotId,
+    Edit, EnvironmentShape, MatrixEnv, Session, SlotId, exprs_structurally_equal,
+    inspect_environment, parse,
 };
 use std::path::Path;
 
@@ -25,8 +25,14 @@ fn test_adv_acc_01_latex_lossless_roundtrip_core_spec() {
         ("Spec 1.4 Fraction in exponent", r"e^{-\frac{x}{2}}"),
         ("Spec 1.5 Deep power tower", r"x^{y^{z}}"),
         ("Spec 1.6 Double negative exponential", r"e^{-e^{-x}}"),
-        ("Spec 1.7 Gaussian integral with bounds", r"\int_{-\infty}^{\infty} e^{-x^{2}} dx"),
-        ("Spec 1.8 Fraction with script in denom", r"\frac{1}{\sqrt{2\pi\sigma^{2}}}"),
+        (
+            "Spec 1.7 Gaussian integral with bounds",
+            r"\int_{-\infty}^{\infty} e^{-x^{2}} dx",
+        ),
+        (
+            "Spec 1.8 Fraction with script in denom",
+            r"\frac{1}{\sqrt{2\pi\sigma^{2}}}",
+        ),
         ("Spec 1.9 Linear system equation", r"\lambda x + \mu y = 0"),
         ("Spec 1.10 Nested radicals", r"\sqrt{1 + \sqrt{1 + x^{2}}}"),
     ];
@@ -37,15 +43,30 @@ fn test_adv_acc_01_latex_lossless_roundtrip_core_spec() {
             report.lossless,
             "[{desc}] Expected lossless roundtrip for '{latex}', but got: {report:?}"
         );
-        assert_eq!(report.empty_slots, 0, "[{desc}] Must have 0 empty slots for '{latex}'");
-        assert_eq!(report.raw_nodes, 0, "[{desc}] Must have 0 raw nodes for '{latex}'");
-        assert!(report.diagnostics.is_empty(), "[{desc}] Diagnostics must be empty for '{latex}'");
+        assert_eq!(
+            report.empty_slots, 0,
+            "[{desc}] Must have 0 empty slots for '{latex}'"
+        );
+        assert_eq!(
+            report.raw_nodes, 0,
+            "[{desc}] Must have 0 raw nodes for '{latex}'"
+        );
+        assert!(
+            report.diagnostics.is_empty(),
+            "[{desc}] Diagnostics must be empty for '{latex}'"
+        );
 
         let exported = session.to_latex();
         let (ast_orig, d_orig) = parse(latex);
         let (ast_exp, d_exp) = parse(&exported);
-        assert!(d_orig.is_empty(), "[{desc}] Original parse had diagnostics: {d_orig:?}");
-        assert!(d_exp.is_empty(), "[{desc}] Exported parse had diagnostics: {d_exp:?}");
+        assert!(
+            d_orig.is_empty(),
+            "[{desc}] Original parse had diagnostics: {d_orig:?}"
+        );
+        assert!(
+            d_exp.is_empty(),
+            "[{desc}] Exported parse had diagnostics: {d_exp:?}"
+        );
 
         assert!(
             exprs_structurally_equal(&ast_orig, &ast_exp),
@@ -57,17 +78,35 @@ fn test_adv_acc_01_latex_lossless_roundtrip_core_spec() {
 #[test]
 fn test_adv_acc_02_big_op_left_right_ghost_slots_eliminated() {
     let big_op_cases = [
-        ("Sum with left-right parens", r"\sum_{i=1}^{n} \left( x_{i} + y_{i} \right)"),
-        ("Integral with left-right parens", r"\int_{0}^{1} \left( 1 - x^{2} \right) dx"),
-        ("Product with left-right parens", r"\prod_{k=1}^{n} \left( 1 + \frac{1}{k} \right)"),
-        ("Double integral with delimiters", r"\iint_{D} \left( x^{2} + y^{2} \right) dx dy"),
-        ("Limit with delimiters", r"\lim_{x \to 0} \left( \frac{\sin x}{x} \right)"),
+        (
+            "Sum with left-right parens",
+            r"\sum_{i=1}^{n} \left( x_{i} + y_{i} \right)",
+        ),
+        (
+            "Integral with left-right parens",
+            r"\int_{0}^{1} \left( 1 - x^{2} \right) dx",
+        ),
+        (
+            "Product with left-right parens",
+            r"\prod_{k=1}^{n} \left( 1 + \frac{1}{k} \right)",
+        ),
+        (
+            "Double integral with delimiters",
+            r"\iint_{D} \left( x^{2} + y^{2} \right) dx dy",
+        ),
+        (
+            "Limit with delimiters",
+            r"\lim_{x \to 0} \left( \frac{\sin x}{x} \right)",
+        ),
     ];
 
     for (desc, formula) in big_op_cases {
         let (session, report) = Session::from_latex(formula);
         assert!(report.lossless, "[{desc}] Must be lossless");
-        assert_eq!(report.empty_slots, 0, "[{desc}] Must have 0 empty slots, found ghost slots!");
+        assert_eq!(
+            report.empty_slots, 0,
+            "[{desc}] Must have 0 empty slots, found ghost slots!"
+        );
         assert_eq!(report.raw_nodes, 0, "[{desc}] Must have 0 raw nodes");
 
         let exported = session.to_latex();
@@ -132,15 +171,27 @@ fn test_adv_acc_03_matrices_and_environments() {
 fn test_adv_acc_04_degradation_diagnostics_on_exotic_and_malformed() {
     // 2.1 未知奇异宏优雅降级为 Raw 节点，报告有损并提供诊断
     let exotic_cases = [
-        (r"\myExoticTensorMacro[alpha,beta]{T_{ij}}{g^{kl}}", "myExoticTensorMacro"),
+        (
+            r"\myExoticTensorMacro[alpha,beta]{T_{ij}}{g^{kl}}",
+            "myExoticTensorMacro",
+        ),
         (r"\xymatrix{ A \ar[r] & B }", "xymatrix"),
         (r"\unknowncustom{foo} + 1", "unknowncustom"),
     ];
     for (input, macro_name) in exotic_cases {
         let (session, report) = Session::from_latex(input);
-        assert!(!report.lossless, "Exotic macro '{macro_name}' must be lossy");
-        assert!(report.raw_nodes > 0, "Exotic macro '{macro_name}' must produce raw node");
-        assert!(!report.diagnostics.is_empty(), "Must produce clear diagnostic messages");
+        assert!(
+            !report.lossless,
+            "Exotic macro '{macro_name}' must be lossy"
+        );
+        assert!(
+            report.raw_nodes > 0,
+            "Exotic macro '{macro_name}' must produce raw node"
+        );
+        assert!(
+            !report.diagnostics.is_empty(),
+            "Must produce clear diagnostic messages"
+        );
         assert!(report.has_warnings(), "has_warnings must be true");
         let exported = session.to_latex();
         assert!(
@@ -165,14 +216,20 @@ fn test_adv_acc_04_degradation_diagnostics_on_exotic_and_malformed() {
         (r"\frac{a}{", "Unclosed fraction brace"),
         (r"\sqrt[3]{x", "Unclosed root brace"),
         (r"x^{", "Trailing open superscript"),
-        (r"\begin{pmatrix} 1 & 2 \\ 3 \end{pmatrix}", "Ragged matrix row"),
+        (
+            r"\begin{pmatrix} 1 & 2 \\ 3 \end{pmatrix}",
+            "Ragged matrix row",
+        ),
     ];
 
     for (input, reason) in malformed_inputs {
         let (session, _rep) = Session::from_latex(input);
         // 不崩溃、不 panic，产生合法 session
         let out = session.to_latex();
-        assert!(!out.is_empty(), "Malformed input ({reason}) must produce non-empty recovered output");
+        assert!(
+            !out.is_empty(),
+            "Malformed input ({reason}) must produce non-empty recovered output"
+        );
     }
 }
 
@@ -262,7 +319,11 @@ fn test_adv_acc_06_navigation_slots_and_anchors() {
     // 验证每个 slot 的 anchor label (若存在) 不包含内联控制符
     for slot in doc.slots.slots() {
         if let Some(lbl) = &slot.label {
-            assert!(!lbl.is_empty(), "Slot {:?} label if present must not be empty", slot.id);
+            assert!(
+                !lbl.is_empty(),
+                "Slot {:?} label if present must not be empty",
+                slot.id
+            );
             assert!(
                 !lbl.contains('▸'),
                 "Slot label must not contain in-band ▸ control symbol: {lbl}"
@@ -308,10 +369,22 @@ fn test_adv_acc_07_zero_modal_static_code_invariants() {
     );
 
     // 5.3 四大一等公民工作区完整导出
-    assert!(modals_rs.contains("pub fn render_corpus_workspace"), "Missing render_corpus_workspace");
-    assert!(modals_rs.contains("pub fn render_formats_workspace"), "Missing render_formats_workspace");
-    assert!(modals_rs.contains("pub fn render_latex_workspace"), "Missing render_latex_workspace");
-    assert!(modals_rs.contains("pub fn render_help_workspace"), "Missing render_help_workspace");
+    assert!(
+        modals_rs.contains("pub fn render_corpus_workspace"),
+        "Missing render_corpus_workspace"
+    );
+    assert!(
+        modals_rs.contains("pub fn render_formats_workspace"),
+        "Missing render_formats_workspace"
+    );
+    assert!(
+        modals_rs.contains("pub fn render_latex_workspace"),
+        "Missing render_latex_workspace"
+    );
+    assert!(
+        modals_rs.contains("pub fn render_help_workspace"),
+        "Missing render_help_workspace"
+    );
 
     // 5.4 CentralPanel 纯内联路由
     assert!(
@@ -413,7 +486,8 @@ fn test_adv_acc_08_live_preview_and_left_panel_contracts() {
 fn test_adv_acc_09_semantic_forms_and_zero_voids_contract() {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir.parent().unwrap().parent().unwrap();
-    let modals_rs = std::fs::read_to_string(repo_root.join("src/modals.rs")).expect("Read modals.rs");
+    let modals_rs =
+        std::fs::read_to_string(repo_root.join("src/modals.rs")).expect("Read modals.rs");
 
     // 7.1 全局 0 处 Grid::new
     assert!(

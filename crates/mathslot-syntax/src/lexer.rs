@@ -209,10 +209,10 @@ impl<'a> Lexer<'a> {
                             "star" => Token::Symbol(SymbolKind::Operator(r"\star".into())),
 
                             // 标准数学函数算子 (ISO / AMS 规范)
-                            "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "arcsin"
-                            | "arccos" | "arctan" | "sinh" | "cosh" | "tanh" | "ln"
-                            | "log" | "exp" | "det" | "gcd" | "deg" | "dim" | "ker"
-                            | "hom" | "arg" | "min" | "max" | "sup" | "inf" => {
+                            "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "arcsin" | "arccos"
+                            | "arctan" | "sinh" | "cosh" | "tanh" | "ln" | "log" | "exp"
+                            | "det" | "gcd" | "deg" | "dim" | "ker" | "hom" | "arg" | "min"
+                            | "max" | "sup" | "inf" => {
                                 Token::Symbol(SymbolKind::Operator(format!(r"\{word}")))
                             }
 

@@ -96,8 +96,8 @@ pub extern "C" fn editor_reset() -> usize {
         let mut s = cell.borrow_mut();
         let saved_lib = s.editor.library.clone();
         s.editor = StreamEditor::with_library(saved_lib);
-        s.status = "就绪：Tab+单字母直输结构，Tab j 进入槽位导航，↑/↓ 上下穿槽，括号自动配对。"
-            .to_owned();
+        s.status =
+            "就绪：Tab+单字母直输结构，Tab j 进入槽位导航，↑/↓ 上下穿槽，括号自动配对。".to_owned();
         s.emit_state()
     })
 }
@@ -240,7 +240,10 @@ pub unsafe extern "C" fn library_save_snippet(
         } else {
             Some(label.as_str())
         };
-        match s.editor.save_current_as_snippet(opt_label, prefer_inner != 0) {
+        match s
+            .editor
+            .save_current_as_snippet(opt_label, prefer_inner != 0)
+        {
             Ok((_, msg)) | Err(msg) => s.status = msg,
         }
         s.emit_state()
@@ -847,11 +850,19 @@ fn build_state_json(editor: &StreamEditor, status: &str) -> String {
         let (kind_tag, role_str) = match &entry.kind {
             NavEntryKind::ScopeStart => (
                 "start",
-                if nav_path.is_empty() { "行首" } else { "槽首" },
+                if nav_path.is_empty() {
+                    "行首"
+                } else {
+                    "槽首"
+                },
             ),
             NavEntryKind::ScopeEnd => (
                 "end",
-                if nav_path.is_empty() { "行尾" } else { "槽尾" },
+                if nav_path.is_empty() {
+                    "行尾"
+                } else {
+                    "槽尾"
+                },
             ),
             NavEntryKind::Leaf {
                 is_empty: true,
@@ -925,10 +936,7 @@ fn tokenize_stream<'a>(source: &'a str, lib: &UserLibrary) -> Vec<(&'a str, &'st
                 {
                     end_idx += 1;
                 }
-                let byte_end = chars
-                    .get(end_idx)
-                    .map(|(b, _)| *b)
-                    .unwrap_or(source.len());
+                let byte_end = chars.get(end_idx).map(|(b, _)| *b).unwrap_or(source.len());
                 out.push((&source[byte_start..byte_end], "jump"));
                 i = end_idx;
                 continue;
@@ -959,7 +967,11 @@ fn tokenize_stream<'a>(source: &'a str, lib: &UserLibrary) -> Vec<(&'a str, &'st
                         continue;
                     }
                     let byte_end = chars.get(i + 2).map(|(b, _)| *b).unwrap_or(source.len());
-                    let tag = if i + 2 < chars.len() { "cmd" } else { "pending" };
+                    let tag = if i + 2 < chars.len() {
+                        "cmd"
+                    } else {
+                        "pending"
+                    };
                     out.push((&source[byte_start..byte_end], tag));
                     i += 2;
                     continue;

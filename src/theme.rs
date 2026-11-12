@@ -4,8 +4,8 @@
 //! 琥珀色专用于 `Tab` 前缀就绪态，翠绿用于默认项 / 成功反馈，紫色用于子式导航。
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Margin, Response, RichText, Sense, Shadow,
-    Stroke, StrokeKind, Vec2,
+    self, Align2, Color32, CornerRadius, FontId, Margin, Response, RichText, Sense, Shadow, Stroke,
+    StrokeKind, Vec2,
 };
 
 // ---------------------------------------------------------------------------
@@ -197,20 +197,14 @@ pub fn kbd_colored(ui: &mut egui::Ui, key: &str, fg: Color32, bg: Color32) -> Re
         Stroke::new(1.0, BORDER),
         StrokeKind::Inside,
     );
-    painter.galley(
-        rect.center() - galley.size() * 0.5,
-        galley,
-        fg,
-    );
+    painter.galley(rect.center() - galley.size() * 0.5, galley, fg);
     resp
 }
 
 /// 带圆点的状态胶囊
 pub fn status_pill(ui: &mut egui::Ui, text: &str, color: Color32) -> Response {
     let font = FontId::proportional(12.0);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_owned(), font, color);
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), font, color);
     let size = Vec2::new(galley.size().x + 28.0, 24.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter();
@@ -240,7 +234,12 @@ pub fn tool_button(ui: &mut egui::Ui, text: RichText, enabled: bool) -> Response
 }
 
 /// 支持高亮激活态的顶栏工具按钮
-pub fn tool_button_styled(ui: &mut egui::Ui, text: RichText, enabled: bool, active: bool) -> Response {
+pub fn tool_button_styled(
+    ui: &mut egui::Ui,
+    text: RichText,
+    enabled: bool,
+    active: bool,
+) -> Response {
     let mut btn = egui::Button::new(text)
         .min_size(Vec2::new(30.0, 30.0))
         .corner_radius(CornerRadius::same(7));
@@ -257,11 +256,16 @@ pub fn tool_button_styled(ui: &mut egui::Ui, text: RichText, enabled: bool, acti
 
 /// 主操作按钮（实心）
 pub fn primary_button(ui: &mut egui::Ui, text: &str, fill: Color32) -> Response {
-    let btn = egui::Button::new(RichText::new(text).size(13.0).strong().color(Color32::WHITE))
-        .fill(fill)
-        .stroke(Stroke::NONE)
-        .min_size(Vec2::new(0.0, 30.0))
-        .corner_radius(CornerRadius::same(7));
+    let btn = egui::Button::new(
+        RichText::new(text)
+            .size(13.0)
+            .strong()
+            .color(Color32::WHITE),
+    )
+    .fill(fill)
+    .stroke(Stroke::NONE)
+    .min_size(Vec2::new(0.0, 30.0))
+    .corner_radius(CornerRadius::same(7));
     ui.add(btn)
 }
 
@@ -286,11 +290,7 @@ pub fn vsep(ui: &mut egui::Ui, height: f32) {
 }
 
 /// 分段选择器：返回被点击的下标
-pub fn segmented(
-    ui: &mut egui::Ui,
-    options: &[(&str, &str)],
-    selected: usize,
-) -> Option<usize> {
+pub fn segmented(ui: &mut egui::Ui, options: &[(&str, &str)], selected: usize) -> Option<usize> {
     let mut clicked = None;
     egui::Frame::NONE
         .fill(FIELD)
@@ -308,7 +308,11 @@ pub fn segmented(
                             .size(11.5)
                             .color(if is_sel { Color32::WHITE } else { MUTED }),
                     )
-                    .fill(if is_sel { ACCENT_BG } else { Color32::TRANSPARENT })
+                    .fill(if is_sel {
+                        ACCENT_BG
+                    } else {
+                        Color32::TRANSPARENT
+                    })
                     .stroke(if is_sel {
                         Stroke::new(1.0, ACCENT.gamma_multiply(0.6))
                     } else {
@@ -352,30 +356,32 @@ pub fn paper_button(ui: &mut egui::Ui, text: &str, active: bool) -> Response {
     ui.add(btn)
 }
 
+/// 自适应单行文字绘制配置选项
+pub struct FittedTextOptions<'a> {
+    pub pos: egui::Pos2,
+    pub anchor: Align2,
+    pub text: &'a str,
+    pub max_width: f32,
+    pub size: f32,
+    pub min_size: f32,
+    pub color: Color32,
+    pub monospace: bool,
+}
+
 /// 画一段按宽度自适应缩小的单行文字（用于卡片内的符号 / 名称）
-pub fn paint_fitted_text(
-    painter: &egui::Painter,
-    pos: egui::Pos2,
-    anchor: Align2,
-    text: &str,
-    max_width: f32,
-    size: f32,
-    min_size: f32,
-    color: Color32,
-    monospace: bool,
-) {
+pub fn paint_fitted_text(painter: &egui::Painter, opts: FittedTextOptions<'_>) {
     let font = |s: f32| {
-        if monospace {
+        if opts.monospace {
             FontId::monospace(s)
         } else {
             FontId::proportional(s)
         }
     };
-    let mut galley = painter.layout_no_wrap(text.to_owned(), font(size), color);
-    if galley.size().x > max_width && galley.size().x > 0.0 {
-        let shrunk = (size * max_width / galley.size().x).max(min_size);
-        galley = painter.layout_no_wrap(text.to_owned(), font(shrunk), color);
+    let mut galley = painter.layout_no_wrap(opts.text.to_owned(), font(opts.size), opts.color);
+    if galley.size().x > opts.max_width && galley.size().x > 0.0 {
+        let shrunk = (opts.size * opts.max_width / galley.size().x).max(opts.min_size);
+        galley = painter.layout_no_wrap(opts.text.to_owned(), font(shrunk), opts.color);
     }
-    let rect = anchor.anchor_size(pos, galley.size());
-    painter.galley(rect.min, galley, color);
+    let rect = opts.anchor.anchor_size(opts.pos, galley.size());
+    painter.galley(rect.min, galley, opts.color);
 }

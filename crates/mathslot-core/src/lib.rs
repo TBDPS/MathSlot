@@ -16,7 +16,7 @@ pub mod scheme_a;
 pub mod session;
 pub mod visual;
 
-pub use presets::{PresetFormula, PRESET_LIBRARY, preset_categories};
+pub use presets::{PRESET_LIBRARY, PresetFormula, preset_categories};
 pub use session::Session;
 
 pub use mathslot_syntax::{
@@ -161,7 +161,10 @@ mod tests {
         .unwrap();
 
         let json = lib.to_json_pretty();
-        assert!(json.contains(&format!("\"schema_version\": {}", crate::library::CURRENT_SCHEMA_VERSION)));
+        assert!(json.contains(&format!(
+            "\"schema_version\": {}",
+            crate::library::CURRENT_SCHEMA_VERSION
+        )));
         let restored = UserLibrary::from_json(&json).unwrap();
         assert_eq!(restored, lib);
 
@@ -242,8 +245,8 @@ mod tests {
         assert_eq!(to_latex(&doc3), "f(x) \\ge 1");
 
         // 3. upsert 校验：autoJoin 槽位下标越界 / env 列数不整除 roles 均报错
-        assert!(lib
-            .upsert_custom(CustomFormat {
+        assert!(
+            lib.upsert_custom(CustomFormat {
                 item_key: 'y',
                 label: "坏".to_owned(),
                 glyph_hint: String::new(),
@@ -257,9 +260,10 @@ mod tests {
                     macro_tex: "\\to".to_owned(),
                 }),
             })
-            .is_err());
-        assert!(lib
-            .upsert_custom(CustomFormat {
+            .is_err()
+        );
+        assert!(
+            lib.upsert_custom(CustomFormat {
                 item_key: 'z',
                 label: "坏".to_owned(),
                 glyph_hint: String::new(),
@@ -272,7 +276,8 @@ mod tests {
                 },
                 auto_join: None,
             })
-            .is_err());
+            .is_err()
+        );
 
         // 4. $n 越界占位符不再原样漏进 LaTeX
         lib.upsert_custom(CustomFormat {
@@ -295,7 +300,9 @@ mod tests {
         // 1. 用户输入一段复杂公式后，将光标处的复杂根式存为复用片段，并在新公式中一键调用！
         let mut ed = StreamEditor::from_source("x = ▸f-b + ▸rb^2 - 4ac;;2a;");
         ed.set_cursor(14); // 位于内层根式 `▸rb^2 - 4ac;` 内部
-        let (key, _) = ed.save_current_as_snippet(Some("判别式根号"), true).unwrap();
+        let (key, _) = ed
+            .save_current_as_snippet(Some("判别式根号"), true)
+            .unwrap();
         assert_eq!(key, 'd'); // a,b,c 为初始预置，自动分配到 'd'
 
         ed.clear();
@@ -382,16 +389,25 @@ mod tests {
         let res_down = nav_ed.arrow_vertical(false);
         assert!(res_down.is_some());
         assert_eq!(nav_ed.cursor_char, 9);
-        assert!(nav_ed.esc_nav.is_some(), "arrow_vertical(false) must not clear esc_nav");
+        assert!(
+            nav_ed.esc_nav.is_some(),
+            "arrow_vertical(false) must not clear esc_nav"
+        );
         // 在导航模式下按 Up -> 应垂直回到分子并保持 esc_nav
         let res_up = nav_ed.arrow_vertical(true);
         assert!(res_up.is_some());
         assert_eq!(nav_ed.cursor_char, 5);
-        assert!(nav_ed.esc_nav.is_some(), "arrow_vertical(true) must not clear esc_nav");
+        assert!(
+            nav_ed.esc_nav.is_some(),
+            "arrow_vertical(true) must not clear esc_nav"
+        );
         // 已经在最顶层再按 Up -> 不会闪退退出导航模式
         let res_top_up = nav_ed.arrow_vertical(true);
         assert!(res_top_up.is_some());
-        assert!(nav_ed.esc_nav.is_some(), "Up at root in esc_nav must preserve esc_nav");
+        assert!(
+            nav_ed.esc_nav.is_some(),
+            "Up at root in esc_nav must preserve esc_nav"
+        );
     }
 
     #[test]
@@ -572,7 +588,9 @@ mod tests {
         );
 
         // 验证完整希腊字母表解析：小写与大写字母精确区分
-        let full_greek_doc = parse("▸ga ▸gb ▸gz ▸gh ▸gu ▸gv ▸gq ▸gy ▸go ▸gC ▸gD ▸gT ▸gL ▸gX ▸gP ▸gS ▸gU ▸gF ▸gY ▸gO");
+        let full_greek_doc = parse(
+            "▸ga ▸gb ▸gz ▸gh ▸gu ▸gv ▸gq ▸gy ▸go ▸gC ▸gD ▸gT ▸gL ▸gX ▸gP ▸gS ▸gU ▸gF ▸gY ▸gO",
+        );
         assert_eq!(
             to_latex(&full_greek_doc),
             "\\alpha \\beta \\zeta \\eta \\tau \\upsilon \\chi \\psi \\omega \\Gamma \\Delta \\Theta \\Lambda \\Xi \\Pi \\Sigma \\Upsilon \\Phi \\Psi \\Omega"
@@ -702,11 +720,17 @@ mod tests {
         let res_up = ed.arrow_vertical(true);
         assert!(res_up.is_some(), "Up arrow should navigate in Env matrix");
         let b_pos = ed.source.find('b').unwrap() + 1;
-        assert_eq!(ed.cursor_char, b_pos, "ArrowUp from slot4 should jump to slot1");
+        assert_eq!(
+            ed.cursor_char, b_pos,
+            "ArrowUp from slot4 should jump to slot1"
+        );
         // 从 slot1 按 Down：跨行向下应回到 slot4 (e)
         let res_down = ed.arrow_vertical(false);
         assert!(res_down.is_some());
-        assert_eq!(ed.cursor_char, e_pos, "ArrowDown from slot1 should jump back to slot4");
+        assert_eq!(
+            ed.cursor_char, e_pos,
+            "ArrowDown from slot1 should jump back to slot4"
+        );
 
         // 2. 验证自定义单槽格式的前置智能包裹 (Smart Prepend)
         // 预置的 kb 为双线范数 `\Vert $1 \Vert` (单槽)
@@ -857,7 +881,10 @@ mod tests {
         ed.set_cursor(0);
         ed.toggle_esc_jump();
         ed.feed_esc_jump_char('h');
-        assert_eq!(ed.cursor_char, h_target, "h must reach its slot, not line start");
+        assert_eq!(
+            ed.cursor_char, h_target,
+            "h must reach its slot, not line start"
+        );
         assert!(ed.esc_nav.is_none());
     }
 
@@ -937,7 +964,10 @@ mod tests {
         ed.source.push_str("▸J");
         let len = ed.source.chars().count();
         ed.sync_after_edit(len);
-        assert!(ed.esc_nav.is_some(), "▸J should enter nav, not a custom macro");
+        assert!(
+            ed.esc_nav.is_some(),
+            "▸J should enter nav, not a custom macro"
+        );
         assert_eq!(ed.source, "▸fx+1;y;");
     }
 

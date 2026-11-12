@@ -1,6 +1,6 @@
 use mathslot_core::{
-    exprs_structurally_equal, inspect_environment, parse, Cursor, Edit,
-    EnvironmentShape, MatrixEnv, Session, SlotRole,
+    Cursor, Edit, EnvironmentShape, MatrixEnv, Session, SlotRole, exprs_structurally_equal,
+    inspect_environment, parse,
 };
 
 /// 模块 1：LaTeX 导入与导出无损往返专项终测
@@ -71,8 +71,16 @@ fn test_acc_round7_latex_lossless_roundtrip_matrix() {
         let roundtrip_latex = session.to_latex();
         let (ast1, diag1) = parse(formula);
         let (ast2, diag2) = parse(&roundtrip_latex);
-        assert!(diag1.is_empty(), "[{label}] Initial parse had diagnostics: {:?}", diag1);
-        assert!(diag2.is_empty(), "[{label}] Roundtrip parse had diagnostics: {:?}", diag2);
+        assert!(
+            diag1.is_empty(),
+            "[{label}] Initial parse had diagnostics: {:?}",
+            diag1
+        );
+        assert!(
+            diag2.is_empty(),
+            "[{label}] Roundtrip parse had diagnostics: {:?}",
+            diag2
+        );
         assert!(
             exprs_structurally_equal(&ast1, &ast2),
             "[{label}] AST structural inequality!\nOrig: {formula}\nRoundtrip: {roundtrip_latex}\nAST1: {ast1:?}\nAST2: {ast2:?}"
@@ -142,7 +150,10 @@ fn test_acc_round7_ast_matrix_and_error_tolerance() {
         );
         // 验证导出安全不崩溃
         let exported = session.to_latex();
-        assert!(!exported.is_empty(), "Exported string must not be empty for '{desc}'");
+        assert!(
+            !exported.is_empty(),
+            "Exported string must not be empty for '{desc}'"
+        );
     }
 }
 
@@ -196,7 +207,9 @@ fn test_acc_round7_transaction_undo_redo_invariants() {
         slot_id: den_id,
         offset: 0,
     });
-    session.insert_text("z^2").expect("insert_text should succeed");
+    session
+        .insert_text("z^2")
+        .expect("insert_text should succeed");
     assert_eq!(session.to_latex(), r"\frac{x+y}{z^{2}}");
 
     // 步骤 5：逐步反向 Undo
@@ -230,7 +243,10 @@ fn test_acc_round7_transaction_undo_redo_invariants() {
     // 写入新分支
     session.insert_text("w").expect("branch insert");
     assert_eq!(session.to_latex(), r"\frac{x+y}{w}");
-    assert!(!session.redo(), "Redo stack must be truncated after new edit in undone state");
+    assert!(
+        !session.redo(),
+        "Redo stack must be truncated after new edit in undone state"
+    );
 }
 
 /// 模块 4：导航与锚点生成确定性终测
@@ -274,7 +290,10 @@ fn test_acc_round7_degradation_diagnostics_and_warnings() {
     let unsupported = r"\customcmd{foo} + \badmacro[opt]{bar}";
     let (session, report) = Session::from_latex(unsupported);
 
-    assert!(!report.lossless, "Unsupported formula must report lossless: false");
+    assert!(
+        !report.lossless,
+        "Unsupported formula must report lossless: false"
+    );
     assert!(report.raw_nodes >= 2, "Must report at least 2 raw nodes");
     assert!(report.has_warnings(), "Must have warnings in report");
 

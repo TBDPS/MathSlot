@@ -59,13 +59,8 @@ impl RenderWorker {
                     while let Ok(newer) = rx_job.try_recv() {
                         job = newer;
                     }
-                    let preview = renderer.render_doc(
-                        &job.doc,
-                        job.cursor_char,
-                        &[],
-                        None,
-                        Mode::Preview,
-                    );
+                    let preview =
+                        renderer.render_doc(&job.doc, job.cursor_char, &[], None, Mode::Preview);
                     let nav = renderer.render_doc(
                         &job.doc,
                         job.cursor_char,
@@ -181,7 +176,7 @@ impl Renderer {
         let out_h = inner_h + PAD_Y_PX * 2;
 
         let mut rgba = vec![0u8; out_w * out_h * 4];
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px.copy_from_slice(&SURFACE_RGBA);
         }
 
@@ -213,7 +208,10 @@ mod tests {
         // 验证标准高斯积分成功光栅化
         let gaussian = r"\int_{-\infty}^{\infty} e^{-x^2} \,\mathrm{d}x = \sqrt{\pi}";
         let res = renderer.render_latex(gaussian);
-        assert!(res.is_ok(), "Gaussian integral must render successfully in latex-rust: {res:?}");
+        assert!(
+            res.is_ok(),
+            "Gaussian integral must render successfully in latex-rust: {res:?}"
+        );
         let rendered = res.unwrap();
         assert!(rendered.image.size[0] > 0 && rendered.image.size[1] > 0);
 

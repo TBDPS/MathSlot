@@ -212,7 +212,7 @@ fn test_criterion_05_session_report_and_template_export() {
 
     // Session 状态能够持久读取 last_report
     assert!(session.last_report().is_some());
-    assert_eq!(session.last_report().unwrap().lossless, true);
+    assert!(session.last_report().unwrap().lossless);
 }
 
 /// Criterion 6: 导航与槽位抽象的一致性基石（SlotTable 确定性）

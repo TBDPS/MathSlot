@@ -9,10 +9,11 @@
 //! 5. 品牌资产与无 Emoji 豆腐块合约验证
 
 use mathslot_core::{
-    exprs_structurally_equal, inspect_environment, parse, Edit,
-    EnvironmentShape, MatrixEnv, Session, SlotRole,
-    presets::{PRESET_LIBRARY, preset_categories},
+    Edit, EnvironmentShape, MatrixEnv, Session, SlotRole, exprs_structurally_equal,
+    inspect_environment,
     library::{FormulaEntry, FormulaLibrary, UserLibrary},
+    parse,
+    presets::{PRESET_LIBRARY, preset_categories},
 };
 
 // =============================================================================
@@ -55,9 +56,18 @@ fn test_acc_r9_rewrite_design_section13_matrix() {
     // 准则 2：\sum/\int 后接 \left(...\right) 不再产生幽灵空槽
     // -------------------------------------------------------------------------
     let criterion_2_cases = [
-        ("Summation with left-right parens", r"\sum_{i=1}^{n} \left( x_{i} + y_{i} \right)"),
-        ("Integral with left-right parens", r"\int_{0}^{1} \left( 1 - t \right) dt"),
-        ("Product with left-right parens", r"\prod_{k=1}^{\infty} \left( 1 + a_{k} \right)"),
+        (
+            "Summation with left-right parens",
+            r"\sum_{i=1}^{n} \left( x_{i} + y_{i} \right)",
+        ),
+        (
+            "Integral with left-right parens",
+            r"\int_{0}^{1} \left( 1 - t \right) dt",
+        ),
+        (
+            "Product with left-right parens",
+            r"\prod_{k=1}^{\infty} \left( 1 + a_{k} \right)",
+        ),
     ];
 
     for (name, formula) in criterion_2_cases {
@@ -240,7 +250,10 @@ fn test_acc_r9_preset_library_88_corpus_and_categories() {
     assert_eq!(counts.get("大学物理").copied().unwrap_or(0), 12);
     assert_eq!(counts.get("复变函数").copied().unwrap_or(0), 8);
     assert_eq!(counts.get("离散数学").copied().unwrap_or(0), 6);
-    assert_eq!(counts.get("现代深度学习与人工智能").copied().unwrap_or(0), 11);
+    assert_eq!(
+        counts.get("现代深度学习与人工智能").copied().unwrap_or(0),
+        11
+    );
     assert_eq!(counts.get("量子力学").copied().unwrap_or(0), 8);
     assert_eq!(counts.get("微分几何与数学物理").copied().unwrap_or(0), 7);
 }
@@ -284,7 +297,9 @@ fn test_acc_r9_formula_library_dynamic_crud_and_json_lifecycle() {
         is_builtin: false,
         created_at: 1710000000,
     };
-    let id_ret = lib.upsert(user_entry.clone()).expect("Upsert user formula must succeed");
+    let id_ret = lib
+        .upsert(user_entry.clone())
+        .expect("Upsert user formula must succeed");
     assert_eq!(id_ret, "user-test-custom-1");
     assert_eq!(lib.entries.len(), 89);
     assert!(lib.get("user-test-custom-1").is_some());
@@ -320,7 +335,9 @@ fn test_acc_r9_formula_library_dynamic_crud_and_json_lifecycle() {
     assert!(exported_json.contains("\"name\": \"缩放点积注意力"));
     assert!(exported_json.contains("\"category\": \"量子力学\""));
 
-    let mut fresh_lib = FormulaLibrary { entries: Vec::new() };
+    let mut fresh_lib = FormulaLibrary {
+        entries: Vec::new(),
+    };
     let imported_count = fresh_lib
         .import_json(&exported_json, true)
         .expect("Import valid JSON must succeed");
@@ -331,7 +348,10 @@ fn test_acc_r9_formula_library_dynamic_crud_and_json_lifecycle() {
     let reimport_skip = fresh_lib
         .import_json(&exported_json, false)
         .expect("Import with overwrite=false must succeed");
-    assert_eq!(reimport_skip, 0, "重复导入且 overwrite=false 时应跳过 0 条新增");
+    assert_eq!(
+        reimport_skip, 0,
+        "重复导入且 overwrite=false 时应跳过 0 条新增"
+    );
 }
 
 // =============================================================================
@@ -351,7 +371,10 @@ fn test_acc_r9_schema_2_persistence_and_backward_compatibility() {
 
     // 反序列化恢复
     let restored_v2 = UserLibrary::from_json(&json_v2).expect("Deserializing v2 JSON must succeed");
-    assert_eq!(restored_v2.custom_formats.len(), user_lib.custom_formats.len());
+    assert_eq!(
+        restored_v2.custom_formats.len(),
+        user_lib.custom_formats.len()
+    );
     assert_eq!(restored_v2.snippets.len(), user_lib.snippets.len());
     assert_eq!(restored_v2.formulas.entries.len(), 88);
 
@@ -377,7 +400,8 @@ fn test_acc_r9_schema_2_persistence_and_backward_compatibility() {
         ]
     }"#;
 
-    let restored_v1 = UserLibrary::from_json(legacy_v1_json).expect("Deserializing legacy v1 JSON must succeed");
+    let restored_v1 =
+        UserLibrary::from_json(legacy_v1_json).expect("Deserializing legacy v1 JSON must succeed");
     assert_eq!(restored_v1.custom_formats.len(), 1);
     assert_eq!(restored_v1.custom_formats[0].item_key, 'x');
     assert_eq!(restored_v1.snippets.len(), 1);
@@ -403,7 +427,9 @@ fn test_acc_r9_branding_assets_and_zero_tofu_contract() {
     assert!(svg_path.exists(), "SVG 图标必须存在");
     let svg_content = std::fs::read_to_string(&svg_path).expect("Read SVG");
     assert!(
-        svg_content.contains(r##"<rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#FFFFFF"/>"##),
+        svg_content.contains(
+            r##"<rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="#FFFFFF"/>"##
+        ),
         "SVG 必须采用 512x512 实心纯白 Squircle 底板，rx/ry=112"
     );
     assert!(
@@ -426,7 +452,11 @@ fn test_acc_r9_branding_assets_and_zero_tofu_contract() {
     // 5.2 PNG 光栅化多分辨率矩阵核验 (16, 32, 48, 64, 128, 256, 512)
     for size in [16, 32, 48, 64, 128, 256, 512] {
         let png_path = repo_root.join(format!("assets/icons/mathslot-{size}.png"));
-        assert!(png_path.exists(), "PNG 图标 {} 必须存在", png_path.display());
+        assert!(
+            png_path.exists(),
+            "PNG 图标 {} 必须存在",
+            png_path.display()
+        );
         let meta = std::fs::metadata(&png_path).expect("PNG metadata");
         assert!(meta.len() > 100, "PNG 图标 {} 尺寸异常", png_path.display());
     }

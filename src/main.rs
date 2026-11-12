@@ -9,9 +9,9 @@ mod theme;
 use eframe::egui;
 
 fn main() -> eframe::Result {
-    let icon = eframe::icon_data::from_png_bytes(
-        include_bytes!("../assets/icons/mathslot-256.png")
-    ).expect("Failed to load embedded icon");
+    let icon =
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/mathslot-256.png"))
+            .expect("Failed to load embedded icon");
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

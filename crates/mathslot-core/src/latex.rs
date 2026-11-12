@@ -367,7 +367,21 @@ pub(crate) fn needs_diff_thin_space(out: &str) -> bool {
     };
     !matches!(
         last_ch,
-        '(' | '[' | '{' | '+' | '-' | '*' | '/' | '=' | '<' | '>' | ',' | ';' | '|' | ':' | '~' | '\\'
+        '(' | '['
+            | '{'
+            | '+'
+            | '-'
+            | '*'
+            | '/'
+            | '='
+            | '<'
+            | '>'
+            | ','
+            | ';'
+            | '|'
+            | ':'
+            | '~'
+            | '\\'
     )
 }
 
@@ -857,9 +871,10 @@ pub fn latex_to_mathslot(input: &str) -> String {
         s = s[2..s.len() - 2].trim();
     } else if s.starts_with('$') && s.ends_with('$') && s.len() >= 2 {
         s = s[1..s.len() - 1].trim();
-    } else if s.starts_with("\\[") && s.ends_with("\\]") && s.len() >= 4 {
-        s = s[2..s.len() - 2].trim();
-    } else if s.starts_with("\\(") && s.ends_with("\\)") && s.len() >= 4 {
+    } else if ((s.starts_with("\\[") && s.ends_with("\\]"))
+        || (s.starts_with("\\(") && s.ends_with("\\)")))
+        && s.len() >= 4
+    {
         s = s[2..s.len() - 2].trim();
     }
     if s.starts_with("\\begin{equation}") && s.ends_with("\\end{equation}") {
@@ -958,9 +973,18 @@ fn convert_latex_chars(chars: &[char], start: usize, end: usize) -> String {
                         if cursor < end && chars[cursor] == '_' {
                             let (sub, next_sub) = get_latex_arg(chars, cursor + 1, end);
                             let sub_str = convert_latex_chars(chars, sub.0, sub.1);
-                            let (var, target) = if let Some(pos) = sub_str.find("\\to").or_else(|| sub_str.find("->")) {
-                                let arrow_len = if sub_str[pos..].starts_with("\\to") { 3 } else { 2 };
-                                (sub_str[..pos].trim().to_owned(), sub_str[pos + arrow_len..].trim().to_owned())
+                            let (var, target) = if let Some(pos) =
+                                sub_str.find("\\to").or_else(|| sub_str.find("->"))
+                            {
+                                let arrow_len = if sub_str[pos..].starts_with("\\to") {
+                                    3
+                                } else {
+                                    2
+                                };
+                                (
+                                    sub_str[..pos].trim().to_owned(),
+                                    sub_str[pos + arrow_len..].trim().to_owned(),
+                                )
                             } else {
                                 (sub_str.trim().to_owned(), String::new())
                             };
@@ -1237,7 +1261,9 @@ fn convert_latex_chars(chars: &[char], start: usize, end: usize) -> String {
                         }
                     }
                 }
-            } else if i < end && (chars[i] == ',' || chars[i] == ';' || chars[i] == ':' || chars[i] == '!') {
+            } else if i < end
+                && (chars[i] == ',' || chars[i] == ';' || chars[i] == ':' || chars[i] == '!')
+            {
                 // LaTeX 间距微调宏 \, \; \: \! 在反向编译为简码流时平滑忽略
                 i += 1;
                 continue;

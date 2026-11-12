@@ -89,8 +89,10 @@ impl NavScope {
 
         let mut best: Option<&NavEntry> = None;
         for entry in &self.entries {
-            if matches!(entry.kind, NavEntryKind::ScopeStart | NavEntryKind::ScopeEnd)
-                || entry.missing_semis_at_eof > 0
+            if matches!(
+                entry.kind,
+                NavEntryKind::ScopeStart | NavEntryKind::ScopeEnd
+            ) || entry.missing_semis_at_eof > 0
             {
                 continue;
             }
@@ -174,7 +176,7 @@ pub enum Expr {
         full_span: Span,
     },
     CustomStruct {
-        format: CustomFormat,
+        format: Box<CustomFormat>,
         cmd_span: Span,
         slots: Vec<SlotNode>,
         full_span: Span,
@@ -304,10 +306,10 @@ impl ParsedDoc {
                 return None;
             } else {
                 // 在顶层按 Down：优先进入全式首个结构槽位，否则跳至行尾 `[;]`
-                if let Some((t, m, desc)) = first_child_struct_slot(&self.root) {
-                    if t != clamped || m > 0 {
-                        return Some((t, m, desc));
-                    }
+                if let Some((t, m, desc)) = first_child_struct_slot(&self.root)
+                    && (t != clamped || m > 0)
+                {
+                    return Some((t, m, desc));
                 }
                 if clamped < self.char_len {
                     return Some((self.char_len, 0, "行尾 [;]".to_owned()));
@@ -508,7 +510,7 @@ fn collect_enclosing_structs<'a>(
                 ..
             } if !slots.is_empty() => (
                 None,
-                Some(format),
+                Some(format.as_ref()),
                 format.label.clone(),
                 *cmd_span,
                 slots.as_slice(),
@@ -547,11 +549,13 @@ fn collect_enclosing_structs<'a>(
 
 fn vertical_partner_slot(kind: StructKind, cur_idx: usize, go_up: bool) -> Option<usize> {
     match kind {
-        StructKind::Frac | StructKind::PartialFrac | StructKind::TotalFrac => match (cur_idx, go_up) {
-            (0, false) => Some(1),
-            (1, true) => Some(0),
-            _ => None,
-        },
+        StructKind::Frac | StructKind::PartialFrac | StructKind::TotalFrac => {
+            match (cur_idx, go_up) {
+                (0, false) => Some(1),
+                (1, true) => Some(0),
+                _ => None,
+            }
+        }
         StructKind::Sup | StructKind::Overbrace => match (cur_idx, go_up) {
             (0, true) => Some(1),
             (1, false) => Some(0),
@@ -576,11 +580,13 @@ fn vertical_partner_slot(kind: StructKind, cur_idx: usize, go_up: bool) -> Optio
             (2, false) => Some(0),
             _ => None,
         },
-        StructKind::DoubleIntegral | StructKind::ContourIntegral | StructKind::TripleIntegral => match (cur_idx, go_up) {
-            (1, false) => Some(0),
-            (0, true) => Some(1),
-            _ => None,
-        },
+        StructKind::DoubleIntegral | StructKind::ContourIntegral | StructKind::TripleIntegral => {
+            match (cur_idx, go_up) {
+                (1, false) => Some(0),
+                (0, true) => Some(1),
+                _ => None,
+            }
+        }
         StructKind::Limit => match (cur_idx, go_up) {
             (2, false) => Some(0),
             (0 | 1, true) => Some(2),
