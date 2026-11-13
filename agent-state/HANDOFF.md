@@ -4,36 +4,35 @@
 
 ## 当前
 
-- 轮次：5
-- Gate：G1（G0 全部任务已闭环收口）
-- 当前任务：T0.5 已完成，G0 收口已通过，待进入 T1.1
-- 下一步：`T1.1` 定义 `catalog/commands.toml` schema + loader（开启 Gate G1：单一事实源）
+- 轮次：6
+- Gate：G1
+- 当前任务：T1.1 已完成，待进入 T1.2
+- 下一步：`T1.2` 生成调色板/文档/TS 类型（xtask + generated 代码生成管线）
 
 ## 本轮做过什么
 
-- 审计产出 `AUD-5.md`：解构持久化四大故障隐患与测试缺口，新登记 D-102，规划 Harness 架构契约，定性 BLOCK。
-- 决策批准 `ADR-0008`：批准标准库零特权实现四大故障注入组件，并明确 G0 最终收口流程。
-- 实现提交 `956ecea`：`T0.5: build fault injection harness for persistence safety`，实现四大故障注入模块与 5 项全绿单测。
-- 验收产出 `VER-5.md`：纯标准库零特权免 root、CI 秒级复现、门禁与基线保持（138 passed; 0 failed; 7 ignored），判定 PASS。
-- G0 门禁收口产出 `GATE-G0.md`：`scripts/agent/acceptance.sh` 全量通过（PASS=3, FAIL=0, WARN=5），四大退出条件全部满足，签署 PASS。
+- 审计产出 `AUD-6.md`：审计命令目录 Schema 契约，核验 121 项命令映射，发现并登记 D-103，定性 BLOCK。
+- 决策批准 `ADR-0009`：批准 `catalog/commands.toml` 单一事实源与 `crates/mathslot-command` 纯数据 crate 架构。
+- 实现提交 `2ba8757`：`T1.1: define commands catalog toml schema and loader (crates/mathslot-command)`，建立 121 项命令单一事实源、轻量 loader 与 8 项测试。
+- 验收产出 `VER-6.md`：121 项命令全量加载、按键 Prefix-Free 校验、门禁与基线保持（146 passed; 0 failed; 7 ignored），判定 PASS。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-5.md`
-- `agent-state/decisions/ADR-0008-fault-injection-harness-t0.5.md`
-- `agent-state/verify/VER-5.md`
-- `agent-state/verify/GATE-G0.md`
-- Commit：`956ecea` (`T0.5: build fault injection harness for persistence safety`)
+- `agent-state/audits/AUD-6.md`
+- `agent-state/decisions/ADR-0009-catalog-commands-schema-loader-t1.1.md`
+- `agent-state/verify/VER-6.md`
+- Commit：`2ba8757` (`T1.1: define commands catalog toml schema and loader (crates/mathslot-command)`)
+- 文件：`catalog/commands.toml`、`crates/mathslot-command/`
 
 ## 卡在哪 / 需要人工
 
-- 无阻塞。Gate G0 已圆满闭环，正式进入 Gate G1。
+- 无阻塞。
 - 外部审查仍为 final-only。
 
 ## 下一轮入口
 
-1. 读规范 §14 Gate G1 任务 T1.1（定义 `catalog/commands.toml` schema + loader，产出 catalog crate，退出条件：能加载全部命令）。
-2. 派 `auditor` 审计 `catalog` crate 架构、schema 设计与现有 121 项命令的转换路径，产出 `AUD-6`。
-3. 决策批准 `ADR-0009`。
-4. 派 `implementer` 创建 `crates/mathslot-command`（或 `catalog`），编写 schema 与 loader，先写失败测试再实现。
-5. 派 `verifier` 独立验证 loader 功能并出具 `VER-6`。
+1. 读规范 §14 Gate G1 任务 T1.2（生成调色板/文档/TS 类型，产出 xtask + generated，退出条件：生成文件可重复、无 diff）。
+2. 派 `auditor` 审计生成产物目标清单（Rust 代码、JSON、Markdown 文档、TS 类型、JSON Schema）与 xtask 架构，产出 `AUD-7`。
+3. 决策批准 `ADR-0010`。
+4. 派 `implementer` 构建 `xtask` 并生成产物，先写差异断言失败测试再实现生成器。
+5. 派 `verifier` 独立验证生成产物可重复性与 `git diff --exit-code` 并产出 `VER-7`。

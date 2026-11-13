@@ -9,7 +9,7 @@
     "readonly_copy": "/home/mat/Projects/mathslot-freeze-20261112"
   },
   "baseline": {
-    "tests_passed": 138,
+    "tests_passed": 146,
     "tests_ignored": 7,
     "clippy": "PASS",
     "fmt": "PASS",
@@ -17,12 +17,13 @@
     "builtin_presets": 88,
     "total_commands": 121,
     "baseline_tagged": true,
-    "gate_g0": "PASS"
+    "gate_g0": "PASS",
+    "catalog_crate": "mathslot-command"
   },
   "gate": "G1",
-  "round": 5,
+  "round": 6,
   "active_task": null,
-  "next_task": "T1.1",
+  "next_task": "T1.2",
   "last_verdict": "PASS",
   "open_p1": [
     "D-001",
@@ -83,7 +84,7 @@
   "reviews": {
     "mode": "final-only",
     "note": "按用户要求关闭逐轮/轮询审查；项目完成后执行 supervise.sh --final",
-    "last_head": "956ecea",
+    "last_head": "2ba8757",
     "last_verdict": "REJECT",
     "last_approved": null,
     "pending_head": null,
