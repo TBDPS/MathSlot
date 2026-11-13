@@ -1,0 +1,16 @@
+[package]
+name = "mathslot-store"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Atomic persistence, locking, backup rotation, corrupt quarantine, and schema migration for MathSlot"
+
+[dependencies]
+dirs = "6"
+fd-lock = "4"
+mathslot-core = { path = "../mathslot-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"

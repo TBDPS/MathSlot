@@ -1,5 +1,97 @@
 //! 用户可扩展数学格式与公式复用片段库（零外部依赖 JSON 持久化，桌面端与 Obsidian 插件同源共享）
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static UUID_V7_STATE: AtomicU64 = AtomicU64::new(0);
+static UUID_V7_ENTROPY: AtomicU64 = AtomicU64::new(0x517c_c1b7_2722_0a95);
+
+fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+/// 生成符合 RFC-9562 的时间单调有序 UUIDv7（纯安全标准库实现，支持高并发与同毫秒千次突发）。
+pub fn next_uuid_v7() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let now_ms = (dur.as_millis() as u64) & 0x0000_ffff_ffff_ffff;
+
+    let packed = loop {
+        let prev = UUID_V7_STATE.load(Ordering::Acquire);
+        let prev_ms = prev >> 16;
+        let prev_seq = prev & 0xffff;
+        let next = if now_ms > prev_ms {
+            now_ms << 16
+        } else if prev_seq < 0xffff {
+            (prev_ms << 16) | (prev_seq + 1)
+        } else {
+            (prev_ms + 1) << 16
+        };
+        if UUID_V7_STATE
+            .compare_exchange_weak(prev, next, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok()
+        {
+            break next;
+        }
+    };
+
+    let ts_ms = packed >> 16;
+    let seq = packed & 0xffff;
+    let ent_ctr = UUID_V7_ENTROPY.fetch_add(1, Ordering::Relaxed);
+    let rand_tail = splitmix64((dur.as_nanos() as u64) ^ packed ^ ent_ctr);
+
+    let mut bytes = [0u8; 16];
+    let ts_bytes = ts_ms.to_be_bytes();
+    bytes[0..6].copy_from_slice(&ts_bytes[2..8]);
+    // RFC-9562 version = 7 (0b0111), top 12 bits of monotonic seq occupy rand_a
+    bytes[6] = 0x70 | (((seq >> 12) & 0x0f) as u8);
+    bytes[7] = ((seq >> 4) & 0xff) as u8;
+    // RFC-9562 variant = 0b10, bottom 4 bits of monotonic seq occupy bits 66..70 before random tail
+    bytes[8] = 0x80 | (((seq & 0x0f) as u8) << 2) | (((rand_tail >> 56) as u8) & 0x03);
+    bytes[9..16].copy_from_slice(&rand_tail.to_be_bytes()[1..8]);
+
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
+    )
+}
+
+/// 校验字符串是否为规范的小写 RFC-9562 UUIDv7 格式（`xxxxxxxx-xxxx-7xxx-[89ab]xxx-xxxxxxxxxxxx`）。
+pub fn is_valid_uuid_v7(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 36 {
+        return false;
+    }
+    for (idx, &ch) in b.iter().enumerate() {
+        if matches!(idx, 8 | 13 | 18 | 23) {
+            if ch != b'-' {
+                return false;
+            }
+        } else if !matches!(ch, b'0'..=b'9' | b'a'..=b'f') {
+            return false;
+        }
+    }
+    b[14] == b'7' && matches!(b[19], b'8' | b'9' | b'a' | b'b')
+}
+
 /// 自定义格式的布局种类（层级一声明式 schema：免改源码支持矩阵式结构与槽间自动拼接）
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum LayoutKind {
@@ -258,13 +350,7 @@ impl FormulaLibrary {
             entry.category = "自定义公式".to_owned();
         }
         if entry.id.trim().is_empty() {
-            entry.id = format!(
-                "user-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
-            );
+            entry.id = next_uuid_v7();
         }
         let id = entry.id.clone();
         if let Some(pos) = self.entries.iter().position(|e| e.id == id) {
@@ -379,7 +465,7 @@ impl FormulaLibrary {
                 }
                 let mut id = get_str(&obj, "id").unwrap_or("").trim().to_owned();
                 if id.is_empty() {
-                    id = format!("imported-{}", count + 1);
+                    id = next_uuid_v7();
                 }
                 let category = get_str(&obj, "category")
                     .unwrap_or("自定义公式")
@@ -394,16 +480,12 @@ impl FormulaLibrary {
                         }
                     }
                 }
-                let is_builtin = match find_field(&obj, "is_builtin")
-                    .or_else(|| find_field(&obj, "isBuiltin"))
-                {
-                    Some(JsonVal::Bool(b)) => *b,
-                    _ => false,
-                };
+                // D-014: 外部导入禁止携带 is_builtin: true，统一规范化为 false
+                let is_builtin = false;
                 let created_at = match find_field(&obj, "created_at")
                     .or_else(|| find_field(&obj, "createdAt"))
                 {
-                    Some(JsonVal::Num(n)) => *n,
+                    Some(JsonVal::Num(n)) if *n >= 0.0 => *n as u64,
                     _ => 0,
                 };
 
@@ -792,179 +874,191 @@ impl UserLibrary {
             return Err("顶层配置必须是 JSON 对象".to_owned());
         };
 
-        // 检验或自动迁移配置 Schema 版本（缺省视为 v1）
-        let _schema_version: u32 = match find_field(&entries, "schema_version")
+        // 检验配置 Schema 版本（缺省视为 v1；显式 match 拒绝未知版本如 0 或 >= 4）
+        let schema_version: u32 = match find_field(&entries, "schema_version")
             .or_else(|| find_field(&entries, "schemaVersion"))
         {
-            Some(JsonVal::Num(n)) => *n as u32,
-            _ => 1,
+            None => 1,
+            Some(JsonVal::Num(n)) if n.is_finite() && *n >= 1.0 && n.fract() == 0.0 => *n as u32,
+            Some(other) => return Err(format!("无效的 schema_version 字段: {other:?}")),
         };
+        match schema_version {
+            1 | 2 => {}
+            other => return Err(format!("不支持的配置 schema_version: {other}")),
+        }
 
         let mut custom_formats = Vec::new();
         let mut snippets = Vec::new();
 
         let custom_arr = find_field(&entries, "customFormats")
             .or_else(|| find_field(&entries, "custom_formats"));
-        if let Some(JsonVal::Arr(arr)) = custom_arr {
+        if let Some(val) = custom_arr {
+            let JsonVal::Arr(arr) = val else {
+                return Err("customFormats 字段必须是 JSON 数组".to_owned());
+            };
             for item in arr {
-                if let JsonVal::Obj(obj) = item {
-                    let Some(key_s) = get_str(obj, "key").or_else(|| get_str(obj, "item_key"))
-                    else {
-                        continue;
-                    };
-                    let Some(ch) = key_s.chars().next().filter(|c| c.is_ascii_lowercase()) else {
-                        continue;
-                    };
-                    let label = get_str(obj, "label")
-                        .or_else(|| get_str(obj, "name"))
-                        .unwrap_or("自定义")
-                        .to_owned();
-                    let glyph_hint = get_str(obj, "glyph")
-                        .or_else(|| get_str(obj, "glyph_hint"))
-                        .unwrap_or("")
-                        .to_owned();
-                    let latex_template = get_str(obj, "latex")
-                        .or_else(|| get_str(obj, "latex_template"))
-                        .unwrap_or("$1")
-                        .to_owned();
-                    let scheme_a_name = get_str(obj, "schemeA")
-                        .or_else(|| get_str(obj, "scheme_a_name"))
-                        .unwrap_or("custom")
-                        .to_owned();
-                    let mut slot_roles = Vec::new();
-                    let roles_val =
-                        find_field(obj, "roles").or_else(|| find_field(obj, "slot_roles"));
-                    if let Some(JsonVal::Arr(r_arr)) = roles_val {
-                        for r in r_arr {
-                            if let JsonVal::Str(s) = r {
-                                slot_roles.push(s.clone());
-                            }
+                let JsonVal::Obj(obj) = item else {
+                    return Err("customFormats 数组元素必须是 JSON 对象".to_owned());
+                };
+                let Some(key_s) = get_str(obj, "key").or_else(|| get_str(obj, "item_key")) else {
+                    continue;
+                };
+                let Some(ch) = key_s.chars().next().filter(|c| c.is_ascii_lowercase()) else {
+                    continue;
+                };
+                let label = get_str(obj, "label")
+                    .or_else(|| get_str(obj, "name"))
+                    .unwrap_or("自定义")
+                    .to_owned();
+                let glyph_hint = get_str(obj, "glyph")
+                    .or_else(|| get_str(obj, "glyph_hint"))
+                    .unwrap_or("")
+                    .to_owned();
+                let latex_template = get_str(obj, "latex")
+                    .or_else(|| get_str(obj, "latex_template"))
+                    .unwrap_or("$1")
+                    .to_owned();
+                let scheme_a_name = get_str(obj, "schemeA")
+                    .or_else(|| get_str(obj, "scheme_a_name"))
+                    .unwrap_or("custom")
+                    .to_owned();
+                let mut slot_roles = Vec::new();
+                let roles_val = find_field(obj, "roles").or_else(|| find_field(obj, "slot_roles"));
+                if let Some(JsonVal::Arr(r_arr)) = roles_val {
+                    for r in r_arr {
+                        if let JsonVal::Str(s) = r {
+                            slot_roles.push(s.clone());
                         }
                     }
-                    // 层级一扩展字段（可选，缺省 = 线性布局、无 autoJoin）
-                    let layout = if get_str(obj, "kind") == Some("env") {
-                        let env = get_str(obj, "env").unwrap_or("pmatrix").to_owned();
-                        let cols = match find_field(obj, "cols") {
-                            Some(JsonVal::Num(n)) => *n as usize,
-                            _ => 2,
-                        };
-                        LayoutKind::Env { env, cols }
-                    } else {
-                        LayoutKind::Linear
+                }
+                // 层级一扩展字段（可选，缺省 = 线性布局、无 autoJoin）
+                let layout = if get_str(obj, "kind") == Some("env") {
+                    let env = get_str(obj, "env").unwrap_or("pmatrix").to_owned();
+                    let cols = match find_field(obj, "cols") {
+                        Some(JsonVal::Num(n)) if *n >= 0.0 => *n as usize,
+                        _ => 2,
                     };
-                    let auto_join = find_field(obj, "autoJoin").and_then(|v| {
-                        if let JsonVal::Obj(fields) = v {
-                            let base = match find_field(fields, "base") {
-                                Some(JsonVal::Num(n)) => *n as usize,
-                                _ => return None,
-                            };
-                            let cond = match find_field(fields, "cond") {
-                                Some(JsonVal::Num(n)) => *n as usize,
-                                _ => return None,
-                            };
-                            let macro_tex = get_str(fields, "macro")?.to_owned();
-                            Some(AutoJoin {
-                                base_slot: base,
-                                cond_slot: cond,
-                                macro_tex,
-                            })
-                        } else {
-                            None
-                        }
-                    });
-                    custom_formats.push(CustomFormat {
+                    LayoutKind::Env { env, cols }
+                } else {
+                    LayoutKind::Linear
+                };
+                let auto_join = find_field(obj, "autoJoin").and_then(|v| {
+                    if let JsonVal::Obj(fields) = v {
+                        let base = match find_field(fields, "base") {
+                            Some(JsonVal::Num(n)) if *n >= 0.0 => *n as usize,
+                            _ => return None,
+                        };
+                        let cond = match find_field(fields, "cond") {
+                            Some(JsonVal::Num(n)) if *n >= 0.0 => *n as usize,
+                            _ => return None,
+                        };
+                        let macro_tex = get_str(fields, "macro")?.to_owned();
+                        Some(AutoJoin {
+                            base_slot: base,
+                            cond_slot: cond,
+                            macro_tex,
+                        })
+                    } else {
+                        None
+                    }
+                });
+                custom_formats.push(CustomFormat {
+                    item_key: ch,
+                    label,
+                    glyph_hint,
+                    slot_roles,
+                    latex_template,
+                    scheme_a_name,
+                    layout,
+                    auto_join,
+                });
+            }
+        }
+
+        if let Some(val) = find_field(&entries, "snippets") {
+            let JsonVal::Arr(arr) = val else {
+                return Err("snippets 字段必须是 JSON 数组".to_owned());
+            };
+            for item in arr {
+                let JsonVal::Obj(obj) = item else {
+                    return Err("snippets 数组元素必须是 JSON 对象".to_owned());
+                };
+                let Some(key_s) = get_str(obj, "key").or_else(|| get_str(obj, "item_key")) else {
+                    continue;
+                };
+                let Some(ch) = key_s.chars().next().filter(|c| c.is_ascii_lowercase()) else {
+                    continue;
+                };
+                let label = get_str(obj, "label")
+                    .or_else(|| get_str(obj, "name"))
+                    .unwrap_or("片段")
+                    .to_owned();
+                let stream_source = get_str(obj, "source")
+                    .or_else(|| get_str(obj, "stream_source"))
+                    .unwrap_or("")
+                    .to_owned();
+                if !stream_source.is_empty() {
+                    snippets.push(FormulaSnippet {
                         item_key: ch,
                         label,
-                        glyph_hint,
-                        slot_roles,
-                        latex_template,
-                        scheme_a_name,
-                        layout,
-                        auto_join,
+                        stream_source,
                     });
                 }
             }
         }
 
-        if let Some(JsonVal::Arr(arr)) = find_field(&entries, "snippets") {
-            for item in arr {
-                if let JsonVal::Obj(obj) = item {
-                    let Some(key_s) = get_str(obj, "key").or_else(|| get_str(obj, "item_key"))
-                    else {
-                        continue;
-                    };
-                    let Some(ch) = key_s.chars().next().filter(|c| c.is_ascii_lowercase()) else {
-                        continue;
-                    };
-                    let label = get_str(obj, "label")
-                        .or_else(|| get_str(obj, "name"))
-                        .unwrap_or("片段")
-                        .to_owned();
-                    let stream_source = get_str(obj, "source")
-                        .or_else(|| get_str(obj, "stream_source"))
-                        .unwrap_or("")
-                        .to_owned();
-                    if !stream_source.is_empty() {
-                        snippets.push(FormulaSnippet {
-                            item_key: ch,
-                            label,
-                            stream_source,
-                        });
-                    }
-                }
-            }
-        }
-
-        let formulas = if let Some(JsonVal::Arr(arr)) = find_field(&entries, "formulas") {
+        let formulas = if let Some(val) = find_field(&entries, "formulas") {
+            let JsonVal::Arr(arr) = val else {
+                return Err("formulas 字段必须是 JSON 数组".to_owned());
+            };
             let mut f_entries = Vec::new();
             for item in arr {
-                if let JsonVal::Obj(obj) = item {
-                    let name = get_str(obj, "name").unwrap_or("").trim().to_owned();
-                    let source = get_str(obj, "source").unwrap_or("").trim().to_owned();
-                    if name.is_empty() || source.is_empty() {
-                        continue;
-                    }
-                    let mut id = get_str(obj, "id").unwrap_or("").trim().to_owned();
-                    if id.is_empty() {
-                        id = format!("formula-{}", f_entries.len() + 1);
-                    }
-                    let category = get_str(obj, "category")
-                        .unwrap_or("自定义公式")
-                        .trim()
-                        .to_owned();
-                    let desc = get_str(obj, "desc").unwrap_or("").trim().to_owned();
-                    let mut tags = Vec::new();
-                    if let Some(JsonVal::Arr(t_arr)) = find_field(obj, "tags") {
-                        for t in t_arr {
-                            if let JsonVal::Str(s) = t {
-                                tags.push(s.clone());
-                            }
+                let JsonVal::Obj(obj) = item else {
+                    return Err("formulas 数组元素必须是 JSON 对象".to_owned());
+                };
+                let name = get_str(obj, "name").unwrap_or("").trim().to_owned();
+                let source = get_str(obj, "source").unwrap_or("").trim().to_owned();
+                if name.is_empty() || source.is_empty() {
+                    continue;
+                }
+                let mut id = get_str(obj, "id").unwrap_or("").trim().to_owned();
+                if id.is_empty() {
+                    id = format!("formula-{}", f_entries.len() + 1);
+                }
+                let category = get_str(obj, "category")
+                    .unwrap_or("自定义公式")
+                    .trim()
+                    .to_owned();
+                let desc = get_str(obj, "desc").unwrap_or("").trim().to_owned();
+                let mut tags = Vec::new();
+                if let Some(JsonVal::Arr(t_arr)) = find_field(obj, "tags") {
+                    for t in t_arr {
+                        if let JsonVal::Str(s) = t {
+                            tags.push(s.clone());
                         }
                     }
-                    let is_builtin = match find_field(obj, "is_builtin")
-                        .or_else(|| find_field(obj, "isBuiltin"))
-                    {
+                }
+                let is_builtin =
+                    match find_field(obj, "is_builtin").or_else(|| find_field(obj, "isBuiltin")) {
                         Some(JsonVal::Bool(b)) => *b,
                         _ => false,
                     };
-                    let created_at = match find_field(obj, "created_at")
-                        .or_else(|| find_field(obj, "createdAt"))
-                    {
-                        Some(JsonVal::Num(n)) => *n,
+                let created_at =
+                    match find_field(obj, "created_at").or_else(|| find_field(obj, "createdAt")) {
+                        Some(JsonVal::Num(n)) if *n >= 0.0 => *n as u64,
                         _ => 0,
                     };
 
-                    f_entries.push(FormulaEntry {
-                        id,
-                        name,
-                        category,
-                        source,
-                        desc,
-                        tags,
-                        is_builtin,
-                        created_at,
-                    });
-                }
+                f_entries.push(FormulaEntry {
+                    id,
+                    name,
+                    category,
+                    source,
+                    desc,
+                    tags,
+                    is_builtin,
+                    created_at,
+                });
             }
             FormulaLibrary { entries: f_entries }
         } else {
@@ -1039,7 +1133,7 @@ pub fn escape_json_str(s: &str) -> String {
 enum JsonVal {
     Null,
     Bool(bool),
-    Num(u64),
+    Num(f64),
     Str(String),
     Arr(Vec<JsonVal>),
     Obj(Vec<(String, JsonVal)>),
@@ -1075,6 +1169,9 @@ impl JsonParser {
         p.skip_ws();
         let val = p.parse_val()?;
         p.skip_ws();
+        if p.pos != p.chars.len() {
+            return Err("JSON 存在未预期的尾部内容".to_owned());
+        }
         Ok(val)
     }
 
@@ -1123,31 +1220,72 @@ impl JsonParser {
                     self.pos += 1;
                 }
                 let s: String = self.chars[start..self.pos].iter().collect();
-                Ok(JsonVal::Bool(s == "true"))
+                match s.as_str() {
+                    "true" => Ok(JsonVal::Bool(true)),
+                    "false" => Ok(JsonVal::Bool(false)),
+                    _ => Err(format!("非法 JSON 布尔字面量 `{s}`")),
+                }
             }
             'n' => {
+                let start = self.pos;
                 while self.pos < self.chars.len() && self.chars[self.pos].is_ascii_alphabetic() {
                     self.pos += 1;
                 }
-                Ok(JsonVal::Null)
+                let s: String = self.chars[start..self.pos].iter().collect();
+                if s == "null" {
+                    Ok(JsonVal::Null)
+                } else {
+                    Err(format!("非法 JSON 字面量 `{s}`"))
+                }
             }
             '-' | '0'..='9' => {
                 let num_start = self.pos;
-                while self.pos < self.chars.len()
-                    && matches!(
-                        self.chars[self.pos],
-                        '-' | '+' | '.' | 'e' | 'E' | '0'..='9'
-                    )
-                {
+                if self.peek() == Some('-') {
                     self.pos += 1;
                 }
+                match self.peek() {
+                    Some('0') => {
+                        self.pos += 1;
+                        if self.peek().is_some_and(|d| d.is_ascii_digit()) {
+                            return Err("JSON 数字禁止前导零".to_owned());
+                        }
+                    }
+                    Some('1'..='9') => {
+                        while self.peek().is_some_and(|d| d.is_ascii_digit()) {
+                            self.pos += 1;
+                        }
+                    }
+                    _ => return Err("非法 JSON 数字".to_owned()),
+                }
+                if self.peek() == Some('.') {
+                    self.pos += 1;
+                    if !self.peek().is_some_and(|d| d.is_ascii_digit()) {
+                        return Err("JSON 小数点后必须有数字".to_owned());
+                    }
+                    while self.peek().is_some_and(|d| d.is_ascii_digit()) {
+                        self.pos += 1;
+                    }
+                }
+                if matches!(self.peek(), Some('e' | 'E')) {
+                    self.pos += 1;
+                    if matches!(self.peek(), Some('+' | '-')) {
+                        self.pos += 1;
+                    }
+                    if !self.peek().is_some_and(|d| d.is_ascii_digit()) {
+                        return Err("JSON 科学计数法指数部分缺少数字".to_owned());
+                    }
+                    while self.peek().is_some_and(|d| d.is_ascii_digit()) {
+                        self.pos += 1;
+                    }
+                }
                 let num_str: String = self.chars[num_start..self.pos].iter().collect();
-                Ok(JsonVal::Num(
-                    num_str
-                        .parse::<f64>()
-                        .map(|f| f.max(0.0) as u64)
-                        .unwrap_or(0),
-                ))
+                let parsed = num_str
+                    .parse::<f64>()
+                    .map_err(|_| format!("非法 JSON 数字 `{num_str}`"))?;
+                if !parsed.is_finite() {
+                    return Err(format!("JSON 数字溢出 `{num_str}`"));
+                }
+                Ok(JsonVal::Num(parsed))
             }
             other => Err(format!("非法 JSON 字符 `{other}`")),
         }
@@ -1265,8 +1403,11 @@ impl JsonParser {
                                 out.push(char::from_u32(code).ok_or("JSON \\u 码点非法")?);
                             }
                         }
-                        other => out.push(other),
+                        other => return Err(format!("非法 JSON 转义序列 `\\{other}`")),
                     }
+                }
+                other if (other as u32) < 0x20 => {
+                    return Err("JSON 字符串包含未转义控制字符".to_owned());
                 }
                 other => out.push(other),
             }

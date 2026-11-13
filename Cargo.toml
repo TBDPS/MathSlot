@@ -8,6 +8,7 @@ members = [
     "crates/mathslot-wasm",
     "crates/mathslot-command",
     "crates/mathslot-app",
+    "crates/mathslot-store",
     "xtask",
 ]
 resolver = "2"
@@ -37,6 +38,7 @@ eframe = { version = "0.37", default-features = false, features = [
 ] }
 latex-rust = { version = "3.0.1", features = ["png"] }
 mathslot-core = { path = "crates/mathslot-core" }
+mathslot-store = { path = "crates/mathslot-store" }
 tiny-skia = "0.11"
 
 [profile.dev]

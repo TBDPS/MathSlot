@@ -8,7 +8,7 @@ use eframe::egui::{
     Key, Layout, Margin, Modifiers, Rect, RichText, Sense, Stroke, StrokeKind, Vec2,
 };
 
-use crate::modals::{LibraryModalState, ModalAction, load_library_from_disk, save_library_to_disk};
+use crate::modals::{LibraryModalState, ModalAction, load_library_from_disk};
 use crate::render::{PIXELS_PER_POINT, RenderJob, RenderWorker};
 use crate::theme::*;
 use mathslot_core::ast::NavEntryKind;
@@ -90,8 +90,9 @@ impl MathSlotApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         install_fonts(&cc.egui_ctx);
         install_style(&cc.egui_ctx);
-        let (library, config_path_hint) = load_library_from_disk();
-        let mut modals = LibraryModalState::new(&library, config_path_hint);
+        let (library, config_path_hint, store_session) = load_library_from_disk();
+        let initial_status = store_session.load_error.clone().unwrap_or_default();
+        let mut modals = LibraryModalState::new(&library, config_path_hint, store_session);
         let devshot = crate::devshot::DevShot::from_env();
         let mut editor = StreamEditor::with_library(library);
         let mut active_tab = WorkspaceTab::Palette;
@@ -137,7 +138,7 @@ impl MathSlotApp {
             formula_tex: None,
             nav_tex: None,
             render_error: None,
-            status: String::new(),
+            status: initial_status,
             delimiter_style: DelimiterStyle::Inline,
             preview_scale: 1.25,
             copy_feedback_until: None,
@@ -192,12 +193,18 @@ impl MathSlotApp {
     fn quick_save_snippet(&mut self, prefer_inner: bool) {
         match self.editor.save_current_as_snippet(None, prefer_inner) {
             Ok((_key, msg)) => {
-                let _ = save_library_to_disk(&self.editor.library);
                 if let Some(nk) = self.editor.library.next_free_snippet_key() {
                     self.modals.snip_key = nk.to_string();
                 }
-                self.modals.feedback = Some((msg.clone(), false));
-                self.status = msg;
+                let (feedback_msg, is_err) = match self.modals.save_library(&self.editor.library) {
+                    Ok(_) => (msg, false),
+                    Err(err) => (
+                        format!("✓ 已保存片段（本次会话生效），但写入磁盘失败: {err}"),
+                        true,
+                    ),
+                };
+                self.modals.feedback = Some((feedback_msg.clone(), is_err));
+                self.status = feedback_msg;
                 self.mark_dirty();
             }
             Err(err) => {

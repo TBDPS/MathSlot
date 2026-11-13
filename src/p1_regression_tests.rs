@@ -115,59 +115,10 @@ fn test_p1_d003_fitted_size_strictly_respects_max_bounds() {
 
 /// D-005 失败回归测试：读取损坏 JSON 配置严禁静默回退默认库并不保留损坏原件
 ///
-/// 关联代码：`src/modals.rs:1714-1763`：
-/// 1. `load_library_from_disk` 遇到主文件损坏且无有效 `.bak` 时，直接静默回退 `UserLibrary::default_seeded()`
-/// 2. 随后的 `save_library_to_disk` 在无隔离措施下直接覆盖原损坏文件，导致用户数据永久灭失
-fn load_library_from_path(path: &std::path::Path) -> (UserLibrary, String) {
-    let display = path.display().to_string();
-    match std::fs::read_to_string(path) {
-        Ok(raw) => match UserLibrary::from_json(&raw) {
-            Ok(lib) => (lib, display),
-            Err(e) => {
-                let bak = path.with_extension("json.bak");
-                if bak.exists()
-                    && let Ok(bak_raw) = std::fs::read_to_string(&bak)
-                    && let Ok(lib) = UserLibrary::from_json(&bak_raw)
-                {
-                    (
-                        lib,
-                        format!("主配置文件损坏，已成功从容灾备份恢复（{}）", bak.display()),
-                    )
-                } else {
-                    (
-                        UserLibrary::default_seeded(),
-                        format!("配置文件损坏，已回退默认库（{display}）: {e}"),
-                    )
-                }
-            }
-        },
-        Err(_) => (UserLibrary::default_seeded(), display),
-    }
-}
-
-fn save_library_to_path(lib: &UserLibrary, path: &std::path::Path) -> Result<String, String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, lib.to_json_pretty()).map_err(|e| format!("写入配置文件失败: {e}"))?;
-    if path.exists() {
-        let bak = path.with_extension("json.bak");
-        if let Err(e) = std::fs::copy(path, &bak) {
-            eprintln!("Warning: failed to make backup: {e}");
-        }
-    }
-    std::fs::rename(&tmp, path).map_err(|e| {
-        if let Err(rm_err) = std::fs::remove_file(&tmp) {
-            eprintln!("Warning: failed to remove tmp file: {rm_err}");
-        }
-        format!("替换配置文件失败: {e}")
-    })?;
-    Ok(path.display().to_string())
-}
-
+/// 直接调用生产路径 `crate::modals::load_library_from_path` 与 `crate::modals::save_library_to_path`：
+/// 1. 损坏主文件必须隔离为 `library.corrupt-*.json`（保留原件），绝不静默回退 `UserLibrary::default_seeded()`
+/// 2. 未经用户确认恢复/重置前，`save_library_to_path` 必须拒绝覆盖并保留隔离原件
 #[test]
-#[ignore = "P1 regression: D-005 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d005_config_load_corrupted_json_returns_error_and_preserves_file() {
     let temp_root = std::env::temp_dir().join(format!(
         "mathslot_d005_test_{}_{}",
@@ -184,7 +135,7 @@ fn test_p1_d005_config_load_corrupted_json_returns_error_and_preserves_file() {
     let corrupted_content = r#"{ "custom_formats": [ { unterminated json syntax error"#;
     std::fs::write(&config_path, corrupted_content).expect("Write corrupted config file");
 
-    let (loaded_lib, msg) = load_library_from_path(&config_path);
+    let (loaded_lib, msg, mut session) = crate::modals::load_library_from_path(&config_path);
 
     // 核心断言 1: 损坏配置文件加载严禁静默回退为默认种子库
     let default_seeded = UserLibrary::default_seeded();
@@ -193,19 +144,31 @@ fn test_p1_d005_config_load_corrupted_json_returns_error_and_preserves_file() {
         "Corrupted configuration must not silently degrade to default_seeded library"
     );
 
-    // 核心断言 2: 加载提示信息严禁指示“已回退默认库”，必须具备显式阻断诊断
+    // 核心断言 2: 加载提示信息严禁指示“已回退默认库”，必须进入损坏隔离阻断状态
     assert!(
         !msg.contains("已回退默认库"),
         "Corrupted config load must fail explicitly rather than silently falling back: {msg}"
     );
+    assert!(
+        session.is_blocked(),
+        "Corrupted config load must block silent overwrites until user confirms recovery"
+    );
 
-    // 核心断言 3: 保存时严禁以默认库覆写覆盖用户的原始损坏文件（必须保留以待人工恢复）
-    let save_res = save_library_to_path(&loaded_lib, &config_path);
-    assert!(save_res.is_ok(), "Save attempt");
-    let preserved_content = std::fs::read_to_string(&config_path).unwrap_or_default();
+    // 核心断言 3: 未经确认保存时严禁覆盖，且隔离后的损坏原件必须完整保留
+    let save_res = crate::modals::save_library_to_path(&loaded_lib, &config_path, &mut session);
+    assert!(
+        save_res.is_err(),
+        "Unconfirmed save while quarantined must fail explicitly, got {save_res:?}"
+    );
+
+    let corrupt_path = session
+        .quarantined_corrupt_path
+        .as_ref()
+        .expect("Corrupt file must be quarantined to library.corrupt-*.json");
+    let preserved_content = std::fs::read_to_string(corrupt_path).unwrap_or_default();
     assert!(
         preserved_content.contains("unterminated json syntax error"),
-        "Original corrupted file must be preserved for recovery, but was overwritten by default seeded library"
+        "Original corrupted file must be preserved in quarantine for recovery"
     );
 
     if temp_root.exists()

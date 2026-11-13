@@ -32,6 +32,7 @@ pub enum ModalAction {
 pub struct LibraryModalState {
     pub tab: LibraryTab,
     pub config_path_hint: String,
+    pub store_session: LibraryPersistenceSession,
     pub feedback: Option<(String, bool)>,
 
     // 自定义格式表单
@@ -68,13 +69,19 @@ pub struct LibraryModalState {
 }
 
 impl LibraryModalState {
-    pub fn new(lib: &UserLibrary, config_path_hint: String) -> Self {
+    pub fn new(
+        lib: &UserLibrary,
+        config_path_hint: String,
+        store_session: LibraryPersistenceSession,
+    ) -> Self {
         let next_k = lib.next_free_custom_key().unwrap_or('g');
         let next_t = lib.next_free_snippet_key().unwrap_or('d');
+        let initial_feedback = store_session.load_error.clone().map(|e| (e, true));
         let mut s = Self {
             tab: LibraryTab::LatexConverter,
             config_path_hint,
-            feedback: None,
+            store_session,
+            feedback: initial_feedback,
             custom_key: next_k.to_string(),
             custom_label: String::new(),
             custom_glyph: String::new(),
@@ -102,6 +109,102 @@ impl LibraryModalState {
         };
         s.update_latex_conversion();
         s
+    }
+
+    pub fn save_library(&mut self, lib: &UserLibrary) -> Result<String, String> {
+        let Some(path) = self.store_session.path.clone().or_else(library_config_path) else {
+            return Err("未找到用户配置目录。".to_owned());
+        };
+        save_library_to_path(lib, &path, &mut self.store_session)
+    }
+
+    fn render_recovery_banner(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor: &mut StreamEditor,
+    ) -> Option<ModalAction> {
+        if !self.store_session.is_blocked() {
+            return None;
+        }
+        let mut action = None;
+        let msg = self
+            .store_session
+            .load_error
+            .clone()
+            .unwrap_or_else(|| "配置文件处于损坏隔离状态，请先确认恢复或重置。".to_owned());
+        egui::Frame::NONE
+            .fill(RED.gamma_multiply(0.12))
+            .stroke(Stroke::new(1.0, RED.gamma_multiply(0.5)))
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::same(8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(
+                    RichText::new(format!("⚠ 配置恢复向导：{msg}"))
+                        .size(11.5)
+                        .color(RED),
+                );
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if let Some(backup_lib) = self.store_session.recovery_backup_library.clone()
+                        && ui
+                            .button(RichText::new("从最近备份恢复").strong().color(GREEN))
+                            .clicked()
+                    {
+                        self.store_session.quarantined_corrupt_path = None;
+                        self.store_session.load_error = None;
+                        self.store_session.recovery_backup_path = None;
+                        self.store_session.recovery_backup_library = None;
+                        self.store_session.revision = None;
+                        editor.set_library(backup_lib);
+                        let (fb, is_err) = match self.save_library_confirmed_reset(&editor.library)
+                        {
+                            Ok(_) => ("✓ 已从最近备份恢复并写入配置。".to_owned(), false),
+                            Err(e) => (format!("已恢复到内存，但写入磁盘失败: {e}"), true),
+                        };
+                        self.feedback = Some((fb.clone(), is_err));
+                        action = Some(ModalAction::LibraryChanged(fb));
+                    }
+                    if ui
+                        .button(RichText::new("确认重置为默认空配置").color(AMBER))
+                        .clicked()
+                    {
+                        self.store_session.quarantined_corrupt_path = None;
+                        self.store_session.load_error = None;
+                        self.store_session.recovery_backup_path = None;
+                        self.store_session.recovery_backup_library = None;
+                        self.store_session.revision = None;
+                        let empty = mathslot_store::LibraryFile::empty_v3()
+                            .to_user_library(mathslot_store::Catalog::builtin());
+                        editor.set_library(empty);
+                        let (fb, is_err) = match self.save_library_confirmed_reset(&editor.library)
+                        {
+                            Ok(_) => ("✓ 已重置并写入全新配置。".to_owned(), false),
+                            Err(e) => (format!("重置已生效，但写入磁盘失败: {e}"), true),
+                        };
+                        self.feedback = Some((fb.clone(), is_err));
+                        action = Some(ModalAction::LibraryChanged(fb));
+                    }
+                });
+            });
+        ui.add_space(6.0);
+        action
+    }
+
+    fn save_library_confirmed_reset(&mut self, lib: &UserLibrary) -> Result<String, String> {
+        let Some(path) = self.store_session.path.clone().or_else(library_config_path) else {
+            return Err("未找到用户配置目录。".to_owned());
+        };
+        let file =
+            mathslot_store::LibraryFile::from_user_library(lib, mathslot_store::Catalog::builtin());
+        let new_rev = mathslot_store::save_atomic(
+            &path,
+            &file,
+            mathslot_store::WriteCondition::Unconditional,
+        )
+        .map_err(|e| e.to_string())?;
+        self.store_session.revision = Some(new_rev);
+        Ok(path.display().to_string())
     }
 
     pub fn open_custom_tab(&mut self, lib: &UserLibrary) {
@@ -142,7 +245,7 @@ impl LibraryModalState {
         ui: &mut egui::Ui,
         editor: &mut StreamEditor,
     ) -> Option<ModalAction> {
-        let mut action = None;
+        let mut action = self.render_recovery_banner(ui, editor);
 
         // 1. 顶部工具栏 Row 1: 弹性搜索框 + ✕ 清空 + [+ 新建公式] 主按钮
         ui.horizontal(|ui| {
@@ -215,8 +318,14 @@ impl LibraryModalState {
                 .clicked()
             {
                 editor.library.formulas.restore_defaults();
-                let _ = save_library_to_disk(&editor.library);
-                self.feedback = Some(("✓ 已成功恢复出厂种子公式！".to_owned(), false));
+                let (msg, is_err) = match self.save_library(&editor.library) {
+                    Ok(_) => ("✓ 已成功恢复出厂种子公式！".to_owned(), false),
+                    Err(e) => (
+                        format!("✓ 已恢复出厂种子公式（本次会话生效），但写入磁盘失败: {e}"),
+                        true,
+                    ),
+                };
+                self.feedback = Some((msg, is_err));
             }
 
             if ui
@@ -301,9 +410,20 @@ impl LibraryModalState {
                                         .import_json(&self.formula_import_text, true)
                                     {
                                         Ok(cnt) => {
-                                            let _ = save_library_to_disk(&editor.library);
-                                            self.feedback =
-                                                Some((format!("✓ 成功导入 {cnt} 条公式！"), false));
+                                            let (msg, is_err) =
+                                                match self.save_library(&editor.library) {
+                                                    Ok(_) => (
+                                                        format!("✓ 成功导入 {cnt} 条公式！"),
+                                                        false,
+                                                    ),
+                                                    Err(e) => (
+                                                        format!(
+                                                            "✓ 已导入 {cnt} 条公式（本次会话生效），但写入磁盘失败: {e}"
+                                                        ),
+                                                        true,
+                                                    ),
+                                                };
+                                            self.feedback = Some((msg, is_err));
                                             self.show_formula_importer = false;
                                             self.formula_import_text.clear();
                                         }
@@ -322,11 +442,20 @@ impl LibraryModalState {
                                         .import_json(&self.formula_import_text, false)
                                     {
                                         Ok(cnt) => {
-                                            let _ = save_library_to_disk(&editor.library);
-                                            self.feedback = Some((
-                                                format!("✓ 成功新增导入 {cnt} 条公式！"),
-                                                false,
-                                            ));
+                                            let (msg, is_err) =
+                                                match self.save_library(&editor.library) {
+                                                    Ok(_) => (
+                                                        format!("✓ 成功新增导入 {cnt} 条公式！"),
+                                                        false,
+                                                    ),
+                                                    Err(e) => (
+                                                        format!(
+                                                            "✓ 已新增导入 {cnt} 条公式（本次会话生效），但写入磁盘失败: {e}"
+                                                        ),
+                                                        true,
+                                                    ),
+                                                };
+                                            self.feedback = Some((msg, is_err));
                                             self.show_formula_importer = false;
                                             self.formula_import_text.clear();
                                         }
@@ -464,9 +593,17 @@ impl LibraryModalState {
                                     };
                                     match editor.library.formulas.upsert(entry) {
                                         Ok(_) => {
-                                            let _ = save_library_to_disk(&editor.library);
-                                            self.feedback =
-                                                Some(("✓ 公式已成功保存！".to_owned(), false));
+                                            let (msg, is_err) =
+                                                match self.save_library(&editor.library) {
+                                                    Ok(_) => ("✓ 公式已成功保存！".to_owned(), false),
+                                                    Err(e) => (
+                                                        format!(
+                                                            "✓ 公式已更新（本次会话生效），但写入磁盘失败: {e}"
+                                                        ),
+                                                        true,
+                                                    ),
+                                                };
+                                            self.feedback = Some((msg, is_err));
                                             self.show_formula_form = false;
                                         }
                                         Err(e) => {
@@ -668,8 +805,14 @@ impl LibraryModalState {
         if let Some(did) = delete_id
             && editor.library.formulas.remove(&did)
         {
-            let _ = save_library_to_disk(&editor.library);
-            self.feedback = Some(("✓ 已删除公式。".to_owned(), false));
+            let (msg, is_err) = match self.save_library(&editor.library) {
+                Ok(_) => ("✓ 已删除公式。".to_owned(), false),
+                Err(e) => (
+                    format!("✓ 已删除公式（本次会话生效），但写入磁盘失败: {e}"),
+                    true,
+                ),
+            };
+            self.feedback = Some((msg, is_err));
         }
 
         action
@@ -680,7 +823,7 @@ impl LibraryModalState {
         ui: &mut egui::Ui,
         editor: &mut StreamEditor,
     ) -> Option<ModalAction> {
-        let mut action = None;
+        let mut action = self.render_recovery_banner(ui, editor);
         let mut reset_defaults = false;
 
         let tab_titles = [
@@ -734,7 +877,7 @@ impl LibraryModalState {
 
         if reset_defaults {
             editor.set_library(UserLibrary::default_seeded());
-            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+            let (msg, is_err) = match self.save_library(&editor.library) {
                 Ok(_) => ("已恢复默认自定义格式与片段预置。".to_owned(), false),
                 Err(e) => (format!("已恢复默认预置，但写入磁盘失败: {e}"), true),
             };
@@ -1093,7 +1236,7 @@ impl LibraryModalState {
                                     match editor.library.upsert_custom(fmt) {
                                         Ok(saved_k) => {
                                             editor.set_library(editor.library.clone());
-                                            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+                                            let (msg, is_err) = match self.save_library(&editor.library) {
                                                 Ok(_) => (
                                                     format!(
                                                         "✓ 已保存格式 [{CMD_PREFIX}k{saved_k}]：按 Tab k {saved_k} 即可调用！"
@@ -1222,7 +1365,7 @@ impl LibraryModalState {
             && editor.library.remove_custom(k)
         {
             editor.set_library(editor.library.clone());
-            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+            let (msg, is_err) = match self.save_library(&editor.library) {
                 Ok(_) => (format!("已删除自定义格式 `k{k}`。"), false),
                 Err(e) => (format!("已删除（本次会话生效），但写入磁盘失败: {e}"), true),
             };
@@ -1381,7 +1524,7 @@ impl LibraryModalState {
                                     };
                                     match editor.library.upsert_snippet(snip) {
                                         Ok(saved_k) => {
-                                            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+                                            let (msg, is_err) = match self.save_library(&editor.library) {
                                                 Ok(_) => (
                                                     format!(
                                                         "✓ 已保存复用片段 [{CMD_PREFIX}t{saved_k}]：按 Tab t {saved_k} 即可内联展开！"
@@ -1496,7 +1639,7 @@ impl LibraryModalState {
         if let Some(k) = delete_key
             && editor.library.remove_snippet(k)
         {
-            let (msg, is_err) = match save_library_to_disk(&editor.library) {
+            let (msg, is_err) = match self.save_library(&editor.library) {
                 Ok(_) => (format!("已删除片段 `t{k}`。"), false),
                 Err(e) => (format!("已删除（本次会话生效），但写入磁盘失败: {e}"), true),
             };
@@ -1687,79 +1830,108 @@ fn help_section(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str)]) {
 }
 
 pub fn library_config_path() -> Option<PathBuf> {
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME")
-        && !xdg.is_empty()
-    {
-        return Some(PathBuf::from(xdg).join("mathslot").join("library.json"));
+    mathslot_store::default_library_path()
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LibraryPersistenceSession {
+    pub path: Option<PathBuf>,
+    pub revision: Option<mathslot_store::FileRevision>,
+    pub quarantined_corrupt_path: Option<PathBuf>,
+    pub recovery_backup_path: Option<PathBuf>,
+    pub recovery_backup_library: Option<UserLibrary>,
+    pub load_error: Option<String>,
+}
+
+impl LibraryPersistenceSession {
+    pub fn is_blocked(&self) -> bool {
+        self.quarantined_corrupt_path.is_some() || self.load_error.is_some()
     }
-    #[cfg(target_os = "windows")]
-    if let Some(appdata) = std::env::var_os("APPDATA")
-        && !appdata.is_empty()
-    {
-        return Some(PathBuf::from(appdata).join("mathslot").join("library.json"));
+}
+
+pub fn load_library_from_path(
+    path: &std::path::Path,
+) -> (UserLibrary, String, LibraryPersistenceSession) {
+    let display = path.display().to_string();
+    let catalog = mathslot_store::Catalog::builtin();
+    let mut session = LibraryPersistenceSession {
+        path: Some(path.to_path_buf()),
+        ..Default::default()
+    };
+
+    match mathslot_store::load_or_recover_with_catalog(path, catalog) {
+        Ok(mathslot_store::LoadOutcome::NotFound { file }) => {
+            (file.to_user_library(catalog), display, session)
+        }
+        Ok(mathslot_store::LoadOutcome::Loaded {
+            file,
+            revision,
+            migrated,
+        }) => {
+            session.revision = Some(revision);
+            let hint = if let Some(rep) = migrated {
+                format!(
+                    "{display}（已从 v{} 无损迁移至 v{}）",
+                    rep.from_version, rep.to_version
+                )
+            } else {
+                display
+            };
+            (file.to_user_library(catalog), hint, session)
+        }
+        Ok(mathslot_store::LoadOutcome::CorruptQuarantined {
+            corrupt_path,
+            backup_candidate,
+            error,
+        }) => {
+            let msg = format!("配置文件损坏并已隔离至 {}：{error}", corrupt_path.display());
+            session.quarantined_corrupt_path = Some(corrupt_path);
+            session.recovery_backup_path = backup_candidate.as_ref().map(|b| b.path.clone());
+            session.recovery_backup_library =
+                backup_candidate.map(|b| b.file.to_user_library(catalog));
+            session.load_error = Some(msg.clone());
+            let clean_view = mathslot_store::LibraryFile::empty_v3().to_user_library(catalog);
+            (clean_view, msg, session)
+        }
+        Err(err) => {
+            let msg = format!("读取配置文件失败（{display}）：{err}");
+            session.load_error = Some(msg.clone());
+            let clean_view = mathslot_store::LibraryFile::empty_v3().to_user_library(catalog);
+            (clean_view, msg, session)
+        }
     }
-    if let Some(home) = std::env::var_os("HOME")
-        && !home.is_empty()
-    {
-        return Some(
-            PathBuf::from(home)
-                .join(".config")
-                .join("mathslot")
-                .join("library.json"),
+}
+
+pub fn save_library_to_path(
+    lib: &UserLibrary,
+    path: &std::path::Path,
+    session: &mut LibraryPersistenceSession,
+) -> Result<String, String> {
+    if session.is_blocked() {
+        return Err(
+            "配置文件处于损坏隔离或读取错误状态，已阻止覆盖保存；请先在恢复向导中确认恢复或重置。"
+                .to_owned(),
         );
     }
-    None
-}
-
-pub fn load_library_from_disk() -> (UserLibrary, String) {
-    let Some(path) = library_config_path() else {
-        return (UserLibrary::default_seeded(), "内存模式".to_owned());
-    };
-    let display = path.display().to_string();
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => match UserLibrary::from_json(&raw) {
-            Ok(lib) => (lib, display),
-            Err(e) => {
-                // 自动尝试从 .bak 容灾备份恢复
-                let bak = path.with_extension("json.bak");
-                if bak.exists()
-                    && let Ok(bak_raw) = std::fs::read_to_string(&bak)
-                    && let Ok(lib) = UserLibrary::from_json(&bak_raw)
-                {
-                    (
-                        lib,
-                        format!("主配置文件损坏，已成功从容灾备份恢复（{}）", bak.display()),
-                    )
-                } else {
-                    (
-                        UserLibrary::default_seeded(),
-                        format!("配置文件损坏，已回退默认库（{display}）: {e}"),
-                    )
-                }
-            }
-        },
-        Err(_) => (UserLibrary::default_seeded(), display),
-    }
-}
-
-pub fn save_library_to_disk(lib: &UserLibrary) -> Result<String, String> {
-    let Some(path) = library_config_path() else {
-        return Err("未找到用户配置目录。".to_owned());
-    };
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
-    }
-    // 先写临时文件再原子替换，避免写入中途崩溃产生截断的 library.json
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, lib.to_json_pretty()).map_err(|e| format!("写入配置文件失败: {e}"))?;
-    // 自动双重容灾备份：若已有原配置，先复制一份为 library.json.bak
-    if path.exists() {
-        let bak = path.with_extension("json.bak");
-        let _ = std::fs::copy(&path, &bak);
-    }
-    std::fs::rename(&tmp, &path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("替换配置文件失败: {e}")
-    })?;
+    let catalog = mathslot_store::Catalog::builtin();
+    let file = mathslot_store::LibraryFile::from_user_library(lib, catalog);
+    let new_rev = mathslot_store::save_atomic(
+        path,
+        &file,
+        mathslot_store::WriteCondition::IfUnmodified(session.revision.clone()),
+    )
+    .map_err(|e| e.to_string())?;
+    session.revision = Some(new_rev);
     Ok(path.display().to_string())
+}
+
+pub fn load_library_from_disk() -> (UserLibrary, String, LibraryPersistenceSession) {
+    let Some(path) = library_config_path() else {
+        return (
+            UserLibrary::default_seeded(),
+            "内存模式".to_owned(),
+            LibraryPersistenceSession::default(),
+        );
+    };
+    load_library_from_path(&path)
 }

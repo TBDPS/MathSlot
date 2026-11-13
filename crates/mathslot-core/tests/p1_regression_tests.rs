@@ -118,7 +118,6 @@ fn test_p1_d004_pending_and_unknown_commands_never_silently_disappear() {
 /// 时间戳精度仅为秒级。同毫秒连续插入 1000 次时，ID 生成全部相同，导致后序条目在
 /// `position(|e| e.id == id)` 中连续覆盖前序条目，最终库中仅残留 1 项公式。
 #[test]
-#[ignore = "P1 regression: D-006 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d006_formula_upsert_same_millisecond_no_collision() {
     let mut lib = FormulaLibrary {
         entries: Vec::new(),
