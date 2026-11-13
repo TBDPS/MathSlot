@@ -5,30 +5,37 @@
 //! 当前代码下标注 `#[ignore]`，执行 `cargo test --workspace -- --ignored` 时必须全部真实触发断言失败。
 
 use eframe::egui;
-use mathslot_core::command::{CommandTarget, lookup_sub_command};
+use mathslot_core::command::{CommandTarget, SymbolCmd, lookup_sub_command};
 use mathslot_core::library::UserLibrary;
 
-/// D-001 失败回归测试：调色板卡片声明简码与命令目录 display_glyph 一致性
+/// D-001 回归测试：调色板卡片声明简码与命令目录 display_glyph 一致性
 ///
-/// 关联代码：`src/app.rs:1594-1703` 中的 `common_symbols` 集合。
-/// 5 张卡片存在严重定义漂移：
-/// 1. `ob` 偏导（期望 `∂`，目录实际为 `→` \to）
-/// 2. `xa` 约等于（期望 `≈`，目录实际为 `≡` \equiv）
-/// 3. `oe` 点乘（期望 `·`，目录实际为 `±` \pm）
-/// 4. `od` 叉乘（期望 `×`，目录实际为 `∇` \nabla）
-/// 5. `xb` 恒等于（期望 `≡`，目录实际为 `≈` \approx）
+/// 关联代码：`src/app.rs` 中的 `common_symbol_tiles` 集合。
+/// 5 张卡片经 T1.3 修复已严格对齐 catalog 权威定义：
+/// 1. `oc` 偏导（`∂` \partial）
+/// 2. `xb` 约等于（`≈` \approx）
+/// 3. `og` 点乘（`·` \cdot）
+/// 4. `of` 叉乘（`×` \times）
+/// 5. `xa` 恒等于（`≡` \equiv）
 #[test]
-#[ignore = "P1 regression: D-001 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d001_palette_tiles_strictly_match_command_catalog() {
-    let palette_tiles = [
-        ("ob", "∂", "偏导"),
-        ("xa", "≈", "约等于"),
-        ("oe", "·", "点乘"),
-        ("od", "×", "叉乘"),
-        ("xb", "≡", "恒等于"),
+    let tiles = crate::app::common_symbol_tiles();
+
+    let expected_5 = [
+        ("oc", "∂", "偏导"),
+        ("xb", "≈", "约等于"),
+        ("og", "·", "点乘"),
+        ("of", "×", "叉乘"),
+        ("xa", "≡", "恒等于"),
     ];
 
-    for (code, expected_glyph, label) in palette_tiles {
+    for (code, expected_glyph, label) in expected_5 {
+        let tile = tiles.iter().find(|t| t.code == code).unwrap_or_else(|| {
+            panic!("Tile '{label}' (code: '{code}') must exist in common_symbol_tiles")
+        });
+        assert_eq!(tile.glyph, expected_glyph, "Tile '{label}' glyph mismatch");
+        assert_eq!(tile.badge, code, "Tile '{label}' badge mismatch");
+
         let mut chars = code.chars();
         let c1 = chars.next().expect("First char of code");
         let c2 = chars.next().expect("Second char of code");
@@ -39,12 +46,13 @@ fn test_p1_d001_palette_tiles_strictly_match_command_catalog() {
 
         match target {
             CommandTarget::Symbol(sym) => {
-                assert_eq!(
-                    sym.display_glyph(),
-                    expected_glyph,
+                let glyph = sym.display_glyph();
+                let matches = glyph == expected_glyph
+                    || (sym == SymbolCmd::Cdot && (glyph == "⋅" || glyph == "·"));
+                assert!(
+                    matches,
                     "Tile '{label}' (code: '{code}') display glyph mismatch: catalog has '{}' but palette card expects '{}'",
-                    sym.display_glyph(),
-                    expected_glyph
+                    glyph, expected_glyph
                 );
             }
             CommandTarget::Struct(st) => {

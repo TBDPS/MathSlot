@@ -139,9 +139,7 @@ MathSlot 是一款**以书写流为中心、零语法死记、免鼠标点选**�
 - `▸cd`：闭合环路积分 $\oint_L P dx + Q dy$
 - `▸ce`：三重积分 $\iiint_V f(x,y,z) dV$
 - `▸cg`：偏导分式 $\frac{\partial f}{\partial x}$
-- `▸ch`：全导分式 $\frac{\mathrm{d} y}{\mathrm{d} x}$
-- `▸ci`：上大括号 $\overbrace{x+y}^{\text{标记}}$
-- `▸cj`：下大括号 $\underbrace{x+y}_{\text{标记}}$
+- `▸ci`：全导分式 $\frac{\mathrm{d} y}{\mathrm{d} x}$
 
 #### 2. 矩阵与分段 (`▸m*`，默认 ★`ma` 2×2 矩阵)
 - `▸ma` (★默认)：$2 \times 2$ 矩阵（按行输入 4 项）
@@ -163,6 +161,14 @@ MathSlot 是一款**以书写流为中心、零语法死记、免鼠标点选**�
 - `▸ag`：上划线 $\overline{x}$
 - `▸ah`：二阶导数双点 $\ddot{x}$
 - `▸ai`：下划线 $\underline{x}$
+- `▸aj`：上花括号 $\overbrace{x+y}^{\text{标记}}$
+- `▸ak`：下花括号 $\underbrace{x+y}_{\text{标记}}$
+- `▸al`：中括号 $\left[ x \right]$
+- `▸am`：大括号/集合 $\left\{ x \right\}$
+- `▸an`：尖括号内积 $\left\langle x \right\rangle$
+- `▸ao`：向下取整 $\left\lfloor x \right\rfloor$
+- `▸ap`：向上取整 $\left\lceil x \right\rceil$
+- `▸aq`：代入求值线 $\left. F \right|_a^b$
 
 #### 4. 希腊字母 (`▸g*`，默认 ★`ga` $\alpha$)
 - `▸ga`：$\alpha$ · `▸gb`：$\beta$ · `▸gc`：$\gamma$ · `▸gd`：$\delta$ · `▸ge`：$\varepsilon$
@@ -179,20 +185,19 @@ MathSlot 是一款**以书写流为中心、零语法死记、免鼠标点选**�
 - `▸oh`：属于 $\in$ · `▸oi`：不属于 $\notin$
 - `▸oj`：子集 $\subseteq$ · `▸ok`：任意 $\forall$
 - `▸ol`：约化普朗克常数 $\hbar$ · `▸om`：手写体 $\ell$
-- `▸on`：圆圈复合 $\circ$ · `▸op`：平行 $\parallel$ (亦可输入 `||`)
-- `▸oq`：垂直 $\perp$ · `▸or`：同余全等 $\cong$ (亦可输入 `~=`)
-- `▸os`：远小于 $\ll$ (亦可输入 `<<`) · `▸ot`：远大于 $\gg$ (亦可输入 `>>`)
-- `▸ou`：弱等价 $\simeq$ · `▸ov`：集合差 $\setminus$
+- `▸on`：圆圈复合 $\circ$ · `▸oo`：平行 $\parallel$ (亦可输入 `||`) · `▸op`：垂直 $\perp$ (亦可输入 `_|_`)
 
 #### 6. 关系符/箭头 (`▸x*`，默认 ★`xa` 恒等 $\equiv$)
 - `▸xa`：恒等 $\equiv$ · `▸xb`：近似 $\approx$ · `▸xc`：相似 $\sim$ · `▸xd`：正比 $\propto$
 - `▸xe`：蕴含 $\Rightarrow$ · `▸xf`：等价 $\Leftrightarrow$ · `▸xg`：映射 $\mapsto$
-- `▸xh`：所以 $\therefore$ · `▸xi`：因为 $\because$
+- `▸xh`：所以 $\therefore$ · `▸xi`：因为 $\because$ · `▸xj`：全等/同余 $\cong$ (亦可输入 `~=`)
+- `▸xk`：远小于 $\ll$ (亦可输入 `<<`) · `▸xl`：远大于 $\gg$ (亦可输入 `>>`) · `▸xm`：渐近相等 $\simeq$
 
 #### 7. 集合/逻辑 (`▸q*`，默认 ★`qa` 并集 $\cup$)
 - `▸qa`：并集 $\cup$ · `▸qb`：交集 $\cap$ · `▸qc`：空集 $\varnothing$ · `▸qd`：真子集 $\subset$
 - `▸qe`：存在 $\exists$ · `▸qf`：非 $\neg$ · `▸qg`：且 $\land$ · `▸qh`：或 $\lor$
-- `▸qi`：实数集 $\mathbb{R}$ · `▸qj`：自然数集 $\mathbb{N}$ · `▸qk`：整数集 $\mathbb{Z}$ · `▸ql`：有理数集 $\mathbb{Q}$ · `▸qm`：复数集 $\mathbb{C}$
+- `▸qi`：实数集 $\mathbb{R}$ · `▸qj`：自然数集 $\mathbb{N}$ · `▸qk`：整数集 $\mathbb{Z}$ · `▸ql`：有理数集 $\mathbb{Q}$
+- `▸qm`：差集 $\setminus$ · `▸qn`：复数集 $\mathbb{C}$
 
 ---
 
@@ -392,7 +397,7 @@ MathSlot 不仅追求极致输入速度，更深度对齐标准 LaTeX 语法与�
 参考国际标准化组织 ISO 80000-2 与 AMS 标准，MathSlot 在公式生成与反编译上执行严格的现代学术出版规范：
 - **微分算子直立体规范**：微分符号 $\mathrm{d}$ 是算子而非变量，输出严格采用直立体 `\mathrm{d}t`、`\mathrm{d}x`、`\mathrm{d}y`、`\mathrm{d}\theta` 等，杜绝与变量混淆为斜体 $dt$；
 - **积分微分薄间距自动注入**：在积分被积函数与微分符号之间自动注入标准薄间距 `\,`（如 `\int f(x) \,\mathrm{d}x`、`\iint_{D} f(x,y) \,\mathrm{d}x \,\mathrm{d}y`），排版舒展呼吸，避免挤压粘连；
-- **导数算子空分子自动处理**：全导分式 `▸ch` 与偏导分式 `▸cg` 留空分子时，自动格式化为标准微分算子 $\frac{\mathrm{d}}{\mathrm{d}x}$（`\frac{\mathrm{d}}{\mathrm{d}x}`）与 $\frac{\partial}{\partial x}$（`\frac{\partial}{\partial x}`）；
+- **导数算子空分子自动处理**：全导分式 `▸ci` 与偏导分式 `▸cg` 留空分子时，自动格式化为标准微分算子 $\frac{\mathrm{d}}{\mathrm{d}x}$（`\frac{\mathrm{d}}{\mathrm{d}x}`）与 $\frac{\partial}{\partial x}$（`\frac{\partial}{\partial x}`）；
 - **标准数学常数与算子**：自然对数底 $\mathrm{e}$、虚数单位 $\mathrm{i}$ 逆向反编译与规范宏支持，定义赋值号 `coloneqq` 自动转为 `:=`，复合自定义算子采用 `\operatorname{...}` 包裹。
 
 ---

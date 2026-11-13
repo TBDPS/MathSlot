@@ -10,43 +10,39 @@ use mathslot_core::library::{FormulaEntry, FormulaLibrary, UserLibrary};
 use mathslot_core::parser::parse_with_library;
 use std::collections::HashSet;
 
-/// D-002 失败回归测试：README.md / HELP.md 公开承诺的简码存在性与语义一致性
+/// D-002 回归测试：README.md / HELP.md 公开承诺的简码存在性与语义一致性
 ///
-/// 文档承诺：
-/// - `ch` -> 全导分式 (\frac{\mathrm{d}}{\mathrm{d}})
-/// - `cj` -> 下大括号 (\underbrace)
-/// - `oq` -> 垂直 (\perp)
-/// - `op` -> 平行 (\parallel)
-/// - `qm` -> 复数集 (\mathbb{C})
-///
-/// 当前代码中：
-/// - `ch`、`cj`、`oq` 在命令目录中完全不存在 (lookup 返回 None)
-/// - `op` 映射为 Perp (垂直)，与平行语义颠倒
-/// - `qm` 映射为 SetMinus (差集)，与复数集语义颠倒
+/// 文档承诺（经 T1.3 纠偏对齐 catalog 权威定义）：
+/// - `ci` -> 全导分式 (\frac{\mathrm{d}}{\mathrm{d}})
+/// - `ak` -> 下大括号 (\underbrace)
+/// - `op` -> 垂直 (\perp)
+/// - `oo` -> 平行 (\parallel)
+/// - `qn` -> 复数集 (\mathbb{C})
+/// - `qm` -> 差集 (\setminus)
 #[test]
-#[ignore = "P1 regression: D-002 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d002_documented_commands_exist_and_match_semantics() {
     let doc_claims = [
         (
             'c',
-            'h',
+            'i',
             CommandTarget::Struct(StructKind::TotalFrac),
             "全导分式",
         ),
         (
-            'c',
-            'j',
+            'a',
+            'k',
             CommandTarget::Struct(StructKind::Underbrace),
             "下大括号",
         ),
-        ('o', 'q', CommandTarget::Symbol(SymbolCmd::Perp), "垂直"),
-        ('o', 'p', CommandTarget::Symbol(SymbolCmd::Parallel), "平行"),
+        ('o', 'p', CommandTarget::Symbol(SymbolCmd::Perp), "垂直"),
+        ('o', 'o', CommandTarget::Symbol(SymbolCmd::Parallel), "平行"),
         (
             'q',
-            'm',
+            'n',
             CommandTarget::Symbol(SymbolCmd::ComplexSet),
             "复数集",
         ),
+        ('q', 'm', CommandTarget::Symbol(SymbolCmd::SetMinus), "差集"),
     ];
 
     for (c1, c2, expected_target, label) in doc_claims {
@@ -57,6 +53,23 @@ fn test_p1_d002_documented_commands_exist_and_match_semantics() {
             "Documented command '▸{c1}{c2}' ({label}) must exist and match target semantics in catalog"
         );
     }
+
+    // 负向回归断言：确认历史手写漂移简码未污染 catalog
+    assert_eq!(
+        lookup_sub_command('c', 'h'),
+        None,
+        "Phantom command '▸ch' must not exist in catalog"
+    );
+    assert_eq!(
+        lookup_sub_command('c', 'j'),
+        None,
+        "Phantom command '▸cj' must not exist in catalog"
+    );
+    assert_eq!(
+        lookup_sub_command('o', 'q'),
+        None,
+        "Phantom command '▸oq' must not exist in catalog"
+    );
 }
 
 /// D-004 失败回归测试：未决前缀与未知命令严禁静默消失或退化 (INV-002)
