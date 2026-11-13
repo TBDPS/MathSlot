@@ -9,7 +9,7 @@
     "readonly_copy": "/home/mat/Projects/mathslot-freeze-20261112"
   },
   "baseline": {
-    "tests_passed": 172,
+    "tests_passed": 176,
     "tests_ignored": 4,
     "clippy": "PASS",
     "fmt": "PASS",
@@ -18,21 +18,23 @@
     "total_commands": 121,
     "baseline_tagged": true,
     "gate_g0": "PASS",
+    "gate_g1": "PASS",
     "catalog_crate": "mathslot-command",
     "xtask_codegen": "active",
     "frozen_legacy_stack": true,
     "stream_editor_target_stack": true,
     "diagnostics_pipeline": true,
+    "parity_harness": true,
     "closed_defects": [
       "D-001",
       "D-002",
       "D-004"
     ]
   },
-  "gate": "G1",
-  "round": 11,
+  "gate": "G2",
+  "round": 12,
   "active_task": null,
-  "next_task": "T1.7",
+  "next_task": "T2.1",
   "last_verdict": "PASS",
   "open_p1": [
     "D-003",

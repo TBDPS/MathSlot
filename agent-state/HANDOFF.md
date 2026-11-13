@@ -4,25 +4,27 @@
 
 ## 当前
 
-- 轮次：11
-- Gate：G1
-- 当前任务：T1.6 已完成（诊断管线打通，Pending/Unknown 可见可导出，P1 缺陷 D-004 正式关闭），待进入 T1.7
-- 下一步：`T1.7` 旧/新双跑 parity harness（对比测试核心输入/导航/复制一致，完成 G1 退出收口）
+- 轮次：12
+- Gate：G2
+- 当前任务：T1.7 已完成，Gate G1 正式收口（`GATE-G1.md` 签署 PASS），准备进入 Gate G2
+- 下一步：`T2.1` 实现 `mathslot-app` 状态机（Event→Command→Effect，无 UI/IO 依赖，A-EDIT 全过）
 
 ## 本轮做过什么
 
-- 审计产出 `AUD-11.md`：准确定位 D-004 根因在 `crates/mathslot-core/src/latex.rs:24` 将未决/未知命令渲染为空串，复现回归测试 panic（exit 101），制定目标栈诊断聚合与安全导出规格。
-- 决策批准 `ADR-0014`：批准旧栈修复为显式 LaTeX 文本占位符 `\text{▸...}` 并解冻 `test_p1_d004`，目标栈增加 `export_latex_with_diagnostics` 与 `export_latex_strict` 导出接口。
-- 实现提交 `9ae9eea`：`T1.6: diagnostic pipeline and fix D-004 pending/unknown commands drop`，修复旧栈导出逻辑，解冻 `test_p1_d004`（3 项断言原生通过），目标栈实现带诊断导出并新增 `test_a_edit_009`，零 `let _ =` 新增。
-- 验收产出 `VER-11.md`：独立验证 `test_p1_d004` 通过（D-004 彻底闭环），A-EDIT 套件 9 项用例全过，全量门禁全绿（172 passed，4 ignored），判定 PASS。
+- 审计产出 `AUD-12.md`：审计旧栈与统一新栈在核心输入、高阶矩阵/定界符、槽位导航与 LaTeX 导出等价性映射，规划 4 大对比测试用例。
+- 决策批准 `ADR-0015`：批准在 `crates/mathslot-doc` 编写双跑对比测试 `parity_harness_tests.rs` 并确定 Gate G1 退出收口标准。
+- 实现提交 `7b6130c`：`T1.7: implement parity harness comparing legacy and unified stacks (D-001, D-004)`，新增 751 行对比测试覆盖全部 121 个命令回放与 AST 结构等价、高阶矩阵环境、槽位导航与回绕循环、经典公式导出与已知差异校验。
+- 验收产出 `VER-12.md`：独立验证双跑测试（4 passed）、全量门禁（176 passed，4 ignored，零 `let _ =` 新增），判定 PASS。
+- Gate G1 收口：运行完整 `scripts/agent/acceptance.sh`（PASS=4 FAIL=0 WARN=4，exit 0），签署 `GATE-G1.md`，推进至 Gate G2。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-11.md`
-- `agent-state/decisions/ADR-0014-diagnostic-pipeline-and-fix-d004-t1.6.md`
-- `agent-state/verify/VER-11.md`
-- Commit：`9ae9eea` (`T1.6: diagnostic pipeline and fix D-004 pending/unknown commands drop`)
-- 门禁：`cargo test -p mathslot-core --test p1_regression_tests test_p1_d004` (1 passed)；`cargo test --workspace` (172 passed)；`scripts/agent/acceptance.sh` (PASS)
+- `agent-state/audits/AUD-12.md`
+- `agent-state/decisions/ADR-0015-parity-harness-and-gate-g1-exit-t1.7.md`
+- `agent-state/verify/VER-12.md`
+- `agent-state/verify/GATE-G1.md`
+- Commit：`7b6130c` (`T1.7: implement parity harness comparing legacy and unified stacks (D-001, D-004)`)
+- 门禁：`cargo test -p mathslot-doc --test parity_harness_tests` (4 passed)；`cargo test --workspace` (176 passed)；`scripts/agent/acceptance.sh` (PASS)
 
 ## 卡在哪 / 需要人工
 
@@ -31,9 +33,8 @@
 
 ## 下一轮入口
 
-1. 读规范 §14 Gate G1 任务 T1.7（旧/新双跑 parity harness：产出对比测试，退出条件：核心输入/导航/复制一致）。
-2. 派 `auditor` 审计双跑比对范围（遍历 `catalog/commands.toml` 121 个命令、88 个预设，对比旧栈与新栈输入、渲染与导出等价性），产出 `AUD-12`。
-3. 决策批准 `ADR-0015`（批准 parity harness 架构与等价性断言准则）。
-4. 派 `implementer` 编写 parity harness 测试，提交 `T1.7: ...`。
-5. 派 `verifier` 独立验证 parity harness 与全量门禁，出具 `VER-12`。
-6. Gate G1 收口：运行完整 `scripts/agent/acceptance.sh`，生成 `agent-state/verify/GATE-G1.md`，迈入 Gate G2。
+1. 读规范 §14 Gate G2 任务 T2.1（实现 `mathslot-app` 状态机：Event→Command→Effect，产出 app crate，退出条件：无 UI/IO 依赖，A-EDIT 场景全过）。
+2. 派 `auditor` 审计应用状态机核心事件与命令模型，产出 `AUD-13`。
+3. 决策批准 `ADR-0016`（批准 mathslot-app 状态机设计与纯领域架构）。
+4. 派 `implementer` 编写状态机契约测试并实现，提交 `T2.1: ...`。
+5. 派 `verifier` 独立验证无 UI 依赖与 A-EDIT 状态转移，出具 `VER-13`。
