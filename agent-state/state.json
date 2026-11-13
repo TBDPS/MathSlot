@@ -4,8 +4,8 @@
   "repo": "/home/mat/Projects/mathslot-next",
   "branch": "refactor/v1",
   "frozen": {
-    "tag": "freeze/pre-refactor-20261112",
-    "commit": "5b117d92d4c2f54da03ece5cb7d7cf896ce8a2fe",
+    "tag": "baseline/g0-guardrails",
+    "commit": "07422c439923f9ed1754235f733ed96f62a4762a",
     "readonly_copy": "/home/mat/Projects/mathslot-freeze-20261112"
   },
   "baseline": {
@@ -14,12 +14,14 @@
     "clippy": "PASS",
     "fmt": "PASS",
     "ci": "added-in-t0.1",
-    "builtin_presets": 88
+    "builtin_presets": 88,
+    "total_commands": 121,
+    "baseline_tagged": true
   },
   "gate": "G0",
-  "round": 3,
+  "round": 4,
   "active_task": null,
-  "next_task": "T0.4",
+  "next_task": "T0.5",
   "last_verdict": "PASS",
   "open_p1": [
     "D-001",
@@ -79,7 +81,7 @@
   "reviews": {
     "mode": "final-only",
     "note": "按用户要求关闭逐轮/轮询审查；项目完成后执行 supervise.sh --final",
-    "last_head": "9dc9cae",
+    "last_head": "07422c4",
     "last_verdict": "REJECT",
     "last_approved": null,
     "pending_head": null,
