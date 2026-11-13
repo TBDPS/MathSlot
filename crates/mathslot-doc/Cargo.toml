@@ -7,6 +7,7 @@ license.workspace = true
 description = "Mathematical document model, slot table, atomic transaction engine, and undo stack for MathSlot"
 
 [dependencies]
+mathslot-command = { path = "../mathslot-command" }
 mathslot-syntax = { path = "../mathslot-syntax" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"

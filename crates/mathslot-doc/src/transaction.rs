@@ -17,10 +17,26 @@ pub enum DocError {
     TransactionFailed(String),
 }
 
+/// 操作意图枚举：撤销合并与行为隔离的依据 (INV-008, A-EDIT-005)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Intent {
+    Typing,
+    PaletteCard,
+    CommandExpansion,
+    Paste,
+    ImeCommit,
+    Navigation,
+    Format,
+}
+
 /// 原子编辑意图
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Edit {
     InsertText {
+        at: Cursor,
+        text: String,
+    },
+    InsertLiteralText {
         at: Cursor,
         text: String,
     },
@@ -50,6 +66,7 @@ pub enum Edit {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: u64,
+    pub intent: Intent,
     pub label: String,
     pub edits: Vec<Edit>,
     pub inverse_edits: Vec<Edit>,
@@ -128,7 +145,7 @@ impl Transaction {
                         let new_str: String = chars.into_iter().collect();
 
                         let (new_nodes, _) = parse(&new_str);
-                        let _ = doc.replace_slot(*slot_id, new_nodes)?;
+                        doc.replace_slot(*slot_id, new_nodes)?;
 
                         let inverse = Edit::ReplaceSlot {
                             slot_id: *slot_id,
@@ -165,7 +182,14 @@ impl Transaction {
                         let new_latex = if current_latex.is_empty() {
                             text.clone()
                         } else {
-                            format!("{current_latex} {text}")
+                            let last_word = current_latex.split_whitespace().last().unwrap_or("");
+                            let needs_space = last_word.starts_with('\\')
+                                && text.chars().next().is_some_and(|c| c.is_alphabetic());
+                            if needs_space {
+                                format!("{current_latex} {text}")
+                            } else {
+                                format!("{current_latex}{text}")
+                            }
                         };
                         let (new_nodes, _) = parse(&new_latex);
                         doc.nodes = new_nodes;
@@ -178,6 +202,57 @@ impl Transaction {
                     }
                 }
             }
+
+            Edit::InsertLiteralText { at, text } => match at {
+                Cursor::InSlot { slot_id, offset } => {
+                    let old_nodes = doc
+                        .get_slot_nodes(*slot_id)
+                        .map(|s| s.to_vec())
+                        .unwrap_or_default();
+
+                    let mut new_nodes = old_nodes.clone();
+                    let insert_idx = (*offset).min(new_nodes.len());
+                    new_nodes.insert(
+                        insert_idx,
+                        Spanned::new(Expr::Text(text.clone()), Span::point(0)),
+                    );
+                    doc.replace_slot(*slot_id, new_nodes)?;
+
+                    let inverse = Edit::ReplaceSlot {
+                        slot_id: *slot_id,
+                        new_nodes: old_nodes,
+                    };
+                    let new_cursor = Cursor::InSlot {
+                        slot_id: *slot_id,
+                        offset: insert_idx + 1,
+                    };
+                    Ok((inverse, new_cursor))
+                }
+
+                Cursor::AtStart => {
+                    let old_all = doc.nodes.clone();
+                    doc.nodes
+                        .insert(0, Spanned::new(Expr::Text(text.clone()), Span::point(0)));
+                    doc.version += 1;
+                    doc.rebuild_slots();
+
+                    let inverse = Edit::ReplaceAll { new_nodes: old_all };
+                    let new_cursor = Cursor::AtStart;
+                    Ok((inverse, new_cursor))
+                }
+
+                _ => {
+                    let old_all = doc.nodes.clone();
+                    doc.nodes
+                        .push(Spanned::new(Expr::Text(text.clone()), Span::point(0)));
+                    doc.version += 1;
+                    doc.rebuild_slots();
+
+                    let inverse = Edit::ReplaceAll { new_nodes: old_all };
+                    let new_cursor = Cursor::AtEnd;
+                    Ok((inverse, new_cursor))
+                }
+            },
 
             Edit::DeleteChar { at, backward } => {
                 match at {
@@ -207,7 +282,7 @@ impl Transaction {
 
                         let new_str: String = chars.into_iter().collect();
                         let (new_nodes, _) = parse(&new_str);
-                        let _ = doc.replace_slot(*slot_id, new_nodes)?;
+                        doc.replace_slot(*slot_id, new_nodes)?;
 
                         let inverse = Edit::ReplaceSlot {
                             slot_id: *slot_id,

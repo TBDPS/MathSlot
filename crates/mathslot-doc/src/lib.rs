@@ -10,8 +10,8 @@ pub mod undo;
 
 pub use cursor::Cursor;
 pub use document::Document;
-pub use editor::Editor;
+pub use editor::{Editor, EditorDiagnostic, StreamState};
 pub use path::AstPath;
 pub use slot::{Slot, SlotRole, SlotTable};
-pub use transaction::{DocError, Edit, Transaction};
+pub use transaction::{DocError, Edit, Intent, Transaction};
 pub use undo::UndoStack;

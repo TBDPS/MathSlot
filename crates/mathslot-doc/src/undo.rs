@@ -1,6 +1,6 @@
 use crate::cursor::Cursor;
 use crate::document::Document;
-use crate::transaction::{DocError, Edit, Transaction};
+use crate::transaction::{DocError, Edit, Intent, Transaction};
 
 /// 具备连续输入防抖合并 (Coalescing) 的撤销重做栈
 #[derive(Debug, Clone)]
@@ -43,6 +43,10 @@ impl UndoStack {
         self.redo_list.len()
     }
 
+    pub fn last_transaction(&self) -> Option<&Transaction> {
+        self.undo_list.last()
+    }
+
     pub fn clear(&mut self) {
         self.undo_list.clear();
         self.redo_list.clear();
@@ -52,9 +56,11 @@ impl UndoStack {
     pub fn push(&mut self, tx: Transaction) {
         self.redo_list.clear();
 
-        // 尝试与上一事务合并
+        // 尝试与上一事务合并：只有当双方 intent 都是 Typing 时才允许防抖合并 (INV-008, A-EDIT-005)
         if let Some(last) = self.undo_list.last_mut() {
-            let can_coalesce = last.edits.len() == 1
+            let can_coalesce = last.intent == Intent::Typing
+                && tx.intent == Intent::Typing
+                && last.edits.len() == 1
                 && tx.edits.len() == 1
                 && tx.timestamp_ms.saturating_sub(last.timestamp_ms) <= self.coalesce_window_ms;
 
