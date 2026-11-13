@@ -4,35 +4,35 @@
 
 ## 当前
 
-- 轮次：13
+- 轮次：14
 - Gate：G2
-- 当前任务：T2.1 已完成（纯领域状态机 `crates/mathslot-app` 落地，无 UI/IO 依赖，A-EDIT 场景全过，守卫 D-001/D-004）
-- 下一步：`T2.2` Transaction/Undo 按 Intent 分组（History：卡片/输入/粘贴/导入独立）
+- 当前任务：T2.2 已完成（`History` 按 Intent 分组、去挂钟、断组规则、`Import`/`Clear`/`DeleteForward`/选区恢复，闭环新栈 `D-012` 与 `D-104..D-107`）
+- 下一步：`T2.3` 实现 `mathslot-store`（原子写/多代备份/文件锁/配置迁移，验收 A-DATA-001..006，闭环 P1 缺陷 D-005、D-006 与 D-102/D-013/D-014）
 
 ## 本轮做过什么
 
-- 审计产出 `AUD-13.md`：梳理 `mathslot-app` 无 UI/IO 纯领域架构边界（Event→Command→Effect），定义显式 `EditorState` 与 8 项 A-EDIT 验证策略。
-- 决策批准 `ADR-0016`：批准新建 `crates/mathslot-app` 并纳管至根工作区，声明禁止引入 egui/DOM/IO 库及禁止用户路径 `unwrap()`。
-- 实现提交 `b238228`：`T2.1: implement mathslot-app state machine with headless A-EDIT suite (defend D-001, D-004)`，完成纯函数状态机与 10 项端到端无头契约测试（#\[!forbid(unsafe_code)]，零 `let _ =` 新增）。
-- 验收产出 `VER-13.md`：独立核实无 UI/IO 依赖、10 项测试全过（覆盖 A-EDIT-001..008）、全量门禁与完整 `scripts/agent/acceptance.sh`（PASS=4 FAIL=0 WARN=4，186 passed，4 ignored），判定 PASS。
+- 审计产出 `AUD-14.md`：定位新栈在 `Intent`、`Typing` 空格/导航断组、同槽左移重放错位 (`D-104`)、`Clear`/`Import` 销毁历史 (`D-105`)、`SystemTime` 挂钟 (`D-106`)、`let _ =`/幽灵槽位 (`D-107`) 等 4 项新缺陷及旧栈 `D-012`。
+- 决策批准 `ADR-0017`：明确 `History`/`UndoStack` 别名、`Selection`、`Intent` 完整集、去挂钟确定性合并与断组契约及 5 组红灯测试蓝图。
+- 实现提交 `c3e2de2`：`T2.2: implement intent-grouped History and deterministic undo/redo (D-012, D-104, D-105, D-106, D-107)`，严格限定在 `crates/mathslot-doc` 与 `crates/mathslot-app`，清除 `undo.rs` 3 处 `let _ =`，新增 8 项无挂钟确定性测试（先红后绿）。
+- 验收产出 `VER-14.md`：独立核验全仓 194 passed (4 ignored)、`wasm32` check PASS、`scripts/agent/acceptance.sh` PASS=4 FAIL=0（`let _ =` 净降至 24），判定 PASS。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-13.md`
-- `agent-state/decisions/ADR-0016-mathslot-app-state-machine-t2.1.md`
-- `agent-state/verify/VER-13.md`
-- Commit：`b238228` (`T2.1: implement mathslot-app state machine with headless A-EDIT suite (defend D-001, D-004)`)
-- 门禁：`cargo test -p mathslot-app` (10 passed)；`cargo test --workspace` (186 passed, 4 ignored)；`scripts/agent/acceptance.sh` (PASS)
+- `agent-state/audits/AUD-14.md`
+- `agent-state/decisions/ADR-0017-history-intent-grouping-t2.2.md`
+- `agent-state/verify/VER-14.md`
+- Commit：`c3e2de2` (`T2.2: implement intent-grouped History and deterministic undo/redo (D-012, D-104, D-105, D-106, D-107)`)
+- 门禁：`cargo test -p mathslot-doc` (24 passed)；`cargo test -p mathslot-app` (12 passed)；`cargo test --workspace` (194 passed, 4 ignored)；`scripts/agent/acceptance.sh` (PASS)
 
 ## 卡在哪 / 需要人工
 
-- 无阻塞。
+- 无阻塞（旧桌面端 `src/app.rs` 450ms 时间窗待 Gate G3 UI 切换时退役）。
 - 外部审查仍为 final-only。
 
 ## 下一轮入口
 
-1. 读规范 §14 Gate G2 任务 T2.2（Transaction/Undo 按 Intent 分组，产出 History，退出条件：卡片/输入/粘贴/导入独立）。
-2. 派 `auditor` 审计 `mathslot-doc` 与 `mathslot-app` 的 Intent/History 分组实现、防抖与边界用例（含连续输入遇到空格/标点/命令/导入/清空等），产出 `AUD-14`。
-3. 决策批准 `ADR-0017`（完善 Intent 历史记录与确定性测试覆盖契约）。
-4. 派 `implementer` 先写失败测试并补齐 T2.2 要求，提交 `T2.2: ...`。
-5. 派 `verifier` 独立验证并出具 `VER-14`。
+1. 读规范 §14 Gate G2 任务 T2.3（实现 `mathslot-store`：原子写/备份/锁/迁移，产出 store crate，退出条件 A-DATA-001..006，闭环 D-005、D-006、D-102、D-013、D-014）。
+2. 派 `auditor` 审计现存持久化实现（`src/modals.rs`、`crates/mathslot-core/src/library.rs`、`fault_injection_harness.rs`、`test_p1_d005`/`d006`）与规范 §10 / A-DATA-001..006 要求，产出 `AUD-15`。
+3. 决策批准 `ADR-0018`。
+4. 派 `implementer` 先写红灯/解冻测试并实现 `crates/mathslot-store`（同时修复或接入关闭 `D-005`、`D-006` 回归测试的契约），提交 `T2.3: ...`。
+5. 派 `verifier` 独立验证 `A-DATA-001..006`、D-005/D-006 与全量门禁，出具 `VER-15`。
