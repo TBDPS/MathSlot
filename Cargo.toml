@@ -6,6 +6,7 @@ members = [
     "crates/mathslot-latex",
     "crates/mathslot-core",
     "crates/mathslot-wasm",
+    "crates/mathslot-command",
 ]
 resolver = "2"
 
