@@ -1,0 +1,14 @@
+[package]
+name = "mathslot-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Pure headless state machine and event-command-effect core for MathSlot"
+
+[dependencies]
+mathslot-command = { path = "../mathslot-command" }
+mathslot-doc = { path = "../mathslot-doc" }
+mathslot-syntax = { path = "../mathslot-syntax" }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"

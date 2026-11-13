@@ -1312,6 +1312,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mathslot-app"
+version = "0.7.0"
+dependencies = [
+ "mathslot-command",
+ "mathslot-doc",
+ "mathslot-syntax",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mathslot-command"
 version = "0.7.0"
 dependencies = [
