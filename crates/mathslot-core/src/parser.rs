@@ -1,3 +1,8 @@
+//! # [FROZEN ARCHITECTURE - GATE G1 T1.4]
+//! This legacy module is FROZEN per ADR-0012.
+//! Target architecture: mathslot-syntax / mathslot-doc / mathslot-latex.
+//! Maintained solely for parity verification (T1.7) until full cutover.
+
 use crate::ast::{
     EmptySlotTarget, Expr, MathSeq, NavEntry, NavEntryKind, NavScope, ParsedDoc, Pos, SlotNode,
     Span,
