@@ -1,4 +1,4 @@
-use mathslot_app::{App, AppEvent, EditorAction, EditorState, Effect, Intent, Key};
+use mathslot_app::{App, AppEvent, EditorAction, EditorState, Effect, Intent, Key, NavAction};
 
 #[test]
 fn test_a_edit_001_stream_frac() {
@@ -426,4 +426,116 @@ fn test_keys_actions_and_redo() {
     assert_eq!(*app.state(), EditorState::Idle);
     assert!(app.state().is_idle());
     assert!(!app.state().is_nav());
+}
+
+#[test]
+fn test_import_and_clear_are_single_undoable_transactions_with_selection() {
+    // 1. ImportLatex 单步可撤销，不销毁前置 Typing 历史，恢复导入前选区
+    let mut app = App::new();
+    app.handle_event(AppEvent::KeyInput('x'));
+    app.handle_event(AppEvent::KeyInput('y'));
+    assert_eq!(app.to_latex(), "xy");
+    let selection_before_import = app.selection().clone();
+
+    app.handle_event(AppEvent::ImportLatex(r"\frac{1}{2}".to_string()));
+    assert_eq!(app.to_latex(), r"\frac{1}{2}");
+    assert_eq!(*app.state(), EditorState::Idle);
+    assert_eq!(app.history().undo_depth(), 2);
+    assert_eq!(
+        app.history().intents(),
+        vec![Intent::Typing, Intent::Import]
+    );
+
+    // 一次 Undo 完整还原 "xy" 及导入前选区
+    app.handle_event(AppEvent::Undo);
+    assert_eq!(app.to_latex(), "xy");
+    assert_eq!(app.selection(), &selection_before_import);
+
+    // 一次 Redo 还原导入结果
+    app.handle_event(AppEvent::Redo);
+    assert_eq!(app.to_latex(), r"\frac{1}{2}");
+
+    // 再连续 Undo 两次可回到空文档，证明前置历史未被销毁 (D-105)
+    app.handle_event(AppEvent::Undo);
+    assert_eq!(app.to_latex(), "xy");
+    app.handle_event(AppEvent::Undo);
+    assert_eq!(app.to_latex(), "");
+
+    // 2. 在 \frac{a}{b} 特定槽位选区下执行 Clear，单步 Undo 完整恢复公式与选区
+    let mut frac_app = App::from_latex(r"\frac{a}{b}");
+    frac_app.handle_event(AppEvent::Navigate(NavAction::NextSlot));
+    frac_app.handle_event(AppEvent::Navigate(NavAction::StepRight));
+    let selection_before_clear = frac_app.selection().clone();
+    let cursor_before_clear = frac_app.cursor().clone();
+    let depth_before_clear = frac_app.history().undo_depth();
+
+    frac_app.handle_event(AppEvent::Clear);
+    assert_eq!(frac_app.to_latex(), "");
+    assert_eq!(*frac_app.state(), EditorState::Idle);
+    assert_eq!(frac_app.history().undo_depth(), depth_before_clear + 1);
+    assert_eq!(
+        frac_app.history().last_transaction().map(|t| t.intent),
+        Some(Intent::Clear)
+    );
+
+    // 空文档再次 Clear 幂等，不增加冗余空事务
+    frac_app.handle_event(AppEvent::Clear);
+    assert_eq!(frac_app.history().undo_depth(), depth_before_clear + 1);
+
+    // 单次 Undo 完整恢复 \frac{a}{b} 及原选区/光标
+    frac_app.handle_event(AppEvent::Undo);
+    assert_eq!(frac_app.to_latex(), r"\frac{a}{b}");
+    assert_eq!(frac_app.selection(), &selection_before_clear);
+    assert_eq!(frac_app.cursor(), &cursor_before_clear);
+
+    // 未决命令状态下 ImportLatex / Clear 重置状态机与诊断
+    let mut pending_app = App::new();
+    pending_app.handle_event(AppEvent::KeyInput('x'));
+    pending_app.handle_event(AppEvent::KeyInput('▸'));
+    pending_app.handle_event(AppEvent::KeyInput('m'));
+    assert!(pending_app.has_pending_command());
+    pending_app.handle_event(AppEvent::ImportLatex("z".to_string()));
+    assert!(!pending_app.has_pending_command());
+    assert!(pending_app.diagnostics().is_empty());
+    assert_eq!(*pending_app.state(), EditorState::Idle);
+}
+
+#[test]
+fn test_app_delete_forward_nav_and_d104_protection() {
+    // 1. KeyDown(Key::Delete) 触发 DeleteForward 并以 Intent::Delete 记账 (D-107)
+    let mut app = App::from_latex(r"\frac{abc}{d}");
+    app.handle_event(AppEvent::KeyDown(Key::Delete));
+    app.handle_event(AppEvent::KeyDown(Key::Delete));
+    assert_eq!(app.to_latex(), r"\frac{c}{d}");
+    assert_eq!(app.history().intents(), vec![Intent::Delete]);
+    app.handle_event(AppEvent::Undo);
+    assert_eq!(app.to_latex(), r"\frac{abc}{d}");
+    app.handle_event(AppEvent::Redo);
+    assert_eq!(app.to_latex(), r"\frac{c}{d}");
+
+    // 2. D-104 端到端防护：同槽输入 'a' -> ArrowLeft -> 'b' -> Undo/Redo 保持 \frac{ba}{}
+    let mut d104_app = App::from_latex(r"\frac{}{}");
+    d104_app.handle_event(AppEvent::KeyInput('a'));
+    d104_app.handle_event(AppEvent::KeyDown(Key::ArrowLeft));
+    d104_app.handle_event(AppEvent::KeyInput('b'));
+    assert_eq!(d104_app.to_latex(), r"\frac{ba}{}");
+    assert_eq!(d104_app.history().undo_depth(), 2);
+
+    d104_app.handle_event(AppEvent::Undo);
+    assert_eq!(d104_app.to_latex(), r"\frac{a}{}");
+    d104_app.handle_event(AppEvent::Undo);
+    assert_eq!(d104_app.to_latex(), r"\frac{}{}");
+
+    // 导航事件不得入栈也不得破坏 Redo 栈
+    d104_app.handle_event(AppEvent::EnterNavMode);
+    d104_app.handle_event(AppEvent::KeyInput('j'));
+    d104_app.handle_event(AppEvent::KeyInput('k'));
+    d104_app.handle_event(AppEvent::ExitNavMode);
+    assert_eq!(d104_app.history().undo_depth(), 0);
+    assert_eq!(d104_app.history().redo_depth(), 2);
+
+    d104_app.handle_event(AppEvent::Redo);
+    assert_eq!(d104_app.to_latex(), r"\frac{a}{}");
+    d104_app.handle_event(AppEvent::Redo);
+    assert_eq!(d104_app.to_latex(), r"\frac{ba}{}");
 }

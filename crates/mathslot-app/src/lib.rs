@@ -14,4 +14,4 @@ pub use state::EditorState;
 
 pub use app::AppError;
 pub use mathslot_doc::EditorDiagnostic as Diagnostic;
-pub use mathslot_doc::Intent;
+pub use mathslot_doc::{History, Intent, Selection};

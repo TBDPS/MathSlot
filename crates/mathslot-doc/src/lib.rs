@@ -8,10 +8,10 @@ pub mod slot;
 pub mod transaction;
 pub mod undo;
 
-pub use cursor::Cursor;
+pub use cursor::{Cursor, Selection};
 pub use document::Document;
 pub use editor::{Editor, EditorDiagnostic, StreamState};
 pub use path::AstPath;
 pub use slot::{Slot, SlotRole, SlotTable};
-pub use transaction::{DocError, Edit, Intent, Transaction};
-pub use undo::UndoStack;
+pub use transaction::{DocError, Edit, EditOutcome, Intent, Transaction};
+pub use undo::{History, UndoStack};

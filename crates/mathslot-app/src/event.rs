@@ -28,6 +28,7 @@ pub enum AppEvent {
     ExitNavMode,
     Navigate(NavAction),
     Clear,
+    ImportLatex(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

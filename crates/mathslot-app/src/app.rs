@@ -1,4 +1,4 @@
-use mathslot_doc::{Cursor, Document, Editor, EditorDiagnostic as Diagnostic, UndoStack};
+use mathslot_doc::{Cursor, Document, Editor, EditorDiagnostic as Diagnostic, History, Selection};
 use serde::{Deserialize, Serialize};
 
 use crate::command::AppCommand;
@@ -134,6 +134,7 @@ impl App {
                 other => AppCommand::MoveCursor(other),
             },
             AppEvent::Clear => AppCommand::ResetDocument,
+            AppEvent::ImportLatex(latex) => AppCommand::ImportLatex(latex),
         }
     }
 
@@ -184,7 +185,19 @@ impl App {
                 emit_render = true;
                 emit_focus = true;
             }
-            AppCommand::DeleteForward => {}
+            AppCommand::DeleteForward => {
+                match self.editor.delete_forward() {
+                    Ok(()) => {}
+                    Err(err) => {
+                        status_effects.push(Effect::Status(StatusMessage {
+                            severity: StatusSeverity::Error,
+                            message: format!("Delete forward error: {err}"),
+                        }));
+                    }
+                }
+                emit_render = true;
+                emit_focus = true;
+            }
             AppCommand::ApplyPaletteCard { command_id } => {
                 match self.editor.apply_palette_card(&command_id) {
                     Ok(()) => {}
@@ -271,8 +284,27 @@ impl App {
                     emit_focus = true;
                 }
             }
-            AppCommand::ResetDocument => {
-                self.editor = Editor::new(Document::new());
+            AppCommand::ResetDocument => match self.editor.clear() {
+                Ok(changed) => {
+                    if changed {
+                        emit_render = true;
+                        emit_focus = true;
+                    }
+                }
+                Err(err) => {
+                    status_effects.push(Effect::Status(StatusMessage {
+                        severity: StatusSeverity::Error,
+                        message: format!("Clear error: {err}"),
+                    }));
+                }
+            },
+            AppCommand::ImportLatex(latex) => {
+                if let Err(err) = self.editor.import_latex(&latex) {
+                    status_effects.push(Effect::Status(StatusMessage {
+                        severity: StatusSeverity::Error,
+                        message: format!("Import error: {err}"),
+                    }));
+                }
                 emit_render = true;
                 emit_focus = true;
             }
@@ -429,7 +461,16 @@ impl App {
     }
 
     #[must_use]
-    pub fn history(&self) -> &UndoStack {
+    pub fn selection(&self) -> &Selection {
+        self.editor.selection()
+    }
+
+    pub fn set_selection(&mut self, selection: Selection) {
+        self.editor.set_selection(selection);
+    }
+
+    #[must_use]
+    pub fn history(&self) -> &History {
         self.editor.history()
     }
 

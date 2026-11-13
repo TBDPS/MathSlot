@@ -1,10 +1,9 @@
-use crate::cursor::Cursor;
+use crate::cursor::{Cursor, Selection};
 use crate::document::Document;
 use crate::transaction::{DocError, Edit, Intent, Transaction};
-use crate::undo::UndoStack;
-use mathslot_syntax::SlotId;
+use crate::undo::History;
+use mathslot_syntax::{Expr, SlotId};
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 流式命令捕获状态机状态 (ADR-0013)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,12 +44,13 @@ impl EditorDiagnostic {
     }
 }
 
-/// 高层文档编辑器：协调 Document、Cursor、UndoStack 并响应流式键盘动作 (INV-008, A-EDIT)
+/// 高层文档编辑器：协调 Document、Cursor/Selection、History 并响应流式键盘动作 (INV-008, A-EDIT)
 #[derive(Debug, Clone)]
 pub struct Editor {
     doc: Document,
     cursor: Cursor,
-    history: UndoStack,
+    selection: Selection,
+    history: History,
     tx_seq: u64,
     stream_state: StreamState,
     diagnostics: Vec<EditorDiagnostic>,
@@ -72,11 +72,13 @@ impl Editor {
         } else {
             Cursor::AtEnd
         };
+        let selection = Selection::caret(cursor.clone());
 
         Self {
             doc,
             cursor,
-            history: UndoStack::default(),
+            selection,
+            history: History::default(),
             tx_seq: 0,
             stream_state: StreamState::Idle,
             diagnostics: Vec::new(),
@@ -98,14 +100,26 @@ impl Editor {
     }
 
     pub fn set_cursor(&mut self, cursor: Cursor) {
+        self.selection = Selection::caret(cursor.clone());
         self.cursor = cursor;
+        self.history.break_coalesce();
     }
 
-    pub fn history(&self) -> &UndoStack {
+    pub fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    pub fn set_selection(&mut self, selection: Selection) {
+        self.cursor = selection.cursor().clone();
+        self.selection = selection;
+        self.history.break_coalesce();
+    }
+
+    pub fn history(&self) -> &History {
         &self.history
     }
 
-    pub fn history_mut(&mut self) -> &mut UndoStack {
+    pub fn history_mut(&mut self) -> &mut History {
         &mut self.history
     }
 
@@ -130,14 +144,17 @@ impl Editor {
 
     pub fn set_nav_mode(&mut self, active: bool) {
         self.nav_mode = active;
+        self.history.break_coalesce();
     }
 
     pub fn enter_nav_mode(&mut self) {
         self.nav_mode = true;
+        self.history.break_coalesce();
     }
 
     pub fn exit_nav_mode(&mut self) {
         self.nav_mode = false;
+        self.history.break_coalesce();
     }
 
     pub fn is_composing(&self) -> bool {
@@ -254,23 +271,20 @@ impl Editor {
         self.apply_with_intent(edit, label, Intent::Typing)
     }
 
-    /// 带显式意图的应用原子编辑操作，记录事务并压入撤销栈
+    /// 带显式意图的应用原子编辑操作，记录事务并压入历史栈（不依赖系统挂钟，D-106）
     pub fn apply_with_intent(
         &mut self,
         edit: Edit,
         label: impl Into<String>,
         intent: Intent,
     ) -> Result<Transaction, DocError> {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
         let version_before = self.doc.version;
         let cursor_before = self.cursor.clone();
+        let selection_before = self.selection.clone();
 
-        let (inverse, cursor_after) = Transaction::apply_edit(&mut self.doc, &edit, &self.cursor)?;
-        self.cursor = cursor_after.clone();
+        let outcome = Transaction::apply_edit_with_outcome(&mut self.doc, &edit, &self.cursor)?;
+        self.cursor = outcome.new_cursor.clone();
+        self.selection = Selection::caret(outcome.new_cursor.clone());
         self.tx_seq += 1;
 
         let tx = Transaction {
@@ -278,27 +292,67 @@ impl Editor {
             intent,
             label: label.into(),
             edits: vec![edit],
-            inverse_edits: vec![inverse],
+            inverse_edits: vec![outcome.inverse],
             cursor_before,
-            cursor_after,
+            cursor_after: outcome.new_cursor,
+            selection_before,
+            selection_after: self.selection.clone(),
+            breaks_word_or_line: outcome.breaks_word_or_line,
             version_before,
             version_after: self.doc.version,
-            timestamp_ms: now_ms,
+            timestamp_ms: self.tx_seq,
         };
 
         self.history.push(tx.clone());
         Ok(tx)
     }
 
+    pub fn try_undo(&mut self) -> Result<bool, DocError> {
+        let changed = self.history.undo(&mut self.doc, &mut self.selection)?;
+        if changed {
+            self.cursor = self.selection.cursor().clone();
+            self.stream_state = StreamState::Idle;
+            self.ime_composition = None;
+            self.update_diagnostics();
+        }
+        Ok(changed)
+    }
+
+    pub fn try_redo(&mut self) -> Result<bool, DocError> {
+        let changed = self.history.redo(&mut self.doc, &mut self.selection)?;
+        if changed {
+            self.cursor = self.selection.cursor().clone();
+            self.stream_state = StreamState::Idle;
+            self.ime_composition = None;
+            self.update_diagnostics();
+        }
+        Ok(changed)
+    }
+
     pub fn undo(&mut self) -> bool {
-        self.history.undo(&mut self.doc, &mut self.cursor)
+        match self.try_undo() {
+            Ok(changed) => changed,
+            Err(err) => {
+                self.diagnostics
+                    .push(EditorDiagnostic::Syntax(format!("Undo failed: {err}")));
+                false
+            }
+        }
     }
 
     pub fn redo(&mut self) -> bool {
-        self.history.redo(&mut self.doc, &mut self.cursor)
+        match self.try_redo() {
+            Ok(changed) => changed,
+            Err(err) => {
+                self.diagnostics
+                    .push(EditorDiagnostic::Syntax(format!("Redo failed: {err}")));
+                false
+            }
+        }
     }
 
     pub fn tab_next_slot(&mut self) -> bool {
+        self.history.break_coalesce();
         if let Cursor::InSlot { slot_id, .. } = self.cursor
             && let Some(next_id) = self.doc.slots.next_slot(slot_id)
         {
@@ -306,6 +360,7 @@ impl Editor {
                 slot_id: next_id,
                 offset: 0,
             };
+            self.selection = Selection::caret(self.cursor.clone());
             return true;
         }
 
@@ -314,6 +369,7 @@ impl Editor {
                 slot_id: first_empty,
                 offset: 0,
             };
+            self.selection = Selection::caret(self.cursor.clone());
             return true;
         }
 
@@ -322,6 +378,7 @@ impl Editor {
                 slot_id: first.id,
                 offset: 0,
             };
+            self.selection = Selection::caret(self.cursor.clone());
             return true;
         }
 
@@ -329,6 +386,7 @@ impl Editor {
     }
 
     pub fn tab_prev_slot(&mut self) -> bool {
+        self.history.break_coalesce();
         if let Cursor::InSlot { slot_id, .. } = self.cursor
             && let Some(prev_id) = self.doc.slots.prev_slot(slot_id)
         {
@@ -336,6 +394,7 @@ impl Editor {
                 slot_id: prev_id,
                 offset: 0,
             };
+            self.selection = Selection::caret(self.cursor.clone());
             return true;
         }
 
@@ -344,6 +403,7 @@ impl Editor {
                 slot_id: last.id,
                 offset: 0,
             };
+            self.selection = Selection::caret(self.cursor.clone());
             return true;
         }
 
@@ -351,8 +411,10 @@ impl Editor {
     }
 
     pub fn nav_to_slot(&mut self, slot_id: SlotId) -> bool {
+        self.history.break_coalesce();
         if self.doc.slots.get(slot_id).is_some() {
             self.cursor = Cursor::InSlot { slot_id, offset: 0 };
+            self.selection = Selection::caret(self.cursor.clone());
             true
         } else {
             false
@@ -368,35 +430,91 @@ impl Editor {
     }
 
     pub fn nav_left(&mut self) -> bool {
-        match &mut self.cursor {
-            Cursor::InSlot { offset, .. } => {
-                if *offset > 0 {
-                    *offset -= 1;
-                    true
-                } else {
-                    self.tab_prev_slot()
-                }
-            }
-            _ => self.tab_prev_slot(),
+        self.history.break_coalesce();
+        if let Cursor::InSlot { slot_id, offset } = self.cursor
+            && offset > 0
+        {
+            self.cursor = Cursor::InSlot {
+                slot_id,
+                offset: offset - 1,
+            };
+            self.selection = Selection::caret(self.cursor.clone());
+            return true;
         }
+        self.tab_prev_slot()
     }
 
     pub fn nav_right(&mut self) -> bool {
-        match &mut self.cursor {
-            Cursor::InSlot { slot_id, offset } => {
-                let text_len = self
-                    .doc
-                    .get_slot_nodes(*slot_id)
-                    .map_or(0, |nodes| mathslot_syntax::to_latex(nodes).chars().count());
-                if *offset < text_len {
-                    *offset += 1;
-                    true
+        self.history.break_coalesce();
+        if let Cursor::InSlot { slot_id, offset } = self.cursor {
+            let text_len = self.doc.get_slot_nodes(slot_id).map_or(0, |nodes| {
+                if nodes.len() == 1 && matches!(nodes[0].node, Expr::Placeholder { .. }) {
+                    0
                 } else {
-                    self.tab_next_slot()
+                    mathslot_syntax::to_latex(nodes).chars().count()
                 }
+            });
+            if offset < text_len {
+                self.cursor = Cursor::InSlot {
+                    slot_id,
+                    offset: offset + 1,
+                };
+                self.selection = Selection::caret(self.cursor.clone());
+                return true;
             }
-            _ => self.tab_next_slot(),
         }
+        self.tab_next_slot()
+    }
+
+    pub fn clear(&mut self) -> Result<bool, DocError> {
+        let had_pending =
+            !matches!(self.stream_state, StreamState::Idle) || self.ime_composition.is_some();
+        if self.doc.nodes.is_empty() && !had_pending {
+            self.history.break_coalesce();
+            return Ok(false);
+        }
+
+        self.stream_state = StreamState::Idle;
+        self.ime_composition = None;
+        self.nav_mode = false;
+        self.update_diagnostics();
+
+        if self.doc.nodes.is_empty() {
+            self.history.break_coalesce();
+            return Ok(true);
+        }
+
+        self.apply_with_intent(
+            Edit::ReplaceAll {
+                new_nodes: Vec::new(),
+            },
+            "clear",
+            Intent::Clear,
+        )?;
+        Ok(true)
+    }
+
+    pub fn import_latex(&mut self, latex: &str) -> Result<Vec<EditorDiagnostic>, DocError> {
+        let (parsed_doc, syntax_diags) = Document::from_latex(latex);
+
+        self.stream_state = StreamState::Idle;
+        self.ime_composition = None;
+        self.nav_mode = false;
+
+        self.apply_with_intent(
+            Edit::ReplaceAll {
+                new_nodes: parsed_doc.nodes,
+            },
+            "import_latex",
+            Intent::Import,
+        )?;
+
+        let mapped_diags: Vec<EditorDiagnostic> = syntax_diags
+            .into_iter()
+            .map(|d| EditorDiagnostic::Syntax(d.kind.to_string()))
+            .collect();
+        self.diagnostics = mapped_diags.clone();
+        Ok(mapped_diags)
     }
 
     pub fn insert_text(&mut self, s: &str) -> Result<(), DocError> {
@@ -464,6 +582,7 @@ impl Editor {
             StreamState::PrefixPending { prefix } => {
                 if prefix.is_empty() {
                     self.stream_state = StreamState::Idle;
+                    self.history.break_coalesce();
                 } else {
                     prefix.pop();
                 }
@@ -489,19 +608,42 @@ impl Editor {
                 raw.pop();
                 if raw.is_empty() || raw == "▸" {
                     self.stream_state = StreamState::Idle;
+                    self.history.break_coalesce();
                 }
                 self.update_diagnostics();
                 Ok(())
             }
-            StreamState::Idle => self
-                .apply(
-                    Edit::DeleteChar {
-                        at: self.cursor.clone(),
-                        backward: true,
-                    },
-                    "delete_backward",
-                )
-                .map(|_| ()),
+            StreamState::Idle => self.delete_in_idle(true),
+        }
+    }
+
+    pub fn delete_forward(&mut self) -> Result<(), DocError> {
+        if !matches!(self.stream_state, StreamState::Idle) {
+            return Ok(());
+        }
+        self.delete_in_idle(false)
+    }
+
+    fn delete_in_idle(&mut self, backward: bool) -> Result<(), DocError> {
+        let edit = if !self.selection.is_collapsed() {
+            Edit::DeleteSelection {
+                selection: self.selection.clone(),
+            }
+        } else {
+            Edit::DeleteChar {
+                at: self.cursor.clone(),
+                backward,
+            }
+        };
+        let label = if backward {
+            "delete_backward"
+        } else {
+            "delete_forward"
+        };
+        match self.apply_with_intent(edit, label, Intent::Delete) {
+            Ok(_) => Ok(()),
+            Err(DocError::NothingToDelete) => Ok(()),
+            Err(err) => Err(err),
         }
     }
 
@@ -530,10 +672,14 @@ impl Editor {
         match &mut self.stream_state {
             StreamState::Idle => {
                 if ch == '▸' {
+                    self.history.break_coalesce();
                     self.stream_state = StreamState::PrefixPending {
                         prefix: String::new(),
                     };
                     self.update_diagnostics();
+                } else if ch.is_whitespace() {
+                    // 空白字符仅封口当前输入组，不插入破坏偏移的幽灵空白 (INV-008)
+                    self.history.break_coalesce();
                 } else {
                     self.apply_with_intent(
                         Edit::InsertText {
