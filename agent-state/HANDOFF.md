@@ -4,25 +4,25 @@
 
 ## 当前
 
-- 轮次：6
+- 轮次：7
 - Gate：G1
-- 当前任务：T1.1 已完成，待进入 T1.2
-- 下一步：`T1.2` 生成调色板/文档/TS 类型（xtask + generated 代码生成管线）
+- 当前任务：T1.2 已完成，待进入 T1.3
+- 下一步：`T1.3` 用 catalog 修 D-001/D-002（统一调色板 5 卡片映射与 README/HELP 命令生成）
 
 ## 本轮做过什么
 
-- 审计产出 `AUD-6.md`：审计命令目录 Schema 契约，核验 121 项命令映射，发现并登记 D-103，定性 BLOCK。
-- 决策批准 `ADR-0009`：批准 `catalog/commands.toml` 单一事实源与 `crates/mathslot-command` 纯数据 crate 架构。
-- 实现提交 `2ba8757`：`T1.1: define commands catalog toml schema and loader (crates/mathslot-command)`，建立 121 项命令单一事实源、轻量 loader 与 8 项测试。
-- 验收产出 `VER-6.md`：121 项命令全量加载、按键 Prefix-Free 校验、门禁与基线保持（146 passed; 0 failed; 7 ignored），判定 PASS。
+- 审计产出 `AUD-7.md`：梳理 5 大生成产物与消费者契约，设计确定性排序与树内守护测试机制，定性 BLOCK。
+- 决策批准 `ADR-0010`：批准 `xtask` 代码生成工具链架构、5 大产物格式与树内守护测试方案。
+- 实现提交 `5b99d33`：`T1.2: implement xtask codegen pipeline and generate 5 catalog artifacts`，实现 xtask 生成器，产出 5 大产物并新增 8 项测试。
+- 验收产出 `VER-7.md`：5 大产物完备、`xtask check` 幂等无 diff、树内守护全过、门禁与基线保持（154 passed; 0 failed; 7 ignored），判定 PASS。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-6.md`
-- `agent-state/decisions/ADR-0009-catalog-commands-schema-loader-t1.1.md`
-- `agent-state/verify/VER-6.md`
-- Commit：`2ba8757` (`T1.1: define commands catalog toml schema and loader (crates/mathslot-command)`)
-- 文件：`catalog/commands.toml`、`crates/mathslot-command/`
+- `agent-state/audits/AUD-7.md`
+- `agent-state/decisions/ADR-0010-xtask-codegen-pipeline-t1.2.md`
+- `agent-state/verify/VER-7.md`
+- Commit：`5b99d33` (`T1.2: implement xtask codegen pipeline and generate 5 catalog artifacts`)
+- 文件：`xtask/`、`catalog/catalog.json`、`docs/commands.md`、`packages/ui/src/generated/catalog.ts`、`schemas/commands.schema.json`、`crates/mathslot-command/src/generated.rs`
 
 ## 卡在哪 / 需要人工
 
@@ -31,8 +31,8 @@
 
 ## 下一轮入口
 
-1. 读规范 §14 Gate G1 任务 T1.2（生成调色板/文档/TS 类型，产出 xtask + generated，退出条件：生成文件可重复、无 diff）。
-2. 派 `auditor` 审计生成产物目标清单（Rust 代码、JSON、Markdown 文档、TS 类型、JSON Schema）与 xtask 架构，产出 `AUD-7`。
-3. 决策批准 `ADR-0010`。
-4. 派 `implementer` 构建 `xtask` 并生成产物，先写差异断言失败测试再实现生成器。
-5. 派 `verifier` 独立验证生成产物可重复性与 `git diff --exit-code` 并产出 `VER-7`。
+1. 读规范 §14 Gate G1 任务 T1.3（用 catalog 修 D-001/D-002，产出调色板/文档，退出条件：5 张卡片正确；文档 code 全可解析）。
+2. 派 `auditor` 审计 D-001 调色板 5 张卡片与 D-002 文档命令在现有代码中的消费点，产出 `AUD-8`。
+3. 决策批准 `ADR-0011`。
+4. 派 `implementer` 用 catalog 重构调色板与文档生成，解冻 T0.3 的 D-001 与 D-002 回归测试并展示通过。
+5. 派 `verifier` 独立验证 D-001/D-002 修复结果，产出 `VER-8`。
