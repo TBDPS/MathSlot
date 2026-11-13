@@ -81,7 +81,6 @@ fn test_p1_d002_documented_commands_exist_and_match_semantics() {
 /// 2. 输入 `1 + ▸m + 2` 导出为 `1 + 2`，未闭合前缀被静默丢弃
 /// 3. 输入 `▸zz` 时 `▸z` 被当作 UnknownCmd 丢弃，尾部 `z` 作为 Text 导出，退化为普通字母 `z`
 #[test]
-#[ignore = "P1 regression: D-004 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d004_pending_and_unknown_commands_never_silently_disappear() {
     let lib = UserLibrary::default();
 

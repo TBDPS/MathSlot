@@ -180,7 +180,11 @@ impl Editor {
                 }
             }
             StreamState::PrefixPending { prefix } => {
-                let placeholder = format!("▸{prefix}");
+                let placeholder = if prefix.is_empty() {
+                    "\\text{▸}".to_string()
+                } else {
+                    format!("\\text{{▸{prefix}}}")
+                };
                 if base.is_empty() {
                     placeholder
                 } else {
@@ -199,6 +203,7 @@ impl Editor {
                     placeholder.push(';');
                 }
                 placeholder.push_str(buffer);
+                let placeholder = format!("\\text{{{placeholder}}}");
                 if base.is_empty() {
                     placeholder
                 } else {
@@ -206,10 +211,15 @@ impl Editor {
                 }
             }
             StreamState::UnknownCommand { raw } => {
-                if base.is_empty() {
+                let placeholder = if raw.starts_with("\\text{") {
                     raw.clone()
                 } else {
-                    format!("{base} {raw}")
+                    format!("\\text{{{raw}}}")
+                };
+                if base.is_empty() {
+                    placeholder
+                } else {
+                    format!("{base} {placeholder}")
                 }
             }
         }
@@ -217,6 +227,22 @@ impl Editor {
 
     pub fn export_latex(&self) -> String {
         self.to_latex()
+    }
+
+    /// 导出 LaTeX 及所有编辑态诊断报告 (T1.6, D-004)
+    /// 包含未决命令 (PendingCommand) 与未知命令 (UnknownCommand) 等诊断信息。
+    pub fn export_latex_with_diagnostics(&self) -> (String, Vec<EditorDiagnostic>) {
+        (self.to_latex(), self.diagnostics.clone())
+    }
+
+    /// 严格模式导出 LaTeX (T1.6, D-004)
+    /// 当且仅当零诊断时返回 Ok(latex)，存在诊断时返回 Err(diagnostics) 阻断导出。
+    pub fn export_latex_strict(&self) -> Result<String, Vec<EditorDiagnostic>> {
+        if self.diagnostics.is_empty() {
+            Ok(self.to_latex())
+        } else {
+            Err(self.diagnostics.clone())
+        }
     }
 
     pub fn copy_text(&self) -> String {

@@ -56,6 +56,13 @@ fn test_a_edit_002_pending_copy_export() {
         exported.contains("▸m") || exported.contains(r"\text{▸m}"),
         "Exported output must contain explicit placeholder for '▸m', got: {exported}"
     );
+
+    // T1.6 / D-004: 带诊断的安全导出与严格模式阻断
+    let (diag_latex, diags) = editor.export_latex_with_diagnostics();
+    assert_eq!(diag_latex, exported);
+    assert_eq!(diags.len(), 1);
+    assert!(diags[0].is_pending());
+    assert_eq!(editor.export_latex_strict(), Err(diags));
 }
 
 #[test]
@@ -331,4 +338,55 @@ fn test_a_edit_008_navigation_mode_no_text_or_undo_change() {
         initial_undo_len + 1,
         "Normal typing must push to undo stack"
     );
+}
+
+#[test]
+fn test_a_edit_009_diagnostic_pipeline_pending_and_unknown() {
+    // 1. 干净表达式：严格导出成功，诊断集为空
+    let mut clean_editor = Editor::new(Document::new());
+    for ch in "▸f1;2;".chars() {
+        clean_editor.type_char(ch).expect("type_char must succeed");
+    }
+    let (clean_latex, clean_diags) = clean_editor.export_latex_with_diagnostics();
+    assert_eq!(clean_latex, r"\frac{1}{2}");
+    assert!(
+        clean_diags.is_empty(),
+        "Clean doc must have zero diagnostics"
+    );
+    assert_eq!(
+        clean_editor.export_latex_strict(),
+        Ok(r"\frac{1}{2}".to_string())
+    );
+
+    // 2. 未决表达式 (PendingCommand)：安全导出提供显式占位符与 Pending 诊断，严格导出阻断
+    let mut pending_editor = Editor::new(Document::new());
+    for ch in "1+▸m".chars() {
+        pending_editor
+            .type_char(ch)
+            .expect("type_char must succeed");
+    }
+    let (pending_latex, pending_diags) = pending_editor.export_latex_with_diagnostics();
+    assert!(
+        pending_latex.contains(r"\text{▸m}"),
+        "Pending command must render explicit placeholder in latex, got: {pending_latex}"
+    );
+    assert_eq!(pending_diags.len(), 1);
+    assert!(pending_diags[0].is_pending());
+    assert_eq!(pending_editor.export_latex_strict(), Err(pending_diags));
+
+    // 3. 未知表达式 (UnknownCommand)：安全导出提供显式占位符与 Error 诊断，严格导出阻断
+    let mut unknown_editor = Editor::new(Document::new());
+    for ch in "▸zz".chars() {
+        unknown_editor
+            .type_char(ch)
+            .expect("type_char must succeed");
+    }
+    let (unknown_latex, unknown_diags) = unknown_editor.export_latex_with_diagnostics();
+    assert!(
+        unknown_latex.contains(r"\text{▸zz}"),
+        "Unknown command must render explicit placeholder in latex, got: {unknown_latex}"
+    );
+    assert_eq!(unknown_diags.len(), 1);
+    assert!(unknown_diags[0].is_error());
+    assert_eq!(unknown_editor.export_latex_strict(), Err(unknown_diags));
 }

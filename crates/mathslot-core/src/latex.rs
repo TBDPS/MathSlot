@@ -21,7 +21,22 @@ fn render_seq(seq: &MathSeq) -> String {
                 let rendered: Vec<String> = slots.iter().map(render_slot).collect();
                 format.render_latex(&rendered)
             }
-            Expr::PendingCmd { .. } | Expr::UnknownCmd { .. } => String::new(),
+            Expr::PendingCmd { partial, .. } => {
+                let clean = partial.strip_prefix('▸').unwrap_or(partial);
+                if clean.is_empty() {
+                    "\\text{▸}".to_string()
+                } else {
+                    format!("\\text{{▸{clean}}}")
+                }
+            }
+            Expr::UnknownCmd { code, .. } => {
+                let clean = code.strip_prefix('▸').unwrap_or(code);
+                if clean.is_empty() {
+                    "\\text{▸?}".to_string()
+                } else {
+                    format!("\\text{{▸{clean}}}")
+                }
+            }
         };
         if piece.is_empty() {
             continue;
