@@ -1337,6 +1337,7 @@ name = "mathslot-doc"
 version = "0.7.0"
 dependencies = [
  "mathslot-command",
+ "mathslot-core",
  "mathslot-syntax",
  "serde",
  "thiserror 2.0.21",

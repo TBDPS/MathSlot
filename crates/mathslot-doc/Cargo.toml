@@ -11,3 +11,6 @@ mathslot-command = { path = "../mathslot-command" }
 mathslot-syntax = { path = "../mathslot-syntax" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
+
+[dev-dependencies]
+mathslot-core = { path = "../mathslot-core" }
