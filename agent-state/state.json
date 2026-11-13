@@ -9,8 +9,8 @@
     "readonly_copy": "/home/mat/Projects/mathslot-freeze-20261112"
   },
   "baseline": {
-    "tests_passed": 194,
-    "tests_ignored": 4,
+    "tests_passed": 203,
+    "tests_ignored": 2,
     "clippy": "PASS",
     "fmt": "PASS",
     "ci": "green",
@@ -27,10 +27,17 @@
     "parity_harness": true,
     "app_state_machine": true,
     "history_intent_grouping": true,
+    "store_crate_created": true,
     "closed_defects": [
       "D-001",
       "D-002",
       "D-004",
+      "D-005",
+      "D-006",
+      "D-013",
+      "D-014",
+      "D-022",
+      "D-102",
       "D-104",
       "D-105",
       "D-106",
@@ -38,14 +45,12 @@
     ]
   },
   "gate": "G2",
-  "round": 14,
+  "round": 15,
   "active_task": null,
-  "next_task": "T2.3",
+  "next_task": "T2.4",
   "last_verdict": "PASS",
   "open_p1": [
     "D-003",
-    "D-005",
-    "D-006",
     "D-007"
   ],
   "new_defects": [
