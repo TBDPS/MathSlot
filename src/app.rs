@@ -20,11 +20,15 @@ use mathslot_core::editor::{Snapshot, StreamEditor};
 use mathslot_core::latex;
 use mathslot_core::library::UserLibrary;
 use mathslot_core::scheme_a;
+use mathslot_render::{
+    DebounceGate, ErrorSummary, RenderDiagnostic, Size2D, fit_to_width, true_scale_percent,
+};
 
 const STATUS_BAR_HEIGHT: f32 = 26.0;
 const LEFT_PANEL_DEFAULT_WIDTH: f32 = 460.0;
 const PREVIEW_BOX_HEIGHT: f32 = 130.0;
 const NAV_BOX_HEIGHT: f32 = 96.0;
+const INPUT_MONO_FONT_SIZE: f32 = 18.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum WorkspaceTab {
@@ -69,11 +73,19 @@ pub struct MathSlotApp {
     next_revision: u64,
     applied_revision: u64,
     render_dirty: bool,
+    start_time: Instant,
+    debounce_gate: DebounceGate,
     formula_tex: Option<egui::TextureHandle>,
     nav_tex: Option<egui::TextureHandle>,
-    render_error: Option<String>,
+    preview_degraded: bool,
+    preview_diagnostics: Vec<RenderDiagnostic>,
+    nav_degraded: bool,
+    nav_diagnostics: Vec<RenderDiagnostic>,
+    render_error: Option<ErrorSummary>,
+    error_details_open: bool,
     status: String,
     delimiter_style: DelimiterStyle,
+    preview_fit_to_width: bool,
     preview_scale: f32,
     copy_feedback_until: Option<Instant>,
     palette_tab: PaletteCategory,
@@ -135,12 +147,20 @@ impl MathSlotApp {
             next_revision: 1,
             applied_revision: 0,
             render_dirty: true,
+            start_time: Instant::now(),
+            debounce_gate: DebounceGate::with_max_wait(40, 120),
             formula_tex: None,
             nav_tex: None,
+            preview_degraded: false,
+            preview_diagnostics: Vec::new(),
+            nav_degraded: false,
+            nav_diagnostics: Vec::new(),
             render_error: None,
+            error_details_open: false,
             status: initial_status,
             delimiter_style: DelimiterStyle::Inline,
-            preview_scale: 1.25,
+            preview_fit_to_width: true,
+            preview_scale: 1.0,
             copy_feedback_until: None,
             palette_tab: PaletteCategory::Direct,
             active_tab,
@@ -154,6 +174,8 @@ impl MathSlotApp {
 
     fn mark_dirty(&mut self) {
         self.render_dirty = true;
+        let now_ms = self.start_time.elapsed().as_millis() as u64;
+        self.debounce_gate.mark_dirty(now_ms);
     }
 
     fn formatted_latex(&self) -> String {
@@ -679,18 +701,36 @@ impl MathSlotApp {
 
     fn dispatch_and_poll_render(&mut self, ctx: &egui::Context) {
         if self.render_dirty {
-            let revision = self.next_revision;
-            self.next_revision += 1;
-            let (nav_path, nav_filter) = self.editor.active_nav_view_state();
-            self.worker.submit(RenderJob {
-                revision,
-                doc: self.editor.parsed.clone(),
-                cursor_char: self.editor.cursor_char,
-                nav_path,
-                nav_filter,
-                ctx: ctx.clone(),
-            });
-            self.render_dirty = false;
+            let now_ms = self.start_time.elapsed().as_millis() as u64;
+            let dispatch_now = !self.debounce_gate.has_dispatched()
+                || self.devshot.is_some()
+                || self.debounce_gate.should_dispatch(now_ms);
+            if dispatch_now {
+                let revision = self.next_revision;
+                self.next_revision = self.next_revision.saturating_add(1);
+                let (nav_path, nav_filter) = self.editor.active_nav_view_state();
+                match self.worker.submit(RenderJob {
+                    revision,
+                    doc: self.editor.parsed.clone(),
+                    cursor_char: self.editor.cursor_char,
+                    nav_path,
+                    nav_filter,
+                    ctx: ctx.clone(),
+                }) {
+                    Ok(generation) => {
+                        self.next_revision = generation.0.saturating_add(1);
+                        self.render_dirty = false;
+                        self.debounce_gate.mark_dispatched(now_ms);
+                    }
+                    Err(err) => {
+                        self.render_dirty = false;
+                        self.debounce_gate.mark_dispatched(now_ms);
+                        self.render_error = Some(ErrorSummary::from_render_error(&err));
+                    }
+                }
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(40));
+            }
         }
 
         if let Some(out) = self.worker.poll_latest() {
@@ -698,10 +738,12 @@ impl MathSlotApp {
                 return;
             }
             self.applied_revision = out.revision;
-            let mut errors = Vec::new();
+            let mut primary_err: Option<ErrorSummary> = None;
 
             match out.preview {
                 Ok(rendered) => {
+                    self.preview_degraded = rendered.degraded;
+                    self.preview_diagnostics = rendered.diagnostics;
                     update_texture(
                         ctx,
                         &mut self.formula_tex,
@@ -710,24 +752,34 @@ impl MathSlotApp {
                     );
                 }
                 Err(err) => {
-                    errors.push(format!("预览编译提示：{err}"));
+                    self.preview_degraded = false;
+                    self.preview_diagnostics.clear();
+                    primary_err = Some(err);
                 }
             }
 
             match out.nav {
                 Ok(rendered) => {
+                    self.nav_degraded = rendered.degraded;
+                    self.nav_diagnostics = rendered.diagnostics;
                     update_texture(ctx, &mut self.nav_tex, "mathslot-nav", rendered.image);
                 }
                 Err(err) => {
-                    errors.push(format!("导航图提示：{err}"));
+                    self.nav_degraded = false;
+                    self.nav_diagnostics.clear();
+                    if let Some(existing) = &mut primary_err {
+                        existing.full_detail.push_str("\n[导航图] ");
+                        existing.full_detail.push_str(&err.full_detail);
+                    } else {
+                        primary_err = Some(err);
+                    }
                 }
             }
 
-            self.render_error = if errors.is_empty() {
-                None
-            } else {
-                Some(errors.join(" | "))
-            };
+            self.render_error = primary_err;
+            if self.render_error.is_none() && !self.preview_degraded && !self.nav_degraded {
+                self.error_details_open = false;
+            }
         }
     }
 
@@ -926,58 +978,192 @@ impl MathSlotApp {
             });
     }
 
-    /// 框 1：预览框（独立顶部 Header Toolbar + ScrollArea 双向平移视口 + 真实几何比例缩放）
+    /// 框 1：预览框（独立顶部 Header Toolbar + ScrollArea 双向平移视口 + 默认 fit-to-width / 真实缩放）
     /// 无论是否处于导航模式，永远只渲染真实的 formula_tex，大公式放大由视口平滑承载！
     fn preview_box(&mut self, ui: &mut egui::Ui) {
         paper_frame().show(ui, |ui| {
             let avail_w = ui.available_width();
             ui.set_width(avail_w);
 
-            // 1. 顶部独立 Header 栏（物理隔离坐标，杜绝与公式重叠，右侧预留充足宽度 Toolbar）
+            // 1. 顶部独立 Header 栏（物理隔离坐标，左侧错误摘要受限截断，绝不挤占右侧缩放 Toolbar）
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("公式预览")
-                        .strong()
-                        .size(12.5)
-                        .color(PAPER_DARK),
+                let toolbar_reserve = 212.0;
+                let left_w = (avail_w - toolbar_reserve).max(90.0);
+                ui.allocate_ui_with_layout(
+                    Vec2::new(left_w, 22.0),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        ui.set_clip_rect(ui.max_rect());
+                        ui.label(
+                            RichText::new("公式预览")
+                                .strong()
+                                .size(12.5)
+                                .color(PAPER_DARK),
+                        );
+
+                        if self.preview_degraded {
+                            let reason = self
+                                .preview_diagnostics
+                                .first()
+                                .map(|d| d.message.as_str())
+                                .unwrap_or("主渲染器不支持，已切换离线降级预览");
+                            let badge = egui::Button::new(
+                                RichText::new("降级预览")
+                                    .size(10.0)
+                                    .strong()
+                                    .color(Color32::from_rgb(146, 64, 14)),
+                            )
+                            .fill(Color32::from_rgb(254, 243, 199))
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(217, 119, 6)))
+                            .corner_radius(CornerRadius::same(4));
+                            if ui
+                                .add(badge)
+                                .on_hover_text(format!(
+                                    "降级原因：{reason}\n点击查看或收起诊断详情"
+                                ))
+                                .clicked()
+                            {
+                                self.error_details_open = !self.error_details_open;
+                            }
+                        }
+
+                        if let Some(err) = &self.render_error {
+                            let toggle_text = if self.error_details_open {
+                                "收起"
+                            } else {
+                                "详情"
+                            };
+                            if ghost_button(ui, toggle_text, Color32::from_rgb(180, 83, 9))
+                                .clicked()
+                            {
+                                self.error_details_open = !self.error_details_open;
+                            }
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("⚠ {}", err.header_summary))
+                                        .size(10.5)
+                                        .color(Color32::from_rgb(180, 83, 9)),
+                                )
+                                .truncate(),
+                            );
+                        }
+                    },
                 );
 
-                if let Some(err) = &self.render_error {
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(format!("⚠ {err}"))
-                            .size(10.5)
-                            .color(Color32::from_rgb(180, 83, 9)),
-                    );
-                }
-
-                // 右侧独立排布预留充足宽度（>= 140pt）的缩放 Toolbar
+                // 右侧独立排布缩放 Toolbar（自适应 / 实际大小 + 真实百分比）
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     if paper_button(ui, "+", false)
                         .on_hover_text("放大预览")
                         .clicked()
                     {
+                        self.preview_fit_to_width = false;
                         self.preview_scale = (self.preview_scale + 0.15).min(2.5);
                     }
-                    if paper_button(ui, &format!("{:.0}%", self.preview_scale * 80.0), false)
+                    let scale_text = format!("{}%", true_scale_percent(self.preview_scale));
+                    if paper_button(ui, &scale_text, false)
                         .on_hover_text("恢复标准缩放 (100%)")
                         .clicked()
                     {
-                        self.preview_scale = 1.25;
+                        self.preview_scale = 1.0;
+                        self.preview_fit_to_width = false;
                     }
                     if paper_button(ui, "−", false)
                         .on_hover_text("缩小预览")
                         .clicked()
                     {
+                        self.preview_fit_to_width = false;
                         self.preview_scale = (self.preview_scale - 0.15).max(0.4);
+                    }
+                    let mode_label = if self.preview_fit_to_width {
+                        "自适应"
+                    } else {
+                        "实际大小"
+                    };
+                    if paper_button(ui, mode_label, self.preview_fit_to_width)
+                        .on_hover_text(
+                            "切换适应视口宽度 (Fit-to-Width) / 实际大小 (超宽左对齐滚动)",
+                        )
+                        .clicked()
+                    {
+                        self.preview_fit_to_width = !self.preview_fit_to_width;
                     }
                 });
             });
 
+            if self.error_details_open
+                && (self.render_error.is_some() || self.preview_degraded || self.nav_degraded)
+            {
+                ui.add_space(4.0);
+                egui::Frame::NONE
+                    .fill(Color32::from_rgb(254, 249, 235))
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(245, 158, 11)))
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        let mut detail_buf = String::new();
+                        if let Some(err) = &self.render_error {
+                            detail_buf.push_str(&err.full_detail);
+                            if !err.source_excerpt.is_empty() {
+                                ui.label(
+                                    RichText::new(format!("源码片段：{}", err.source_excerpt))
+                                        .size(10.5)
+                                        .monospace()
+                                        .color(PAPER_DARK),
+                                );
+                            }
+                            ui.label(
+                                RichText::new(&err.header_summary)
+                                    .size(10.5)
+                                    .color(Color32::from_rgb(180, 83, 9)),
+                            );
+                        }
+                        for diag in self
+                            .preview_diagnostics
+                            .iter()
+                            .chain(self.nav_diagnostics.iter())
+                        {
+                            if !detail_buf.is_empty() {
+                                detail_buf.push('\n');
+                            }
+                            detail_buf.push_str(&format!("[{}] {}", diag.code, diag.message));
+                            if let Some(excerpt) = &diag.source_excerpt {
+                                ui.label(
+                                    RichText::new(format!("源码片段：{excerpt}"))
+                                        .size(10.5)
+                                        .monospace()
+                                        .color(PAPER_DARK),
+                                );
+                            }
+                            if let Some(full) = &diag.detail {
+                                detail_buf.push('\n');
+                                detail_buf.push_str(full);
+                            }
+                            ui.label(
+                                RichText::new(format!(
+                                    "降级诊断 [{}]: {}",
+                                    diag.code, diag.message
+                                ))
+                                .size(10.5)
+                                .color(Color32::from_rgb(146, 64, 14)),
+                            );
+                        }
+                        ui.horizontal(|ui| {
+                            if paper_button(ui, "复制错误信息", false).clicked() {
+                                ui.ctx().copy_text(detail_buf);
+                                self.status = "✓ 已复制完整渲染诊断信息到剪贴板。".to_owned();
+                            }
+                            if ghost_button(ui, "收起", PAPER_MUTED).clicked() {
+                                self.error_details_open = false;
+                            }
+                        });
+                    });
+            }
+
             ui.add_space(4.0);
 
             // 2. 引入 egui::ScrollArea::both() 平滑双向平移视口
+            let viewport_w = (avail_w - 16.0).max(100.0);
             egui::ScrollArea::both()
                 .id_salt("mathslot-preview-scroll-viewport")
                 .max_height(PREVIEW_BOX_HEIGHT)
@@ -997,11 +1183,28 @@ impl MathSlotApp {
                         });
                     } else if let Some(texture) = &self.formula_tex {
                         let original = texture.size_vec2() / PIXELS_PER_POINT;
-                        let display_size = original * self.preview_scale;
+                        let scale_override = if self.preview_fit_to_width {
+                            None
+                        } else {
+                            Some(self.preview_scale)
+                        };
+                        let fit = fit_to_width(
+                            Size2D::new(original.x, original.y),
+                            viewport_w,
+                            scale_override,
+                        );
+                        let display_size =
+                            Vec2::new(fit.display_size.width, fit.display_size.height);
 
-                        ui.vertical_centered(|ui| {
-                            ui.add(egui::Image::new(texture).fit_to_exact_size(display_size));
-                        });
+                        if fit.left_aligned {
+                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                ui.add(egui::Image::new(texture).fit_to_exact_size(display_size));
+                            });
+                        } else {
+                            ui.vertical_centered(|ui| {
+                                ui.add(egui::Image::new(texture).fit_to_exact_size(display_size));
+                            });
+                        }
                     } else {
                         ui.vertical_centered(|ui| {
                             ui.add_space((PREVIEW_BOX_HEIGHT - 32.0) * 0.4);
@@ -1029,20 +1232,28 @@ impl MathSlotApp {
             let in_nav = self.editor.esc_nav.is_some();
 
             if in_nav {
-                // 导航模式中：上方展示带锚点位置的 AST 结构图，下方展示跳转徽章
-                if let Some(texture) = &self.nav_tex {
-                    let img_h = 52.0;
-                    let size = fitted_size(texture, (avail_w - 12.0).max(100.0), img_h, 1.15);
-                    let img_center = egui::pos2(rect.center().x, rect.top() + 29.0);
-                    egui::Image::new(texture)
-                        .paint_at(ui, Rect::from_center_size(img_center, size));
-                }
-
                 // 下部区域：常驻槽位跳转徽章，按键或点击直接跳改
                 let chip_rect = Rect::from_min_max(
                     rect.left_bottom() + Vec2::new(4.0, -34.0),
                     rect.right_bottom() + Vec2::new(-4.0, -3.0),
                 );
+                // 上部专用裁切子区域：严格隔离在 chip_rect 上方，绝不遮挡跳转徽章 (D-008)
+                let img_rect = Rect::from_min_max(
+                    rect.left_top() + Vec2::new(6.0, 4.0),
+                    egui::pos2(
+                        (rect.right() - 6.0).max(rect.left() + 20.0),
+                        (chip_rect.top() - 4.0).max(rect.top() + 20.0),
+                    ),
+                );
+                if let Some(texture) = &self.nav_tex {
+                    let size = fitted_size(texture, img_rect.width(), img_rect.height(), 1.15);
+                    let img_draw_rect = Rect::from_center_size(img_rect.center(), size);
+                    Self::allocate_ui_at_rect(ui, img_rect, |ui| {
+                        ui.set_clip_rect(img_rect);
+                        egui::Image::new(texture).paint_at(ui, img_draw_rect);
+                    });
+                }
+
                 let bracket_pair = self.editor.enclosing_bracket_pair();
                 Self::allocate_ui_at_rect(ui, chip_rect, |ui| {
                     ui.horizontal(|ui| {
@@ -1130,31 +1341,39 @@ impl MathSlotApp {
                     });
                 });
             } else {
+                // 右上角提供快捷导航触发
+                let trigger_rect = Rect::from_min_size(
+                    rect.right_top() + Vec2::new(-86.0, 5.0),
+                    Vec2::new(80.0, 22.0),
+                );
+                // 专用裁切图像区域：与 trigger_rect 完全物理隔离，绝不重叠 (D-008)
+                let nav_img_rect = Rect::from_min_max(
+                    rect.left_top() + Vec2::new(6.0, 6.0),
+                    egui::pos2(
+                        (rect.right() - 94.0).max(rect.left() + 80.0),
+                        rect.bottom() - 6.0,
+                    ),
+                );
+
                 // 普通书写模式：完整呈现当前公式的 AST 槽位分层结构图
                 if self.editor.source.is_empty() {
                     ui.painter().text(
-                        rect.center(),
+                        nav_img_rect.center(),
                         Align2::CENTER_CENTER,
                         "AST 槽位分层结构图",
                         FontId::proportional(13.0),
                         PAPER_MUTED,
                     );
                 } else if let Some(texture) = &self.nav_tex {
-                    let size = fitted_size(
-                        texture,
-                        (avail_w - 12.0).max(100.0),
-                        NAV_BOX_HEIGHT - 12.0,
-                        1.15,
-                    );
-                    egui::Image::new(texture)
-                        .paint_at(ui, Rect::from_center_size(rect.center(), size));
+                    let size =
+                        fitted_size(texture, nav_img_rect.width(), nav_img_rect.height(), 1.15);
+                    let img_draw_rect = Rect::from_center_size(nav_img_rect.center(), size);
+                    Self::allocate_ui_at_rect(ui, nav_img_rect, |ui| {
+                        ui.set_clip_rect(nav_img_rect);
+                        egui::Image::new(texture).paint_at(ui, img_draw_rect);
+                    });
                 }
 
-                // 右上角提供快捷导航触发
-                let trigger_rect = Rect::from_min_size(
-                    rect.right_top() + Vec2::new(-86.0, 5.0),
-                    Vec2::new(80.0, 22.0),
-                );
                 Self::allocate_ui_at_rect(ui, trigger_rect, |ui| {
                     if paper_button(ui, "槽位直达", false)
                         .on_hover_text("开启槽位导航 (Tab j / Alt j 进入；Tab / Esc / Alt j 退出)")
@@ -1261,7 +1480,7 @@ impl MathSlotApp {
 
             let mut output = egui::TextEdit::singleline(&mut self.editor.source)
                 .id(self.input_id)
-                .font(FontId::monospace(18.0))
+                .font(FontId::monospace(INPUT_MONO_FONT_SIZE))
                 .text_color(TEXT)
                 .background_color(FIELD)
                 .frame(
@@ -2428,7 +2647,7 @@ fn brand_mark(ui: &mut egui::Ui) {
 /// 为上方输入栏源字符串生成无损语法高亮（支持单字母 `▸f`、双字母 `▸ma`/`▸ka`/`▸ta` 及内联跳转 `▸j.`/`▸j-`）
 fn highlight_stream_source(source: &str, lib: &UserLibrary) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let font = FontId::monospace(18.5);
+    let font = FontId::monospace(INPUT_MONO_FONT_SIZE);
     let chars: Vec<(usize, char)> = source.char_indices().collect();
     let mut i = 0;
 
@@ -2666,19 +2885,30 @@ fn consume_esc_jump_key(ctx: &egui::Context) -> Option<char> {
     })
 }
 
+pub fn fitted_size_dims(
+    content_w: f32,
+    content_h: f32,
+    max_w: f32,
+    max_h: f32,
+    scale_factor: f32,
+) -> Vec2 {
+    let fit = mathslot_render::fit_to_box(
+        mathslot_render::Size2D::new(content_w, content_h),
+        max_w,
+        max_h,
+        scale_factor,
+    );
+    Vec2::new(fit.display_size.width, fit.display_size.height)
+}
+
 fn fitted_size(
     texture: &egui::TextureHandle,
-    _max_width: f32,
-    _max_height: f32,
+    max_width: f32,
+    max_height: f32,
     scale_factor: f32,
 ) -> Vec2 {
     let original = texture.size_vec2() / PIXELS_PER_POINT;
-    if original.x <= 0.0 || original.y <= 0.0 {
-        return Vec2::new(1.0, 1.0);
-    }
-    // 真实比例几何缩放，废除强制高度截断 clamp，公式尺寸由 ScrollArea 视口平滑承载
-    let scale = scale_factor.max(0.05);
-    original * scale
+    fitted_size_dims(original.x, original.y, max_width, max_height, scale_factor)
 }
 
 fn update_texture(

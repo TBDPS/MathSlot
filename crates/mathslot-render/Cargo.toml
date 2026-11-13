@@ -1,0 +1,12 @@
+[package]
+name = "mathslot-render"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Headless render pipeline contract: MathRenderer trait, deterministic cache, generation cancellation, explicit degradation, error summaries, and viewport fit geometry"
+
+[dependencies]
+mathslot-syntax = { path = "../mathslot-syntax" }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"

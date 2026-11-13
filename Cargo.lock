@@ -1346,6 +1346,7 @@ dependencies = [
  "eframe",
  "latex-rust",
  "mathslot-core",
+ "mathslot-render",
  "mathslot-store",
  "tiny-skia",
 ]
@@ -1395,6 +1396,15 @@ dependencies = [
 
 [[package]]
 name = "mathslot-latex"
+version = "0.7.0"
+dependencies = [
+ "mathslot-syntax",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mathslot-render"
 version = "0.7.0"
 dependencies = [
  "mathslot-syntax",

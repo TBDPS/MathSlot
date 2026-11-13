@@ -66,38 +66,26 @@ fn test_p1_d001_palette_tiles_strictly_match_command_catalog() {
 
 /// D-003 失败回归测试：长公式预览在有限视口下的几何缩放计算必须遵守 max_width / max_height 约束
 ///
-/// 关联代码：`src/app.rs:2658-2671` 中的 `fitted_size`：
-/// 函数入参 `_max_width` 与 `_max_height` 完全被下划线忽略（死参数），
-/// 导致在 `src/app.rs:1028`、`1136` 调用 `Rect::from_center_size(center, size)` 时，
-/// 宽公式（如 1200x300）直接超出视口几何边界，引发两端被强制截断裁切。
-fn fitted_size(
-    texture: &egui::TextureHandle,
-    _max_width: f32,
-    _max_height: f32,
-    scale_factor: f32,
-) -> egui::Vec2 {
-    const PIXELS_PER_POINT: f32 = 2.0;
-    let original = texture.size_vec2() / PIXELS_PER_POINT;
-    if original.x <= 0.0 || original.y <= 0.0 {
-        return egui::Vec2::new(1.0, 1.0);
-    }
-    // 镜像当前实现：忽略 _max_width 与 _max_height，仅返回 original * scale
-    let scale = scale_factor.max(0.05);
-    original * scale
-}
-
+/// 直接调用生产路径 `crate::app::fitted_size_dims` 与 `mathslot_render::fit_to_box`：
+/// 宽公式（如 1200x300）按 2.0 像素密度折算为 600x150，在 400x100 视口内必须严格满足 max_width / max_height。
 #[test]
-#[ignore = "P1 regression: D-003 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d003_fitted_size_strictly_respects_max_bounds() {
     let ctx = egui::Context::default();
     // 构造宽 1200、高 300 的大尺寸公式纹理
     let pixels = vec![egui::Color32::WHITE; 1200 * 300];
     let img = egui::ColorImage::new([1200, 300], pixels);
     let tex = ctx.load_texture("large_formula", img, Default::default());
+    let original = tex.size_vec2() / 2.0;
 
     let max_w = 400.0;
     let max_h = 100.0;
-    let size = fitted_size(&tex, max_w, max_h, 1.0);
+    let size = crate::app::fitted_size_dims(original.x, original.y, max_w, max_h, 1.0);
+    let render_fit = mathslot_render::fit_to_box(
+        mathslot_render::Size2D::new(original.x, original.y),
+        max_w,
+        max_h,
+        1.0,
+    );
 
     assert!(
         size.x <= max_w,
@@ -111,6 +99,8 @@ fn test_p1_d003_fitted_size_strictly_respects_max_bounds() {
         size.y,
         max_h
     );
+    assert!((size.x - render_fit.display_size.width).abs() < 0.01);
+    assert!((size.y - render_fit.display_size.height).abs() < 0.01);
 }
 
 /// D-005 失败回归测试：读取损坏 JSON 配置严禁静默回退默认库并不保留损坏原件

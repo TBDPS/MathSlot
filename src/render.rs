@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -8,12 +10,19 @@ use mathslot_core::visual::{
     VISUAL_COLORS, VisualDialect, build_fallback_nav_latex, build_fallback_preview_latex,
     build_nav_latex, build_preview_latex,
 };
+#[cfg(test)]
+use mathslot_render::CacheStats;
+use mathslot_render::{
+    BackendKind, ErrorSummary, Generation, GenerationTracker, RenderCache, RenderCacheKey,
+    RenderData, RenderDiagnostic, RenderError, RenderFormat, RenderId, RenderMode, Theme,
+};
 use tiny_skia::Pixmap;
 
 pub const PIXELS_PER_POINT: f32 = 3.0;
 const SURFACE_RGBA: [u8; 4] = [255, 255, 255, 255];
 const PAD_X_PX: usize = 24;
 const PAD_Y_PX: usize = 16;
+const RENDER_CACHE_CAPACITY: usize = 128;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -21,9 +30,20 @@ pub enum Mode {
     Nav,
 }
 
+impl From<Mode> for RenderMode {
+    fn from(mode: Mode) -> Self {
+        match mode {
+            Mode::Preview => RenderMode::Preview,
+            Mode::Nav => RenderMode::Nav,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Rendered {
     pub image: egui::ColorImage,
+    pub degraded: bool,
+    pub diagnostics: Vec<RenderDiagnostic>,
 }
 
 pub struct RenderJob {
@@ -37,19 +57,22 @@ pub struct RenderJob {
 
 pub struct RenderOutput {
     pub revision: u64,
-    pub preview: Result<Rendered, String>,
-    pub nav: Result<Rendered, String>,
+    pub preview: Result<Rendered, ErrorSummary>,
+    pub nav: Result<Rendered, ErrorSummary>,
 }
 
 pub struct RenderWorker {
     tx_job: Sender<RenderJob>,
     rx_out: Receiver<RenderOutput>,
+    tracker: Arc<GenerationTracker>,
 }
 
 impl RenderWorker {
     pub fn spawn() -> Self {
         let (tx_job, rx_job) = mpsc::channel::<RenderJob>();
         let (tx_out, rx_out) = mpsc::channel::<RenderOutput>();
+        let tracker = Arc::new(GenerationTracker::new());
+        let worker_tracker = tracker.clone();
 
         thread::Builder::new()
             .name("mathslot-latex-worker".to_owned())
@@ -59,35 +82,66 @@ impl RenderWorker {
                     while let Ok(newer) = rx_job.try_recv() {
                         job = newer;
                     }
-                    let preview =
-                        renderer.render_doc(&job.doc, job.cursor_char, &[], None, Mode::Preview);
-                    let nav = renderer.render_doc(
+                    let generation = Generation(job.revision);
+                    if !worker_tracker.is_current(generation) {
+                        continue;
+                    }
+
+                    let preview_res = renderer.render_doc_tracked(
+                        &job.doc,
+                        job.cursor_char,
+                        &[],
+                        None,
+                        Mode::Preview,
+                        Some((&worker_tracker, generation)),
+                    );
+                    if matches!(preview_res, Err(RenderError::Cancelled { .. })) {
+                        continue;
+                    }
+
+                    let nav_res = renderer.render_doc_tracked(
                         &job.doc,
                         job.cursor_char,
                         &job.nav_path,
                         job.nav_filter.as_deref(),
                         Mode::Nav,
+                        Some((&worker_tracker, generation)),
                     );
+                    if matches!(nav_res, Err(RenderError::Cancelled { .. })) {
+                        continue;
+                    }
+
+                    if !worker_tracker.is_current(generation) {
+                        continue;
+                    }
+
                     let ctx = job.ctx;
-                    if tx_out
-                        .send(RenderOutput {
-                            revision: job.revision,
-                            preview,
-                            nav,
-                        })
-                        .is_ok()
-                    {
+                    let out = RenderOutput {
+                        revision: job.revision,
+                        preview: preview_res.map_err(|e| ErrorSummary::from_render_error(&e)),
+                        nav: nav_res.map_err(|e| ErrorSummary::from_render_error(&e)),
+                    };
+                    if tx_out.send(out).is_ok() {
                         ctx.request_repaint();
                     }
                 }
             })
             .expect("failed to spawn latex-rust render worker");
 
-        Self { tx_job, rx_out }
+        Self {
+            tx_job,
+            rx_out,
+            tracker,
+        }
     }
 
-    pub fn submit(&self, job: RenderJob) {
-        let _ = self.tx_job.send(job);
+    pub fn submit(&self, mut job: RenderJob) -> Result<Generation, RenderError> {
+        let generation = self.tracker.next();
+        job.revision = generation.0;
+        self.tx_job
+            .send(job)
+            .map_err(|_| RenderError::ChannelClosed)?;
+        Ok(generation)
     }
 
     pub fn poll_latest(&self) -> Option<RenderOutput> {
@@ -97,12 +151,18 @@ impl RenderWorker {
         }
         latest
     }
+
+    #[cfg(test)]
+    pub fn tracker(&self) -> &Arc<GenerationTracker> {
+        &self.tracker
+    }
 }
 
 pub struct Renderer {
     font: MathFont,
     color_preamble: String,
     png_opts: PngOptions,
+    cache: Mutex<RenderCache>,
 }
 
 impl Renderer {
@@ -123,9 +183,69 @@ impl Renderer {
             font,
             color_preamble,
             png_opts,
+            cache: Mutex::new(RenderCache::new(RENDER_CACHE_CAPACITY)),
         }
     }
 
+    #[cfg(test)]
+    pub fn cache_stats(&self) -> CacheStats {
+        match self.cache.lock() {
+            Ok(guard) => guard.stats(),
+            Err(poisoned) => poisoned.into_inner().stats(),
+        }
+    }
+
+    fn lookup_cache(&self, key: &RenderCacheKey) -> Option<Rendered> {
+        let mut guard = match self.cache.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let cached = guard.get(key)?;
+        if let RenderData::Png {
+            width,
+            height,
+            bytes,
+        } = &cached.data
+        {
+            let image = egui::ColorImage::from_rgba_premultiplied(
+                [*width as usize, *height as usize],
+                bytes,
+            );
+            Some(Rendered {
+                image,
+                degraded: cached.degraded,
+                diagnostics: cached.diagnostics.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn store_cache(
+        &self,
+        key: RenderCacheKey,
+        size: [usize; 2],
+        rgba: Vec<u8>,
+        degraded: bool,
+        diagnostics: Vec<RenderDiagnostic>,
+    ) {
+        let mut guard = match self.cache.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.insert(
+            key,
+            RenderData::Png {
+                width: size[0] as u32,
+                height: size[1] as u32,
+                bytes: rgba,
+            },
+            degraded,
+            diagnostics,
+        );
+    }
+
+    #[cfg(test)]
     pub fn render_doc(
         &self,
         doc: &ParsedDoc,
@@ -133,7 +253,28 @@ impl Renderer {
         nav_path: &[String],
         nav_filter: Option<&str>,
         mode: Mode,
-    ) -> Result<Rendered, String> {
+    ) -> Result<Rendered, RenderError> {
+        self.render_doc_tracked(doc, cursor_char, nav_path, nav_filter, mode, None)
+    }
+
+    pub fn render_doc_tracked(
+        &self,
+        doc: &ParsedDoc,
+        cursor_char: usize,
+        nav_path: &[String],
+        nav_filter: Option<&str>,
+        mode: Mode,
+        tracker: Option<(&GenerationTracker, Generation)>,
+    ) -> Result<Rendered, RenderError> {
+        let check_gen = || -> Result<(), RenderError> {
+            if let Some((t, g)) = tracker {
+                t.check(RenderId(0), g)?;
+            }
+            Ok(())
+        };
+
+        check_gen()?;
+
         let latex_src = match mode {
             Mode::Preview => build_preview_latex(doc, cursor_char, VisualDialect::LatexRust),
             Mode::Nav => build_nav_latex(
@@ -144,9 +285,36 @@ impl Renderer {
                 VisualDialect::LatexRust,
             ),
         };
-        match self.render_latex(&latex_src) {
-            Ok(rendered) => Ok(rendered),
-            Err(_) => {
+
+        let cache_key = RenderCacheKey::new(
+            mode.into(),
+            latex_src.clone(),
+            Theme::Light,
+            1.0,
+            BackendKind::LatexRust,
+            RenderFormat::Png,
+        );
+
+        if let Some(cached) = self.lookup_cache(&cache_key) {
+            check_gen()?;
+            return Ok(cached);
+        }
+
+        check_gen()?;
+
+        match self.render_latex_raw(&latex_src) {
+            Ok((image, rgba)) => {
+                check_gen()?;
+                self.store_cache(cache_key, image.size, rgba, false, Vec::new());
+                Ok(Rendered {
+                    image,
+                    degraded: false,
+                    diagnostics: Vec::new(),
+                })
+            }
+            Err(primary_err) => {
+                check_gen()?;
+
                 let fallback_src = match mode {
                     Mode::Preview => {
                         build_fallback_preview_latex(doc, cursor_char, VisualDialect::LatexRust)
@@ -159,16 +327,61 @@ impl Renderer {
                         VisualDialect::LatexRust,
                     ),
                 };
-                self.render_latex(&fallback_src)
+
+                match self.render_latex_raw(&fallback_src) {
+                    Ok((fb_image, fb_rgba)) => {
+                        check_gen()?;
+                        let summary = ErrorSummary::from_render_error(&primary_err);
+                        let diag = RenderDiagnostic::new(summary.code, summary.header_summary)
+                            .with_source_excerpt(summary.source_excerpt)
+                            .with_detail(summary.full_detail);
+                        let diagnostics = vec![diag];
+                        self.store_cache(
+                            cache_key,
+                            fb_image.size,
+                            fb_rgba,
+                            true,
+                            diagnostics.clone(),
+                        );
+                        Ok(Rendered {
+                            image: fb_image,
+                            degraded: true,
+                            diagnostics,
+                        })
+                    }
+                    Err(_) => Err(primary_err),
+                }
             }
         }
     }
 
-    pub fn render_latex(&self, latex_src: &str) -> Result<Rendered, String> {
+    #[cfg(test)]
+    pub fn render_latex(&self, latex_src: &str) -> Result<Rendered, RenderError> {
+        let (image, _) = self.render_latex_raw(latex_src)?;
+        Ok(Rendered {
+            image,
+            degraded: false,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn render_latex_raw(
+        &self,
+        latex_src: &str,
+    ) -> Result<(egui::ColorImage, Vec<u8>), RenderError> {
         let full_src = format!("{}{latex_src}", self.color_preamble);
-        let png_bytes = latex_to_png(&full_src, &self.font, &self.png_opts)
-            .map_err(|e| format!("{e} (src: {latex_src})"))?;
-        let pixmap = Pixmap::decode_png(&png_bytes).map_err(|e| e.to_string())?;
+        let png_bytes = latex_to_png(&full_src, &self.font, &self.png_opts).map_err(|e| {
+            RenderError::RenderFailed {
+                code: "LATEX_RASTER_ERR".to_owned(),
+                message: e.to_string(),
+                latex_source: latex_src.to_owned(),
+            }
+        })?;
+        let pixmap = Pixmap::decode_png(&png_bytes).map_err(|e| RenderError::RenderFailed {
+            code: "PNG_DECODE_ERR".to_owned(),
+            message: e.to_string(),
+            latex_source: latex_src.to_owned(),
+        })?;
 
         let inner_w = pixmap.width() as usize;
         let inner_h = pixmap.height() as usize;
@@ -190,16 +403,18 @@ impl Renderer {
         }
 
         let image = egui::ColorImage::from_rgba_premultiplied([out_w, out_h], &rgba);
-        Ok(Rendered { image })
+        Ok((image, rgba))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Mode, Renderer};
+    use super::{Mode, RenderJob, RenderWorker, Renderer};
+    use eframe::egui;
     use mathslot_core::command::{StructKind, SymbolCmd};
     use mathslot_core::library::{CustomFormat, UserLibrary};
     use mathslot_core::parser::{parse, parse_with_library};
+    use mathslot_render::{ErrorSummary, GenerationTracker, RenderError};
 
     #[test]
     fn test_all_structs_and_symbols_compile_in_latex_rust() {
@@ -212,8 +427,9 @@ mod tests {
             res.is_ok(),
             "Gaussian integral must render successfully in latex-rust: {res:?}"
         );
-        let rendered = res.unwrap();
+        let rendered = res.expect("gaussian integral renders");
         assert!(rendered.image.size[0] > 0 && rendered.image.size[1] > 0);
+        assert!(!rendered.degraded);
 
         for kind in StructKind::ALL {
             let mut src = format!("▸{}", kind.code());
@@ -292,7 +508,8 @@ mod tests {
             }
         }
 
-        // 2. 验证用户自定义任意未收录外部宏包指令（如 `\myExoticPkgMacro{$1}{$2}`）时，桌面端预览优雅降级绝不报错
+        // 2. 验证用户自定义任意未收录外部宏包指令（如 `\myExoticPkgMacro{$1}{$2}`）时，
+        // 桌面端预览显式降级：必须标注 degraded == true 并携带非空 diagnostics (D-011, INV-012)
         lib.upsert_custom(CustomFormat {
             item_key: 'z',
             label: "自定义外部宏".to_owned(),
@@ -303,13 +520,70 @@ mod tests {
             layout: mathslot_core::library::LayoutKind::Linear,
             auto_join: None,
         })
-        .unwrap();
+        .expect("custom format upsert succeeds");
         let doc = parse_with_library("▸kza+b;c;", &lib);
         for mode in [Mode::Preview, Mode::Nav] {
             let rendered = renderer
                 .render_doc(&doc, 5, &[], None, mode)
                 .expect("exotic user macro should gracefully fallback in preview");
             assert!(rendered.image.size[0] > 0);
+            assert!(
+                rendered.degraded,
+                "fallback must explicitly set degraded = true in {mode:?}"
+            );
+            assert!(
+                !rendered.diagnostics.is_empty(),
+                "fallback must attach non-empty diagnostics in {mode:?}"
+            );
+
+            // Second identical render must hit RenderCache and preserve degraded + diagnostics
+            let hits_before = renderer.cache_stats().hits;
+            let cached = renderer
+                .render_doc(&doc, 5, &[], None, mode)
+                .expect("cached fallback succeeds");
+            assert_eq!(renderer.cache_stats().hits, hits_before + 1);
+            assert!(cached.degraded);
+            assert_eq!(cached.diagnostics, rendered.diagnostics);
         }
+        assert!(renderer.cache_stats().hits >= 2);
+    }
+
+    #[test]
+    fn test_render_doc_cancellation_and_error_summary_bounds() {
+        let renderer = Renderer::new();
+        let tracker = GenerationTracker::new();
+        let g1 = tracker.next();
+        let _g2 = tracker.next();
+
+        let doc = parse("▸fx+1;y;");
+        let res =
+            renderer.render_doc_tracked(&doc, 0, &[], None, Mode::Preview, Some((&tracker, g1)));
+        assert!(matches!(res, Err(RenderError::Cancelled { generation, .. }) if generation == g1));
+
+        // Failing latex error is bounded via ErrorSummary without raw full source in header
+        let long_bad: String = format!("\\undefinedMacro{{{}}}", "x".repeat(400));
+        let err = renderer
+            .render_latex(&long_bad)
+            .expect_err("undefined macro must fail");
+        let summary = ErrorSummary::from_render_error(&err);
+        assert!(summary.header_summary.chars().count() <= 120);
+        assert!(!summary.header_summary.contains('\n'));
+        assert!(summary.truncated);
+        assert!(summary.source_excerpt.chars().count() <= 200);
+        assert!(summary.source_excerpt.ends_with("…（已截断）"));
+
+        // Worker submit increments generation tracker cleanly
+        let worker = RenderWorker::spawn();
+        let gen_a = worker
+            .submit(RenderJob {
+                revision: 0,
+                doc: doc.clone(),
+                cursor_char: 0,
+                nav_path: Vec::new(),
+                nav_filter: None,
+                ctx: egui::Context::default(),
+            })
+            .expect("worker channel open");
+        assert_eq!(gen_a, worker.tracker().current());
     }
 }
