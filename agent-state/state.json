@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-13",
+  "updated": "2026-11-14",
   "repo": "/home/mat/Projects/mathslot-next",
   "branch": "refactor/v1",
   "frozen": {
@@ -9,7 +9,7 @@
     "readonly_copy": "/home/mat/Projects/mathslot-freeze-20261112"
   },
   "baseline": {
-    "tests_passed": 176,
+    "tests_passed": 186,
     "tests_ignored": 4,
     "clippy": "PASS",
     "fmt": "PASS",
@@ -25,6 +25,7 @@
     "stream_editor_target_stack": true,
     "diagnostics_pipeline": true,
     "parity_harness": true,
+    "app_state_machine": true,
     "closed_defects": [
       "D-001",
       "D-002",
@@ -32,9 +33,9 @@
     ]
   },
   "gate": "G2",
-  "round": 12,
+  "round": 13,
   "active_task": null,
-  "next_task": "T2.1",
+  "next_task": "T2.2",
   "last_verdict": "PASS",
   "open_p1": [
     "D-003",
