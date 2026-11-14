@@ -1,7 +1,8 @@
 # Gate G4 退出证据（GATE-G4）
 
-- **结论**：**PASS（准予进入项目收尾与外部最终审查）**
+- **结论**：**本地证据 PASS；外部审查 REJECT；Gate G4 未最终收口**（阻断见 [`OPEN-0003`](../decisions/OPEN-0003-g4-cloud-ci-and-cross-platform-release.md)）
 - **验证基准 Commit**：`b50eecb`（`refactor/v1`，含阻断修复 `860db33` / 工具链 `b50eecb`）
+- **最终审查 Commit**：`dd38ff2`（[`REV-dd38ff2.md`](../reviews/REV-dd38ff2.md)，verdict **REJECT**，`review_rc=6`）
 - **验证日期**：2026-11-15
 - **独立验收**：[`VER-39.md`](VER-39.md)（PASS；`VER-38` 的单一阻断已闭环）
 
@@ -54,7 +55,9 @@
 | **验收全过** | `A-EDIT-*`、`A-RENDER-*`、`A-DATA-*`、`A-OBS-*`、`A-UI-*`、`S-001..007` 均在 `VER-32..39` 有实跑证据 | PASS |
 | **文档/架构一致** | `xtask check` 10 个生成物与文档零漂移；`packages/ui/feature-parity.json` 无未登记 gap | PASS |
 | **发布可回滚** | `docs/RELEASE_ROLLBACK.md` + `T4.6` 三平台发布流水线；旧 `egui` 二进制停止分发 | PASS |
-| **外部最终审查** | 待 `scripts/agent/supervise.sh --final` 出具 `REV-*.md` | 待办（收尾步骤） |
+| **三平台 CI 绿（§16.2）** | `ci.yml:11-17` 三平台矩阵仅 `test/build`；完整门禁 `ci-linux-full` 仅 ubuntu（`ci.yml:73-75`）；`refactor/v1` 未推送，GitHub Actions 从未执行 | **FAIL（缺实跑证据）** |
+| **三平台包可用（`T4.6`）** | 本地仅实测 Linux `.tar.gz`；Windows `.msi`/NSIS 与 macOS `.app`/`.dmg` 从未构建 | **FAIL（缺实跑证据）** |
+| **外部最终审查** | `REV-dd38ff2.md`：**REJECT**（`review_rc=6`）；本地全绿被认可，阻断为上述两条发布门禁 | **REJECT** |
 
 ## 5. 已知边界
 
@@ -64,4 +67,8 @@
 
 ## 6. 结论
 
-Gate G4 的六项任务、阻断修复、聚合门禁与发布检查均已闭环；`VER-38` 的唯一 FAIL 已由 `860db33` + `b50eecb` 修复并由 `VER-39` 复验 PASS。剩余动作仅为外部最终审查与 `DONE` 收尾。
+Gate G4 的六项任务、`VER-38` 阻断修复、聚合门禁与本地 Linux 发布检查均已闭环，`VER-39` 复验 **PASS**；但外部最终审查 [`REV-dd38ff2.md`](../reviews/REV-dd38ff2.md) 判定 **REJECT**：§16.2 三平台 CI 绿与 `T4.6` 三平台包可用均无实跑证据（本地仅 Linux）。因此本文件记录的是**本地证据 PASS**，Gate G4 **尚未最终收口**：
+
+- 阻断与人工决策入口：[`OPEN-0003`](../decisions/OPEN-0003-g4-cloud-ci-and-cross-platform-release.md)
+- 停机标记：`agent-state/STOPPED`（`reason=REJECT: three-platform CI/packages unverified; OPEN-0003`）
+- 在人工选择「推送并跑三平台 CI/打包后重审」或「书面 waiver」之前，不得写 `agent-state/DONE`。
