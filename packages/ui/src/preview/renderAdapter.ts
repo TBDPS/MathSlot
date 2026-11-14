@@ -346,7 +346,7 @@ function toErrorMessage(err: unknown): string {
 }
 
 export function createManagedRenderer(options: ManagedRendererOptions): ManagedRenderer {
-  const { primary, fallback, debounceMs = 45, maxWaitMs = 150, cacheCapacity = 64 } = options;
+  const { primary, fallback, debounceMs = 24, maxWaitMs = 56, cacheCapacity = 64 } = options;
   let highestGeneration = 0;
   let hits = 0;
   let misses = 0;

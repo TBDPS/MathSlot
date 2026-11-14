@@ -83,13 +83,22 @@ impl App {
     }
 
     pub fn dispatch_snapshot(&mut self, event: AppEvent) -> DispatchResponse {
-        let effects = self.dispatch(event);
-        let snapshot = self.snapshot();
+        let command = self.event_to_command(event);
+        let (effects, cached_latex, cached_preview) = self.execute_command_inner(command);
+        let snapshot = self.snapshot_with_cache(cached_latex, cached_preview);
         DispatchResponse { effects, snapshot }
     }
 
     #[must_use]
     pub fn snapshot(&self) -> EngineSnapshot {
+        self.snapshot_with_cache(None, None)
+    }
+
+    fn snapshot_with_cache(
+        &self,
+        cached_latex: Option<String>,
+        cached_preview: Option<String>,
+    ) -> EngineSnapshot {
         let active_slot_id = match self.editor.cursor() {
             Cursor::InSlot { slot_id, .. } => Some(slot_id.0),
             Cursor::AtStart | Cursor::AtNode(_) | Cursor::AtEnd => None,
@@ -104,8 +113,10 @@ impl App {
             .map(|slot| SlotSnapshot::from_slot(slot, active_slot_id))
             .collect();
 
-        let latex = self.editor.to_latex();
-        let preview_latex = self.editor.to_preview_latex_mathjax();
+        let latex = cached_latex.unwrap_or_else(|| self.editor.to_latex());
+        let preview_latex =
+            cached_preview.unwrap_or_else(|| self.editor.to_preview_latex_mathjax());
+        let copy_text = self.settings.delimiter_style.format_latex(&latex);
         let diagnostics = self
             .editor
             .diagnostics()
@@ -117,10 +128,7 @@ impl App {
             state: self.state.clone(),
             latex,
             preview_latex,
-            copy_text: self
-                .settings
-                .delimiter_style
-                .format_latex(&self.editor.copy_text()),
+            copy_text,
             source: self.source_text.clone(),
             cursor_char: self.cursor_char.min(self.source_text.chars().count()),
             has_pending_command: self.editor.has_pending_command(),
@@ -243,10 +251,19 @@ impl App {
     }
 
     fn execute_command(&mut self, command: AppCommand) -> Vec<Effect> {
+        self.execute_command_inner(command).0
+    }
+
+    fn execute_command_inner(
+        &mut self,
+        command: AppCommand,
+    ) -> (Vec<Effect>, Option<String>, Option<String>) {
         let mut status_effects = Vec::new();
         let mut host_effects = Vec::new();
         let mut emit_render = false;
         let mut emit_focus = false;
+        let mut cached_latex: Option<String> = None;
+        let mut cached_preview: Option<String> = None;
 
         match command {
             AppCommand::Noop => {}
@@ -274,6 +291,7 @@ impl App {
                             );
                         } else if !self.source_text.contains('\n') {
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         } else if let Some(prev_tex) = prev_latex {
                             // Pending command finished inside a multiline buffer
@@ -284,6 +302,7 @@ impl App {
                                 &mut self.cursor_char,
                                 added,
                             );
+                            cached_latex = Some(now_tex);
                         } else {
                             let mut buf = [0u8; 4];
                             insert_str_at_char(
@@ -321,6 +340,7 @@ impl App {
                             insert_str_at_char(&mut self.source_text, &mut self.cursor_char, &text);
                         } else {
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         }
                         self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
@@ -373,6 +393,7 @@ impl App {
                         } else {
                             self.pending_origin = None;
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         }
                         self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
@@ -397,6 +418,7 @@ impl App {
                             remove_char_at(&mut self.source_text, &mut self.cursor_char);
                         } else {
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         }
                         self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
@@ -427,8 +449,10 @@ impl App {
                             let now_tex = self.editor.to_latex();
                             let added = now_tex.strip_prefix(&prev_tex).unwrap_or(&now_tex);
                             insert_str_at_char(&mut self.source_text, &mut self.cursor_char, added);
+                            cached_latex = Some(now_tex);
                         } else {
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         }
                         self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
@@ -501,6 +525,7 @@ impl App {
                             insert_str_at_char(&mut self.source_text, &mut self.cursor_char, &text);
                         } else {
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         }
                         self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
@@ -558,6 +583,7 @@ impl App {
                         self.cursor_char = prev_cur;
                     } else {
                         self.source_text = self.editor.to_latex();
+                        cached_latex = Some(self.source_text.clone());
                         self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                     }
                     emit_render = true;
@@ -575,6 +601,7 @@ impl App {
                         self.cursor_char = next_cur;
                     } else {
                         self.source_text = self.editor.to_latex();
+                        cached_latex = Some(self.source_text.clone());
                         self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                     }
                     emit_render = true;
@@ -591,6 +618,7 @@ impl App {
                         self.pending_origin = None;
                         self.last_import = None;
                         self.source_text.clear();
+                        cached_latex = Some(String::new());
                         self.cursor_char = 0;
                         self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
                         if changed || had_source {
@@ -638,6 +666,7 @@ impl App {
                         Ok(_) => {
                             self.pending_origin = None;
                             self.source_text = self.editor.to_latex();
+                            cached_latex = Some(self.source_text.clone());
                             self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                             if self.editor.history().undo_len() == 0 {
                                 self.source_undo.clear();
@@ -687,6 +716,7 @@ impl App {
                     Ok(diags) => {
                         self.pending_origin = None;
                         self.source_text = self.editor.to_latex();
+                        cached_latex = Some(self.source_text.clone());
                         self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
                         if self.editor.history().undo_len() == 0 {
                             self.source_undo.clear();
@@ -819,9 +849,12 @@ impl App {
                 host_effects.push(Effect::Host(HostAction::ExportConfig));
             }
             AppCommand::SaveSnippet => {
+                let latex = cached_latex
+                    .get_or_insert_with(|| self.editor.to_latex())
+                    .clone();
                 host_effects.push(Effect::Host(HostAction::SaveSnippet {
                     source: self.source_text.clone(),
-                    latex: self.editor.to_latex(),
+                    latex,
                 }));
             }
         }
@@ -830,8 +863,8 @@ impl App {
 
         // 1. Status effects: append any editor diagnostics with bounded single-line ErrorSummary
         if let Some(first_diag) = self.editor.diagnostics().first() {
-            let source = self.editor.to_latex();
-            let diag_snap = DiagnosticSnapshot::from_diagnostic_with_source(first_diag, &source);
+            let source = cached_latex.get_or_insert_with(|| self.editor.to_latex());
+            let diag_snap = DiagnosticSnapshot::from_diagnostic_with_source(first_diag, source);
             if first_diag.is_error() {
                 status_effects.push(Effect::Status(StatusMessage {
                     severity: StatusSeverity::Error,
@@ -850,11 +883,17 @@ impl App {
         // 2. Render effect
         if emit_render {
             self.render_seq += 1;
+            let latex = cached_latex
+                .get_or_insert_with(|| self.editor.to_latex())
+                .clone();
+            let preview_latex = cached_preview
+                .get_or_insert_with(|| self.editor.to_preview_latex_mathjax())
+                .clone();
             effects.push(Effect::Render(RenderRequest {
                 request_id: self.render_seq,
                 generation: self.render_seq,
-                latex: self.editor.to_latex(),
-                preview_latex: self.editor.to_preview_latex_mathjax(),
+                latex,
+                preview_latex,
                 has_diagnostics: !self.editor.diagnostics().is_empty(),
             }));
         }
@@ -874,7 +913,7 @@ impl App {
         // 4. Host effects (Clipboard, ExportResult)
         effects.extend(host_effects);
 
-        effects
+        (effects, cached_latex, cached_preview)
     }
 
     fn sync_state(&mut self) {

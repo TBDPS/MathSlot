@@ -6,7 +6,11 @@ authors.workspace = true
 license.workspace = true
 description = "Command catalog schema, loader, and validation for MathSlot"
 
+[features]
+default = ["toml"]
+toml = ["dep:toml"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+toml = { version = "0.8", optional = true }
 thiserror = "2.0"

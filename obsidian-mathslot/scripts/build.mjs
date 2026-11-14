@@ -25,10 +25,11 @@ const wasmTargetPath = path.join(
   repoRoot,
   "target",
   "wasm32-unknown-unknown",
-  "release",
+  "wasm-release",
   "mathslot_wasm.wasm",
 );
 
+const MAX_WASM_BYTES = 409_600;
 const EXPECTED_ENGINE_VERSION = "0.7.0+schema1";
 
 function resolveWasmBindgenBin() {
@@ -46,16 +47,28 @@ function resolveWasmBindgenBin() {
   );
 }
 
-console.log("[1/4] Building mathslot-wasm (wasm32-unknown-unknown --release)...");
+function resolveOptionalWasmOptBin() {
+  for (const bin of ["wasm-opt", path.join(os.homedir(), ".cargo", "bin", "wasm-opt")]) {
+    try {
+      const out = execFileSync(bin, ["--version"], { encoding: "utf8" }).trim();
+      return { bin, version: out };
+    } catch {
+      // Optional binary not installed.
+    }
+  }
+  return null;
+}
+
+console.log("[1/4] Building mathslot-wasm (wasm32-unknown-unknown --profile wasm-release)...");
 execFileSync(
   "cargo",
-  ["build", "-p", "mathslot-wasm", "--target", "wasm32-unknown-unknown", "--release"],
+  ["build", "-p", "mathslot-wasm", "--target", "wasm32-unknown-unknown", "--profile", "wasm-release"],
   { cwd: repoRoot, stdio: "inherit" },
 );
 
 const rawTargetWasm = readFileSync(wasmTargetPath);
 console.log(
-  `      cargo release wasm size: ${(rawTargetWasm.length / 1024).toFixed(1)} KB (${rawTargetWasm.length} bytes)`,
+  `      cargo wasm-release size: ${(rawTargetWasm.length / 1024).toFixed(1)} KB (${rawTargetWasm.length} bytes)`,
 );
 
 const { bin: wasmBindgenBin, version: wasmBindgenVersion } = resolveWasmBindgenBin();
@@ -68,10 +81,25 @@ execFileSync(
 );
 
 const bindgenWasmPath = path.join(wasmPkgOutDir, "mathslot_wasm_bg.wasm");
+const wasmOpt = resolveOptionalWasmOptBin();
+if (wasmOpt) {
+  console.log(`      Running ${wasmOpt.version} -Oz -> ${bindgenWasmPath}...`);
+  execFileSync(wasmOpt.bin, ["-Oz", "-o", bindgenWasmPath, bindgenWasmPath], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+} else {
+  console.log("      wasm-opt not found in PATH; skipping optional post-bindgen -Oz pass.");
+}
+
 const wasmBytes = readFileSync(bindgenWasmPath);
 const wasmGzipBytes = gzipSync(wasmBytes);
 console.log(
-  `      wasm-bindgen output size: ${(wasmBytes.length / 1024).toFixed(1)} KB raw / ${(wasmGzipBytes.length / 1024).toFixed(1)} KB gzip`,
+  `      wasm-bindgen output size: ${(wasmBytes.length / 1024).toFixed(1)} KB (${wasmBytes.length} bytes) raw / ${(wasmGzipBytes.length / 1024).toFixed(1)} KB gzip`,
+);
+assert.ok(
+  wasmBytes.length <= MAX_WASM_BYTES,
+  `mathslot_wasm_bg.wasm size ${wasmBytes.length} bytes exceeds 400 KB (${MAX_WASM_BYTES} bytes) budget`,
 );
 
 console.log("[3/4] Bundling apps/obsidian single-file plugin with inline base64 WASM...");
@@ -99,6 +127,12 @@ const wasmBase64 = wasmBytes.toString("base64");
 assert.ok(
   bundledMainJs.includes(wasmBase64.slice(0, 64)),
   "Embedded WASM base64 slice missing from main.js",
+);
+const embeddedWasmMatches = bundledMainJs.match(/AGFzbQE[A-Za-z0-9+/=]{100,}/g) ?? [];
+assert.equal(
+  embeddedWasmMatches.length,
+  1,
+  `main.js must embed base64 WASM exactly once, found ${embeddedWasmMatches.length}`,
 );
 
 copyFileSync(srcManifestPath, path.join(distDir, "manifest.json"));

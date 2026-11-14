@@ -1021,4 +1021,36 @@ describe('apps/obsidian WASM & shared UI integration (T3.6)', () => {
 
     client.dispose();
   });
+
+  it('D-152 / D-153: mathslot_wasm_bg.wasm <= 400 KB, main.js embeds WASM once, and hostRenderAdapter maxWait < 100ms', async () => {
+    const wasmPath = resolve(import.meta.dirname, '../src/wasm-pkg/mathslot_wasm_bg.wasm');
+    const wasmBytes = readFileSync(wasmPath);
+    expect(wasmBytes.byteLength).toBeLessThanOrEqual(409_600);
+
+    const mainJsPath = resolve(import.meta.dirname, '../../../obsidian-mathslot/main.js');
+    const mainJs = readFileSync(mainJsPath, 'utf8');
+    const embeddedWasmChunks = mainJs.match(/AGFzbQE[A-Za-z0-9+/=]{100,}/g) ?? [];
+    expect(embeddedWasmChunks).toHaveLength(1);
+
+    const renderer = createObsidianHostRenderAdapter({
+      renderMath: async (tex) => `<svg data-tex="${tex}"></svg>`,
+      finishRenderMath: async () => {},
+    });
+    const deliveredAt: number[] = [];
+    const startMs = performance.now();
+    for (let i = 1; i <= 10; i += 1) {
+      renderer.schedule({ generation: i, latex: `y+${i}`, theme: 'light' }, () => {
+        deliveredAt.push(performance.now() - startMs);
+      });
+      if (i < 10) {
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+    await new Promise((r) => setTimeout(r, 60));
+    renderer.dispose();
+
+    expect(deliveredAt.length).toBeGreaterThanOrEqual(1);
+    expect(deliveredAt.length).toBeLessThan(10);
+    expect(deliveredAt[0]).toBeLessThan(100);
+  });
 });

@@ -120,3 +120,27 @@ fn t4_1_wasm_preview_import_diff_strip_and_blocking_contract() {
             .is_some_and(|arr| arr.iter().any(|d| d["code"] == "DEPTH_EXCEEDED"))
     );
 }
+
+#[test]
+fn d152_presets_json_is_build_time_minified_and_lossless() {
+    let engine = WasmEngine::new();
+    let presets_raw = engine.presets_json_str().expect("presets_json_str");
+
+    assert!(
+        !presets_raw.contains('\n'),
+        "Embedded presets_json_str must be minified without newlines"
+    );
+    assert!(
+        presets_raw.len() < 32_000,
+        "Minified presets JSON should be compact (< 32 KB), got {} bytes",
+        presets_raw.len()
+    );
+
+    let disk_raw = include_str!("../../../catalog/presets.json");
+    let expected: Value = serde_json::from_str(disk_raw).expect("parse catalog/presets.json");
+    let actual: Value = serde_json::from_str(&presets_raw).expect("parse minified presets");
+    assert_eq!(
+        actual, expected,
+        "Minified presets JSON must match catalog/presets.json 100%"
+    );
+}

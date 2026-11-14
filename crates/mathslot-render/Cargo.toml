@@ -15,3 +15,7 @@ latex-rust = { version = "3.0.3", optional = true }
 mathslot-syntax = { path = "../mathslot-syntax" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
+
+[[bench]]
+name = "render_bench"
+harness = false

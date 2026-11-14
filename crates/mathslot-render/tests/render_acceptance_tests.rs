@@ -304,18 +304,18 @@ fn a_render_004_generation_cancellation_cache_key_and_debounce_gate() {
     assert!(cache.get(&k1).is_some());
     assert!(cache.get(&k3).is_some());
 
-    // 3. Deterministic DebounceGate without wall-clock sleep
-    let mut gate = DebounceGate::with_max_wait(50, 150);
+    // 3. Deterministic DebounceGate without wall-clock sleep (D-153 <= 60ms maxWait budget)
+    let mut gate = DebounceGate::with_max_wait(24, 56);
     assert!(!gate.should_dispatch(0));
     gate.mark_dirty(100);
-    assert!(!gate.should_dispatch(120));
-    assert!(gate.should_dispatch(150));
-    gate.mark_dispatched(150);
-    assert!(!gate.should_dispatch(150));
+    assert!(!gate.should_dispatch(115));
+    assert!(gate.should_dispatch(124));
+    gate.mark_dispatched(124);
+    assert!(!gate.should_dispatch(124));
 
-    // Continuous rapid typing (every 10ms) still dispatches within max_wait budget (150ms)
+    // Continuous rapid typing (every 10ms) still dispatches within max_wait budget (56ms < 100ms)
     gate.mark_dirty(200);
-    for t in (210..=340).step_by(10) {
+    for t in (210..=250).step_by(10) {
         gate.mark_dirty(t);
         assert!(
             !gate.should_dispatch(t),
@@ -323,8 +323,8 @@ fn a_render_004_generation_cancellation_cache_key_and_debounce_gate() {
         );
     }
     assert!(
-        gate.should_dispatch(350),
-        "max_wait must prevent starvation at 350ms"
+        gate.should_dispatch(256),
+        "max_wait must prevent starvation within 56ms budget at 256ms"
     );
 }
 

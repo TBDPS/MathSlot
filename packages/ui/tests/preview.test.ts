@@ -197,7 +197,7 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
     });
 
     await tick();
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 45));
     await tick();
 
     const viewport = target.querySelector<HTMLElement>('[data-testid="preview-viewport"]');
@@ -292,7 +292,7 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
       });
 
       await tick();
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 45));
       await tick();
 
       expect(seenThemes).toContain('dark');
@@ -304,7 +304,7 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
         cb({ matches: false, media: '(prefers-color-scheme: dark)' } as MediaQueryListEvent);
       }
       await tick();
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 45));
       await tick();
 
       expect(seenThemes[seenThemes.length - 1]).toBe('light');
@@ -361,7 +361,7 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
     });
 
     await tick();
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 45));
     await tick();
 
     expect(target.querySelector('[data-testid="zoom-percent"]')?.textContent).toContain('125%');
@@ -377,5 +377,84 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
 
     expect(onCopyError).toHaveBeenCalledTimes(1);
     expect(onViewDiagnostics).toHaveBeenCalledTimes(1);
+  });
+
+  it('D-153: PreviewPanel routes renders through managed.schedule() and coalesces rapid keystrokes within <100ms budget', async () => {
+    const adapterCalls: string[] = [];
+    const mockAdapter: RenderAdapter = {
+      kind: 'mathjax',
+      render: vi.fn(async (req: PreviewRenderRequest): Promise<PreviewRenderResult> => {
+        adapterCalls.push(req.latex);
+        return {
+          generation: req.generation,
+          backend: 'mathjax',
+          svg: `<svg data-latex="${req.latex}"></svg>`,
+          degraded: false,
+          diagnostics: [],
+          cacheHit: false,
+        };
+      }),
+    };
+
+    const managed = createManagedRenderer({ primary: mockAdapter });
+    const scheduleSpy = vi.spyOn(managed, 'schedule');
+    const directRenderSpy = vi.spyOn(managed, 'render');
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    let currentLatex = 'x_0';
+    const app = mount(PreviewPanel, {
+      target,
+      props: {
+        latex: currentLatex,
+        generation: 1,
+        renderer: managed,
+      },
+    });
+    cleanups.push(() => {
+      managed.dispose();
+      void unmount(app);
+    });
+
+    await tick();
+    // PreviewPanel must invoke schedule(), not bypass it with direct managed.render()
+    expect(scheduleSpy).toHaveBeenCalled();
+    expect(directRenderSpy).not.toHaveBeenCalled();
+
+    // Also verify default createManagedRenderer maxWaitMs keeps continuous typing < 100ms
+    const continuousAdapter: RenderAdapter = {
+      kind: 'mathjax',
+      render: vi.fn(async (req: PreviewRenderRequest): Promise<PreviewRenderResult> => ({
+        generation: req.generation,
+        backend: 'mathjax',
+        svg: `<svg data-gen="${req.generation}"></svg>`,
+        degraded: false,
+        diagnostics: [],
+        cacheHit: false,
+      })),
+    };
+    const defaultManaged = createManagedRenderer({ primary: continuousAdapter });
+    const deliveredAt: number[] = [];
+    const startMs = performance.now();
+    for (let i = 1; i <= 10; i += 1) {
+      defaultManaged.schedule(
+        { generation: i, latex: `x+${i}`, theme: 'light' },
+        () => {
+          deliveredAt.push(performance.now() - startMs);
+        },
+      );
+      if (i < 10) {
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+    await new Promise((r) => setTimeout(r, 60));
+    defaultManaged.dispose();
+
+    expect(deliveredAt.length).toBeGreaterThanOrEqual(1);
+    expect(deliveredAt.length).toBeLessThan(10);
+    // First maxWait flush during continuous 15ms typing MUST arrive < 100ms
+    expect(deliveredAt[0]).toBeLessThan(100);
+    expect(adapterCalls.length).toBeLessThan(10);
   });
 });

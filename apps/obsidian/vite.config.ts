@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 function readWasmBase64(): string {
@@ -11,8 +11,25 @@ function readWasmBase64(): string {
   return readFileSync(wasmPath).toString('base64');
 }
 
+function stripDeadWasmUrlPlugin(): Plugin {
+  return {
+    name: 'mathslot-strip-dead-wasm-url',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.endsWith('mathslot_wasm.js')) {
+        return null;
+      }
+      const next = code.replace(
+        /new URL\(\s*['"]mathslot_wasm_bg\.wasm['"]\s*,\s*import\.meta\.url\s*\)/g,
+        'undefined',
+      );
+      return next === code ? null : { code: next, map: null };
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [stripDeadWasmUrlPlugin(), svelte()],
   define: {
     'import.meta.url': '""',
     __MATHSLOT_INLINE_WASM_B64__: JSON.stringify(readWasmBase64()),

@@ -67,28 +67,34 @@
   );
 
   const mathjaxAdapter = createMathJaxSvgAdapter();
-  const latexRustAdapter = $derived(
-    createLatexRustBridgeAdapter((req) => hostBridge.renderLatexSvg(req)),
-  );
+  const latexRustAdapter = createLatexRustBridgeAdapter((req) => hostBridge.renderLatexSvg(req));
   const mathjaxManaged = createManagedRenderer({
     primary: mathjaxAdapter,
-    debounceMs: 30,
-    maxWaitMs: 100,
+    debounceMs: 24,
+    maxWaitMs: 56,
   });
-  const latexRustManaged = $derived(
-    createManagedRenderer({
-      primary: latexRustAdapter,
-      fallback: mathjaxAdapter,
-      debounceMs: 30,
-      maxWaitMs: 100,
-    }),
-  );
+  const latexRustManaged = createManagedRenderer({
+    primary: latexRustAdapter,
+    fallback: mathjaxAdapter,
+    debounceMs: 24,
+    maxWaitMs: 56,
+  });
   const activeRenderer = $derived<ManagedRenderer>(
     currentSettings.render_backend === 'latex-rust' ? latexRustManaged : mathjaxManaged,
   );
 
+  let lastBridgeRef: DesktopHostBridge | undefined = undefined;
+  $effect(() => {
+    const currentBridge = hostBridge;
+    if (lastBridgeRef !== undefined && lastBridgeRef !== currentBridge) {
+      latexRustManaged.clearCache();
+    }
+    lastBridgeRef = currentBridge;
+  });
+
   onDestroy(() => {
     mathjaxManaged.dispose();
+    latexRustManaged.dispose();
   });
 
   const primaryStatusInfo = $derived.by(() => {

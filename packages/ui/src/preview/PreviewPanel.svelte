@@ -87,6 +87,7 @@
 
   let ownedManaged: ManagedRenderer | null = null;
   let lastPrimaryRef: RenderAdapter | ManagedRenderer | undefined = undefined;
+  let destroyed = false;
 
   const resolvedThemeAttr = $derived(theme === 'auto' ? undefined : theme);
   const renderTheme = $derived<RenderTheme>(
@@ -142,7 +143,6 @@
     lastPrimaryRef = renderer;
     ownedManaged = createManagedRenderer({
       primary: adapter,
-      debounceMs: 0,
       cacheCapacity: 64,
     });
     return ownedManaged;
@@ -214,40 +214,20 @@
     };
 
     renderPending = true;
-    void managed
-      .render(req)
-      .then((res) => {
-        if (res === null || res.generation < latestAppliedGen) {
-          return;
-        }
-        latestAppliedGen = res.generation;
-        renderResult = res;
-        copyErrorStatus = 'idle';
-        renderPending = false;
-        onRenderResult?.(res);
-      })
-      .catch((err: unknown) => {
-        if (requestGen < latestAppliedGen) return;
-        latestAppliedGen = requestGen;
-        const msg = err instanceof Error ? err.message : String(err);
-        const diag = summarizeRenderError('PREVIEW_RENDER_FAILED', msg, currentPreview || currentLatex);
-        const errOut: PreviewRenderResult = {
-          generation: requestGen,
-          backend: managed.kind,
-          svg: '',
-          degraded: true,
-          diagnostics: [diag],
-          cacheHit: false,
-          errorSummary: diag,
-        };
-        renderResult = errOut;
-        copyErrorStatus = 'idle';
-        renderPending = false;
-        onRenderResult?.(errOut);
-      });
+    managed.schedule(req, (res) => {
+      if (destroyed || res.generation < latestAppliedGen) {
+        return;
+      }
+      latestAppliedGen = res.generation;
+      renderResult = res;
+      copyErrorStatus = 'idle';
+      renderPending = false;
+      onRenderResult?.(res);
+    });
   });
 
   onDestroy(() => {
+    destroyed = true;
     ownedManaged?.dispose();
     ownedManaged = null;
   });

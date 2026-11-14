@@ -7,7 +7,7 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 pub const ENGINE_CONTRACT_SCHEMA: u32 = 1;
-const PRESETS_JSON: &str = include_str!("../../../catalog/presets.json");
+const PRESETS_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/presets.min.json"));
 
 #[derive(Serialize)]
 struct CommandDto<'a> {
@@ -87,12 +87,9 @@ impl Engine {
             .map_err(|err| format!("Failed to serialize command catalog: {err}"))
     }
 
-    /// Single-source presets JSON embedded from `catalog/presets.json`.
+    /// Single-source presets JSON embedded from `catalog/presets.json` (minified at build time).
     pub fn presets_json_str(&self) -> Result<String, String> {
-        let parsed: serde_json::Value = serde_json::from_str(PRESETS_JSON)
-            .map_err(|err| format!("Embedded presets.json is invalid: {err}"))?;
-        serde_json::to_string(&parsed)
-            .map_err(|err| format!("Failed to serialize presets JSON: {err}"))
+        Ok(PRESETS_JSON.to_string())
     }
 }
 

@@ -44,8 +44,8 @@ export function createObsidianHostRenderAdapter(
   const managed = createManagedRenderer({
     primary,
     fallback,
-    debounceMs: options.debounceMs ?? 40,
-    maxWaitMs: options.maxWaitMs ?? 120,
+    debounceMs: options.debounceMs ?? 24,
+    maxWaitMs: options.maxWaitMs ?? 56,
     cacheCapacity: options.cacheCapacity ?? 64,
   });
 

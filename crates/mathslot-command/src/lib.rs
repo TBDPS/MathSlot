@@ -2,6 +2,7 @@ pub mod generated;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+#[cfg(feature = "toml")]
 use std::path::Path;
 
 pub const ALLOWED_CATEGORIES: &[&str] = &[
@@ -19,6 +20,7 @@ pub const ALLOWED_CATEGORIES: &[&str] = &[
 pub enum CatalogError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[cfg(feature = "toml")]
     #[error("TOML parse error: {0}")]
     Toml(#[from] toml::de::Error),
     #[error("Validation error: {0}")]
@@ -50,12 +52,14 @@ pub struct CommandCatalog {
 }
 
 impl CommandCatalog {
+    #[cfg(feature = "toml")]
     pub fn from_toml(toml_str: &str) -> Result<Self, CatalogError> {
         let catalog: Self = toml::from_str(toml_str)?;
         catalog.validate()?;
         Ok(catalog)
     }
 
+    #[cfg(feature = "toml")]
     pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Self, CatalogError> {
         let content = std::fs::read_to_string(path)?;
         Self::from_toml(&content)

@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
+import {
+  createDefaultAppSettings,
+} from '@mathslot/ui';
 import App from '../src/App.svelte';
 import {
   createBrowserHarnessBridge,
@@ -261,5 +264,80 @@ describe('apps/desktop UI & DesktopHostBridge (T3.5)', () => {
     expect(target.querySelector('[data-testid="desktop-toast"]')?.textContent).toContain(
       'PermissionDenied',
     );
+  });
+
+  it('D-153: App.svelte coalesces 10 rapid keystrokes in latex-rust mode (<10 renders, <100ms maxWait) and disposes superseded ManagedRenderer', async () => {
+    const base = createBrowserHarnessBridge();
+    const renderLatexCalls: string[] = [];
+    const renderDeliveredAt: number[] = [];
+    let t0 = 0;
+
+    const bridge: DesktopHostBridge = {
+      ...base,
+      renderLatexSvg: vi.fn(async (req) => {
+        renderLatexCalls.push(req.latex);
+        renderDeliveredAt.push(performance.now() - t0);
+        return `<svg data-latex="${req.latex}"></svg>`;
+      }),
+    };
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(App, {
+      target,
+      props: { bridge },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+
+    await tick();
+    await new Promise((r) => setTimeout(r, 40));
+    await tick();
+
+    // Switch backend to latex-rust so renderLatexSvg is active
+    await bridge.dispatch({
+      UpdateSettings: {
+        ...createDefaultAppSettings(),
+        theme: 'light',
+        delimiter_style: 'none',
+        render_backend: 'latex-rust',
+        preview_scale_pct: 100,
+      },
+    });
+    target.querySelector<HTMLButtonElement>('[data-testid="desktop-settings-btn"]')?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="backend-option-latex-rust"]')?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-save-btn"]')?.click();
+    await tick();
+    await new Promise((r) => setTimeout(r, 70));
+    await tick();
+
+    renderLatexCalls.length = 0;
+    renderDeliveredAt.length = 0;
+    t0 = performance.now();
+
+    // Send 10 rapid keystrokes at 15ms intervals through the editor input
+    const editorHost = target.querySelector<HTMLElement>('.cm-content');
+    expect(editorHost).not.toBeNull();
+    for (let i = 0; i < 10; i += 1) {
+      const ch = String.fromCharCode(97 + (i % 26));
+      editorHost!.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true, cancelable: true }));
+      if (i < 9) {
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+    await new Promise((r) => setTimeout(r, 90));
+    await tick();
+
+    // Expect coalescing (< 10 renders) and first maxWait flush < 100ms
+    expect(renderLatexCalls.length).toBeGreaterThanOrEqual(1);
+    expect(renderLatexCalls.length).toBeLessThan(10);
+    expect(renderDeliveredAt[0]).toBeLessThan(100);
+
+    // Check App.svelte does not create ManagedRenderer inside $derived without dispose cleanup
+    const appSrc = readFileSync(resolve(import.meta.dirname, '../src/App.svelte'), 'utf8');
+    expect(appSrc).not.toMatch(/const\s+latexRustManaged\s*=\s*\$derived\(/);
   });
 });

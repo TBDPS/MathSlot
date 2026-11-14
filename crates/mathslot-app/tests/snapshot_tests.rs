@@ -65,3 +65,25 @@ fn app_snapshot_serializes_slots_diagnostics_and_state() {
     // Direct app.snapshot() matches last dispatch_snapshot
     assert_eq!(app.snapshot(), snap);
 }
+
+#[test]
+fn d155_dispatch_snapshot_cache_matches_fresh_snapshot_across_1000_edits() {
+    let mut app = App::new();
+    let pattern = ['▸', 'f', 'a', ';', 'b', ';', '+'];
+    for i in 0..1000 {
+        let resp = app.dispatch_snapshot(AppEvent::KeyInput(pattern[i % pattern.len()]));
+        if i % 100 == 99 {
+            assert_eq!(
+                resp.snapshot,
+                app.snapshot(),
+                "cached dispatch_snapshot must match fresh app.snapshot() at step {i}"
+            );
+        }
+    }
+    let undo_resp = app.dispatch_snapshot(AppEvent::Undo);
+    assert_eq!(undo_resp.snapshot, app.snapshot());
+    let redo_resp = app.dispatch_snapshot(AppEvent::Redo);
+    assert_eq!(redo_resp.snapshot, app.snapshot());
+    let clear_resp = app.dispatch_snapshot(AppEvent::Clear);
+    assert_eq!(clear_resp.snapshot, app.snapshot());
+}

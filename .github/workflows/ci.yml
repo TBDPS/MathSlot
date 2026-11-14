@@ -96,6 +96,11 @@ jobs:
           node obsidian-mathslot/scripts/build.mjs
           git diff --exit-code -- obsidian-mathslot/
 
+      - name: Run offline Rust benchmarks and JS/WASM performance budgets (T4.3 / §13.5)
+        run: |
+          cargo bench --workspace --offline
+          node packages/ui/scripts/bench-budgets.mjs
+
       - name: Test, typecheck, and E2E test Obsidian shell (apps/obsidian)
         run: |
           cd apps/obsidian
