@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::command::AppCommand;
 use crate::effect::{Effect, FocusTarget, RenderRequest, StatusMessage, StatusSeverity};
 use crate::event::{AppEvent, EditorAction, Key, NavAction};
+use crate::snapshot::{DiagnosticSnapshot, DispatchResponse, EngineSnapshot, SlotSnapshot};
 use crate::state::EditorState;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
@@ -55,6 +56,50 @@ impl App {
     pub fn dispatch(&mut self, event: AppEvent) -> Vec<Effect> {
         let command = self.event_to_command(event);
         self.execute_command(command)
+    }
+
+    pub fn dispatch_snapshot(&mut self, event: AppEvent) -> DispatchResponse {
+        let effects = self.dispatch(event);
+        let snapshot = self.snapshot();
+        DispatchResponse { effects, snapshot }
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> EngineSnapshot {
+        let active_slot_id = match self.editor.cursor() {
+            Cursor::InSlot { slot_id, .. } => Some(slot_id.0),
+            Cursor::AtStart | Cursor::AtNode(_) | Cursor::AtEnd => None,
+        };
+
+        let slots = self
+            .editor
+            .doc()
+            .slots
+            .slots()
+            .iter()
+            .map(|slot| SlotSnapshot::from_slot(slot, active_slot_id))
+            .collect();
+
+        let diagnostics = self
+            .editor
+            .diagnostics()
+            .iter()
+            .map(DiagnosticSnapshot::from_diagnostic)
+            .collect();
+
+        EngineSnapshot {
+            state: self.state.clone(),
+            latex: self.editor.to_latex(),
+            copy_text: self.editor.copy_text(),
+            has_pending_command: self.editor.has_pending_command(),
+            is_composing: self.editor.is_composing(),
+            is_nav_mode: self.is_nav_mode(),
+            can_undo: self.editor.history().can_undo(),
+            can_redo: self.editor.history().can_redo(),
+            slots,
+            diagnostics,
+            active_slot_id,
+        }
     }
 
     fn event_to_command(&self, event: AppEvent) -> AppCommand {

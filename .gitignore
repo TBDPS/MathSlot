@@ -23,3 +23,8 @@ agent-state/AUTORUN
 agent-state/DONE
 agent-state/STOPPED
 agent-state/.autorun-*
+
+# packages/ui 前端构建与依赖缓存
+packages/ui/node_modules/
+packages/ui/dist/
+packages/ui/.vite/
