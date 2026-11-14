@@ -1356,9 +1356,14 @@ name = "mathslot-app"
 version = "0.7.0"
 dependencies = [
  "mathslot-command",
+ "mathslot-core",
  "mathslot-doc",
+ "mathslot-latex",
+ "mathslot-render",
+ "mathslot-store",
  "mathslot-syntax",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
