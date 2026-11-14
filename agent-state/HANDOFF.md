@@ -2,22 +2,18 @@
 
 ## 当前
 
-- 轮次：30 → 执行 Gate G3 退出全量门禁（`GATE-G3.md`）后进入 Gate G4（`T4.1`）
-- Gate：G3（全部任务 `T3.1`–`T3.7` 已独立验收 PASS）
-- 状态：**`T3.7` PASS（`VER-30.md`）** — `D-131`–`D-136` 全部关闭（`D-137` P3 按 `ADR-0031` 明确登记留待 G4 硬化），`open_p1` 已清空。
+- 轮次：31
+- Gate：**G4（硬化与发布）** — **Gate G3 已正式退出 PASS（`agent-state/verify/GATE-G3.md`）**
+- 当前任务：`T4.1`（LaTeX 导入诊断 / diff / round-trip 全量审计与 `D-007` 验收 + G4 启动排查）
+- 状态：准备 `T4.1` 只读审计（`AUD-28.md`），`open_p1 = []`。
 
-## 本轮（Round 30）做过什么
+## 本轮（Gate G3 收口）做过什么
 
-- `7e2c9f3` 完成 `T3.7` Desktop vs Obsidian 双端功能清单对齐、机读契约测试、`obsidian_e2e` Playwright（桌面 + 390px 移动视口）与 `obsidian-mathslot` 构建产物零漂移同步（关闭 `D-131`–`D-136`）。
-- `VER-30.md` 独立验收 **PASS**：
-  - `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace --offline`（247 passed, 0 failed, 0 ignored）、`audit_palette.py`、`xtask check --offline` 全部通过；
-  - `packages/ui`（42 passed, 含 `parity.test.ts` / `svelte-check` 0 / `vite build`）、`apps/obsidian`（14 unit + 4 Playwright desktop/mobile E2E / `svelte-check` 0）、`apps/desktop`（3 unit + 5 Playwright E2E / `svelte-check` 0 / `vite build`）全部通过；
-  - `node obsidian-mathslot/scripts/build.mjs` 重跑后 `git diff -- obsidian-mathslot/` 为空；
-  - 全部桌面端与 Obsidian 移动端/桌面端 E2E 视觉截图直接审阅无异常。
+- 在 `2d613f8`（工作区 0 未提交改动）上完整运行无参 `scripts/agent/acceptance.sh`（`PASS=5 FAIL=0 WARN=3`）、`cargo run -p xtask -- check --offline`、`packages/ui`（8 files / 42 tests + svelte-check + build）、`apps/obsidian`（14 unit + 4 Playwright desktop/mobile E2E + svelte-check）、`apps/desktop`（3 unit + 5 Playwright E2E + svelte-check + build）与 `node obsidian-mathslot/scripts/build.mjs`（0 漂移）。
+- 已落盘退出证据 `agent-state/verify/GATE-G3.md`，正式将 `state.json` 推进至 `gate: "G4"`、`next_task: "T4.1"`。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-27.md`
+- `agent-state/verify/GATE-G3.md`
+- `agent-state/verify/VER-30.md`
 - `agent-state/decisions/ADR-0031-t3-7-feature-parity-and-obsidian-e2e.md`
-- `agent-state/verify/VER-30.md`（PASS）
-- 提交：`7e2c9f3`

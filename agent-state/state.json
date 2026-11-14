@@ -20,6 +20,7 @@
     "gate_g0": "PASS",
     "gate_g1": "PASS",
     "gate_g2": "PASS",
+    "gate_g3": "PASS",
     "catalog_crate": "mathslot-command",
     "xtask_codegen": "active",
     "frozen_legacy_stack": true,
@@ -87,10 +88,10 @@
       "D-136"
     ]
   },
-  "gate": "G3",
-  "round": 30,
-  "active_task": "T3.7",
-  "next_task": "G3-exit",
+  "gate": "G4",
+  "round": 31,
+  "active_task": "T4.1",
+  "next_task": "T4.1",
   "last_verdict": "PASS",
   "open_p1": [],
   "new_defects": [
