@@ -165,3 +165,97 @@ fn d126_all_88_presets_expand_via_load_stream_source_with_zero_errors() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn t4_1_preview_diff_strip_undo_and_blocking_in_mathslot_app() {
+    let mut app = App::new();
+    app.dispatch(AppEvent::ImportLatex(r"\frac{a}{b}".to_owned()));
+    assert_eq!(app.to_latex(), r"\frac{a}{b}");
+
+    // 1. PreviewImportLatex must not mutate document, undo stack, or emit Render/Focus
+    let preview_resp = app.dispatch_snapshot(AppEvent::PreviewImportLatex(
+        r"$$\begin{align} x &= 1 \end{align}$$".to_owned(),
+    ));
+    assert_eq!(preview_resp.snapshot.latex, r"\frac{a}{b}");
+    assert!(
+        !preview_resp
+            .effects
+            .iter()
+            .any(|e| matches!(e, Effect::Render(_) | Effect::Focus(_))),
+        "PreviewImportLatex must not emit Render or Focus: {:?}",
+        preview_resp.effects
+    );
+    let preview_report = preview_resp
+        .snapshot
+        .last_import
+        .as_ref()
+        .expect("PreviewImportLatex must populate last_import");
+    assert_eq!(
+        preview_report.input_latex,
+        r"$$\begin{align} x &= 1 \end{align}$$"
+    );
+    assert!(!preview_report.blocked);
+    assert!(!preview_report.lossless);
+    assert!(preview_report.raw_nodes >= 1);
+    assert!(
+        preview_report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "OUTER_DELIMITERS_STRIPPED" && d.severity == StatusSeverity::Info)
+    );
+    assert!(
+        preview_report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "UNSUPPORTED_ENVIRONMENT" && d.severity == StatusSeverity::Warning)
+    );
+
+    // Cancel (ImportAcknowledge) leaves prior formula intact
+    let cancel_resp = app.dispatch_snapshot(AppEvent::ImportAcknowledge);
+    assert!(cancel_resp.snapshot.last_import.is_none());
+    assert_eq!(cancel_resp.snapshot.latex, r"\frac{a}{b}");
+
+    // 2. Preview + Apply outer-delimited formula -> strips $$...$$ and supports 1-step Undo (D-012)
+    let stripped_preview =
+        app.dispatch_snapshot(AppEvent::PreviewImportLatex(r"$$\sqrt{x+1}$$".to_owned()));
+    let stripped_report = stripped_preview.snapshot.last_import.as_ref().unwrap();
+    assert!(stripped_report.lossless);
+    assert!(!stripped_report.blocked);
+    assert_eq!(stripped_report.roundtrip_latex, r"\sqrt{x+1}");
+    assert_eq!(app.to_latex(), r"\frac{a}{b}");
+
+    let apply_resp = app.dispatch_snapshot(AppEvent::ImportLatex(r"$$\sqrt{x+1}$$".to_owned()));
+    assert_eq!(apply_resp.snapshot.latex, r"\sqrt{x+1}");
+    assert!(apply_resp.snapshot.can_undo);
+
+    let undo_resp = app.dispatch_snapshot(AppEvent::Undo);
+    assert_eq!(
+        undo_resp.snapshot.latex, r"\frac{a}{b}",
+        "D-012: single Undo after ImportLatex must restore prior formula cleanly"
+    );
+
+    let redo_resp = app.dispatch_snapshot(AppEvent::Redo);
+    assert_eq!(redo_resp.snapshot.latex, r"\sqrt{x+1}");
+
+    // 3. Error cases (D-139 / D-141 / D-142) block import and preserve prior formula
+    let deep = format!("{}{}{}", "{".repeat(5000), "z", "}".repeat(5000));
+    for bad in [
+        r"1 + 2}",
+        r"\unknownfoo{bar",
+        r"$$ \frac{a}{b}",
+        deep.as_str(),
+    ] {
+        let bad_resp = app.dispatch_snapshot(AppEvent::ImportLatex(bad.to_owned()));
+        assert_eq!(bad_resp.snapshot.latex, r"\sqrt{x+1}");
+        let bad_report = bad_resp.snapshot.last_import.as_ref().unwrap();
+        assert!(bad_report.blocked, "Expected blocked=true for {bad}");
+        assert!(
+            bad_report
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == StatusSeverity::Error),
+            "Expected Error diagnostic for {bad}: {:?}",
+            bad_report.diagnostics
+        );
+    }
+}

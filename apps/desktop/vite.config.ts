@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       '@mathslot/ui/tokens.css': resolve(import.meta.dirname, '../../packages/ui/src/theme/tokens.css'),
       '@mathslot/ui': resolve(import.meta.dirname, '../../packages/ui/src/index.ts'),
+      '@mathslot/wasm': resolve(import.meta.dirname, '../obsidian/src/wasm-pkg/mathslot_wasm.js'),
     },
   },
   server: {

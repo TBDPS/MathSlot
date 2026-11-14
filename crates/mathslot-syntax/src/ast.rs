@@ -109,6 +109,12 @@ pub enum MatrixEnv {
     Bmatrix,
     /// vmatrix (单竖线行列式)
     Vmatrix,
+    /// Bmatrix (大括号矩阵)
+    CapitalBmatrix,
+    /// Vmatrix (双竖线行列式)
+    CapitalVmatrix,
+    /// smallmatrix (行内小矩阵)
+    Smallmatrix,
     /// cases (分段函数左大括号)
     Cases,
     /// aligned (对齐环境)
@@ -122,6 +128,9 @@ impl MatrixEnv {
             Self::Pmatrix => "pmatrix",
             Self::Bmatrix => "bmatrix",
             Self::Vmatrix => "vmatrix",
+            Self::CapitalBmatrix => "Bmatrix",
+            Self::CapitalVmatrix => "Vmatrix",
+            Self::Smallmatrix => "smallmatrix",
             Self::Cases => "cases",
             Self::Aligned => "aligned",
         }
@@ -133,6 +142,9 @@ impl MatrixEnv {
             "pmatrix" => Some(Self::Pmatrix),
             "bmatrix" => Some(Self::Bmatrix),
             "vmatrix" => Some(Self::Vmatrix),
+            "Bmatrix" => Some(Self::CapitalBmatrix),
+            "Vmatrix" => Some(Self::CapitalVmatrix),
+            "smallmatrix" => Some(Self::Smallmatrix),
             "cases" => Some(Self::Cases),
             "aligned" => Some(Self::Aligned),
             _ => None,

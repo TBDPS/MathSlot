@@ -5,6 +5,7 @@
     ImportReportSnapshot,
     ThemePreference,
   } from '../client/engine';
+  import { computeLatexDiff } from './diff';
 
   export interface ImportModalProps {
     open?: boolean;
@@ -12,6 +13,7 @@
     lastImport?: ImportReportSnapshot | null;
     initialLatex?: string;
     theme?: ThemePreference;
+    onPreviewed?: (response: DispatchResponse) => void;
     onImported?: (response: DispatchResponse) => void;
     onClose?: () => void;
   }
@@ -22,30 +24,68 @@
     lastImport = null,
     initialLatex = '',
     theme = 'system',
+    onPreviewed,
     onImported,
     onClose,
   }: ImportModalProps = $props();
 
   let inputLatex = $state('');
   let localReport = $state<ImportReportSnapshot | null>(null);
+  let previewedLatex = $state<string | null>(null);
   let busy = $state(false);
   let submitError = $state<string | null>(null);
 
   $effect(() => {
     inputLatex = initialLatex;
+    previewedLatex = null;
+    localReport = null;
+    submitError = null;
   });
 
   const activeReport = $derived(localReport ?? lastImport ?? null);
   const resolvedThemeAttr = $derived(theme === 'system' ? undefined : theme);
+  const isDegraded = $derived(
+    activeReport !== null && (activeReport.raw_nodes > 0 || !activeReport.lossless),
+  );
+  const previewStale = $derived.by(() => {
+    if (!activeReport) return false;
+    const expectedInput = previewedLatex ?? activeReport.input_latex;
+    if (expectedInput === undefined) return false;
+    return expectedInput !== inputLatex;
+  });
+  const diffResult = $derived.by(() => {
+    if (!activeReport) return null;
+    const baselineInput = activeReport.input_latex ?? previewedLatex ?? inputLatex;
+    return computeLatexDiff(baselineInput, activeReport.roundtrip_latex ?? '');
+  });
 
-  async function handleSubmit() {
+  async function handlePreview() {
     if (busy) return;
+    busy = true;
+    submitError = null;
+    try {
+      const response = await client.dispatch({ PreviewImportLatex: inputLatex });
+      localReport = response.snapshot.last_import ?? null;
+      previewedLatex = inputLatex;
+      onPreviewed?.(response);
+    } catch (err) {
+      submitError = err instanceof Error ? err.message : String(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function handleApply() {
+    if (busy || !activeReport || activeReport.blocked || previewStale) return;
     busy = true;
     submitError = null;
     try {
       const response = await client.dispatch({ ImportLatex: inputLatex });
       localReport = response.snapshot.last_import ?? null;
       onImported?.(response);
+      if (!response.snapshot.last_import?.blocked) {
+        onClose?.();
+      }
     } catch (err) {
       submitError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -60,7 +100,8 @@
     try {
       const response = await client.dispatch('ImportAcknowledge');
       localReport = response.snapshot.last_import ?? null;
-      onImported?.(response);
+      previewedLatex = null;
+      onPreviewed?.(response);
     } catch (err) {
       submitError = err instanceof Error ? err.message : String(err);
     } finally {
@@ -68,7 +109,20 @@
     }
   }
 
-  function handleClose() {
+  function handleCancel() {
+    if (busy) return;
+    if (activeReport) {
+      localReport = null;
+      previewedLatex = null;
+      void client
+        .dispatch('ImportAcknowledge')
+        .then((response) => {
+          onPreviewed?.(response);
+        })
+        .catch(() => {
+          // Ignore acknowledge errors when dismissing the modal cleanly.
+        });
+    }
     onClose?.();
   }
 </script>
@@ -86,7 +140,7 @@
       <div class="ms-import-title-group">
         <h2 class="ms-import-title">导入 LaTeX 公式</h2>
         <p class="ms-import-subtitle">
-          输入或粘贴 LaTeX 源码，经统一语法解析器校验无误后再写入编辑器；存在语法错误时自动阻断覆写。
+          第一步先解析并审阅结构化 Diff 与诊断；确认无误后再写入编辑器（支持 Ctrl+Z 一步撤回），存在语法错误时禁用确认按钮。
         </p>
       </div>
       {#if onClose}
@@ -94,7 +148,7 @@
           type="button"
           class="ms-import-btn ms-import-btn-ghost"
           data-testid="import-close-btn"
-          onclick={handleClose}
+          onclick={() => void handleCancel()}
         >
           关闭
         </button>
@@ -120,15 +174,37 @@
         class="ms-import-btn ms-import-btn-primary"
         data-testid="import-submit-btn"
         disabled={busy}
-        onclick={() => void handleSubmit()}
+        onclick={() => void handlePreview()}
       >
-        {busy ? '正在解析…' : '解析并导入'}
+        {busy ? '正在解析…' : '解析并预览'}
       </button>
 
       {#if activeReport}
         <button
           type="button"
-          class="ms-import-btn"
+          class="ms-import-btn ms-import-btn-apply"
+          data-testid="import-apply-btn"
+          disabled={busy || activeReport.blocked || previewStale}
+          onclick={() => void handleApply()}
+        >
+          确认导入
+        </button>
+      {/if}
+
+      <button
+        type="button"
+        class="ms-import-btn"
+        data-testid="import-cancel-btn"
+        disabled={busy}
+        onclick={() => void handleCancel()}
+      >
+        取消
+      </button>
+
+      {#if activeReport}
+        <button
+          type="button"
+          class="ms-import-btn ms-import-btn-ghost"
           data-testid="import-ack-btn"
           disabled={busy}
           onclick={() => void handleAcknowledge()}
@@ -148,15 +224,20 @@
       <section class="ms-import-report" data-testid="import-report" aria-label="LaTeX 导入诊断报告">
         {#if activeReport.blocked}
           <div class="ms-import-banner ms-import-banner-error" role="alert" data-testid="import-blocked-banner">
-            <strong>导入已阻断：</strong>检测到语法错误，当前编辑器文档与公式未被覆盖。
+            <strong>导入已阻断：</strong>检测到语法错误，当前编辑器文档与公式未被覆盖，请修正后重新预览。
           </div>
-        {:else if !activeReport.lossless}
+        {:else if previewStale}
+          <div class="ms-import-banner ms-import-banner-warn" role="status" data-testid="import-stale-banner">
+            <strong>输入已修改：</strong>请重新点击「解析并预览」刷新 Diff 后再确认导入。
+          </div>
+        {:else if isDegraded}
           <div class="ms-import-banner ms-import-banner-warn" role="status" data-testid="import-lossy-banner">
-            <strong>有损导入完成：</strong>存在 {activeReport.raw_nodes} 个未识别或原始降级节点，已安全导入并保留结构。
+            <span class="ms-import-degraded-badge" data-testid="import-degraded-badge">降级 RawLatex</span>
+            <strong>有损转换预警：</strong>包含 {activeReport.raw_nodes} 个未识别或不支持节点，将在保留原始 LaTeX 后写入。
           </div>
         {:else}
           <div class="ms-import-banner ms-import-banner-ok" role="status" data-testid="import-lossless-banner">
-            <strong>无损导入完成：</strong>已完整解析为结构化 AST。
+            <strong>无损解析就绪：</strong>可安全确认导入为结构化 AST（支持一步撤回）。
           </div>
         {/if}
 
@@ -179,6 +260,31 @@
           </div>
         </dl>
 
+        {#if diffResult}
+          <div class="ms-import-diff-panel" data-testid="import-diff-view" aria-label="导入前后差异对比">
+            <div class="ms-import-diff-header">
+              <span class="ms-import-label">输入与规范回环差异对比 (Diff)</span>
+              {#if isDegraded}
+                <span class="ms-import-diff-pill ms-import-diff-pill-warn">RawLatex 降级</span>
+              {:else if diffResult.changed}
+                <span class="ms-import-diff-pill ms-import-diff-pill-info">已归一化</span>
+              {:else}
+                <span class="ms-import-diff-pill ms-import-diff-pill-ok">完全一致</span>
+              {/if}
+            </div>
+            <div class="ms-import-diff-grid">
+              <div class="ms-import-diff-pane">
+                <span class="ms-import-diff-caption">原始粘贴输入</span>
+                <pre class="ms-import-diff-pre" data-testid="import-diff-input">{#each diffResult.inputSegments as seg, i (`in-${i}`)}<span class="ms-diff-seg" data-diff={seg.kind}>{seg.text}</span>{/each}</pre>
+              </div>
+              <div class="ms-import-diff-pane">
+                <span class="ms-import-diff-caption">解析回环输出 (roundtrip)</span>
+                <pre class="ms-import-diff-pre" data-testid="import-diff-roundtrip">{#each diffResult.outputSegments as seg, i (`out-${i}`)}<span class="ms-diff-seg" data-diff={seg.kind}>{seg.text}</span>{/each}</pre>
+              </div>
+            </div>
+          </div>
+        {/if}
+
         {#if activeReport.roundtrip_latex}
           <div class="ms-import-roundtrip">
             <span class="ms-import-label">规范回环输出 (roundtrip_latex)</span>
@@ -197,6 +303,9 @@
                   <code class="ms-import-diag-code">{diag.code}</code>
                   <span class="ms-import-diag-msg">{diag.message}</span>
                 </div>
+                {#if diag.source_excerpt}
+                  <code class="ms-import-diag-excerpt">{diag.source_excerpt}</code>
+                {/if}
                 {#if diag.hint}
                   <p class="ms-import-diag-hint">建议：{diag.hint}</p>
                 {/if}
@@ -241,7 +350,6 @@
     margin: 0;
     font-size: 0.96rem;
     font-weight: 700;
-    color: var(--ms-fg);
   }
 
   .ms-import-subtitle {
@@ -269,11 +377,10 @@
     padding: 8px 10px;
     border: 1px solid var(--ms-border-strong);
     border-radius: var(--ms-radius-sm);
-    background: var(--ms-surface);
+    background: var(--ms-surface-elevated);
     color: var(--ms-fg);
     font-family: var(--ms-font-mono);
     font-size: 0.84rem;
-    line-height: 1.45;
     resize: vertical;
   }
 
@@ -284,37 +391,30 @@
 
   .ms-import-actions {
     display: flex;
-    align-items: center;
-    gap: 8px;
     flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
   }
 
   .ms-import-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 6px 12px;
     border: 1px solid var(--ms-border-strong);
     border-radius: var(--ms-radius-sm);
     background: var(--ms-surface);
     color: var(--ms-fg);
     font-size: 0.8rem;
     font-weight: 600;
+    padding: 6px 12px;
     cursor: pointer;
-  }
-
-  .ms-import-btn:hover:not(:disabled) {
-    background: var(--ms-surface-elevated);
-  }
-
-  .ms-import-btn:focus-visible {
-    outline: 2px solid var(--ms-focus-ring);
-    outline-offset: 2px;
   }
 
   .ms-import-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+
+  .ms-import-btn:focus-visible {
+    outline: 2px solid var(--ms-focus-ring);
+    outline-offset: 1px;
   }
 
   .ms-import-btn-primary {
@@ -323,25 +423,21 @@
     color: var(--ms-accent-contrast);
   }
 
-  .ms-import-btn-primary:hover:not(:disabled) {
-    background: var(--ms-accent-hover);
+  .ms-import-btn-apply {
+    border-color: var(--ms-status-success-border);
+    background: var(--ms-status-success-bg);
+    color: var(--ms-status-success-fg);
   }
 
   .ms-import-btn-ghost {
-    border-color: transparent;
     background: transparent;
-    color: var(--ms-fg-muted);
-  }
-
-  .ms-import-report {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding-top: 8px;
-    border-top: 1px solid var(--ms-border);
   }
 
   .ms-import-banner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
     padding: 8px 10px;
     border-radius: var(--ms-radius-sm);
     border: 1px solid var(--ms-border);
@@ -349,52 +445,159 @@
     line-height: 1.4;
   }
 
-  .ms-import-banner-error {
-    background: var(--ms-status-error-bg);
-    border-color: var(--ms-status-error-border);
-    color: var(--ms-status-error-fg);
-  }
-
-  .ms-import-banner-warn {
-    background: var(--ms-status-warn-bg);
-    border-color: var(--ms-status-warn-border);
-    color: var(--ms-status-warn-fg);
-  }
-
   .ms-import-banner-ok {
-    background: var(--ms-status-success-bg);
     border-color: var(--ms-status-success-border);
+    background: var(--ms-status-success-bg);
     color: var(--ms-status-success-fg);
   }
 
+  .ms-import-banner-warn {
+    border-color: var(--ms-status-warn-border);
+    background: var(--ms-status-warn-bg);
+    color: var(--ms-status-warn-fg);
+  }
+
+  .ms-import-banner-error {
+    border-color: var(--ms-status-error-border);
+    background: var(--ms-status-error-bg);
+    color: var(--ms-status-error-fg);
+  }
+
+  .ms-import-degraded-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: var(--ms-radius-sm);
+    border: 1px solid var(--ms-badge-degraded-border);
+    background: var(--ms-badge-degraded-bg);
+    color: var(--ms-badge-degraded-fg);
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+
+  .ms-import-report {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
   .ms-import-metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 8px;
     margin: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .ms-import-metric {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
     padding: 6px 8px;
-    border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius-sm);
+    border: 1px solid var(--ms-border);
     background: var(--ms-surface);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.76rem;
   }
 
   .ms-import-metric dt {
-    font-size: 0.7rem;
     color: var(--ms-fg-muted);
   }
 
   .ms-import-metric dd {
     margin: 0;
     font-family: var(--ms-font-mono);
-    font-size: 0.84rem;
     font-weight: 700;
     color: var(--ms-fg);
+  }
+
+  .ms-import-diff-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--ms-border);
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-surface);
+  }
+
+  .ms-import-diff-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .ms-import-diff-pill {
+    padding: 1px 6px;
+    border-radius: var(--ms-radius-sm);
+    border: 1px solid var(--ms-border);
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .ms-import-diff-pill-ok {
+    border-color: var(--ms-status-success-border);
+    background: var(--ms-status-success-bg);
+    color: var(--ms-status-success-fg);
+  }
+
+  .ms-import-diff-pill-info {
+    border-color: var(--ms-status-info-border);
+    background: var(--ms-status-info-bg);
+    color: var(--ms-status-info-fg);
+  }
+
+  .ms-import-diff-pill-warn {
+    border-color: var(--ms-badge-degraded-border);
+    background: var(--ms-badge-degraded-bg);
+    color: var(--ms-badge-degraded-fg);
+  }
+
+  .ms-import-diff-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .ms-import-diff-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .ms-import-diff-caption {
+    font-size: 0.72rem;
+    color: var(--ms-fg-subtle);
+  }
+
+  .ms-import-diff-pre {
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: var(--ms-radius-sm);
+    border: 1px solid var(--ms-border);
+    background: var(--ms-surface-elevated);
+    font-family: var(--ms-font-mono);
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.45;
+  }
+
+  .ms-diff-seg[data-diff='removed'] {
+    background: var(--ms-status-error-bg);
+    color: var(--ms-status-error-fg);
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 2px;
+  }
+
+  .ms-diff-seg[data-diff='added'] {
+    background: var(--ms-status-success-bg);
+    color: var(--ms-status-success-fg);
+    border-radius: 2px;
+    padding: 0 2px;
   }
 
   .ms-import-roundtrip {
@@ -404,13 +607,15 @@
   }
 
   .ms-import-code {
-    padding: 6px 8px;
-    border: 1px solid var(--ms-border);
+    display: block;
+    padding: 8px 10px;
     border-radius: var(--ms-radius-sm);
-    background: var(--ms-surface);
-    color: var(--ms-fg);
+    border: 1px solid var(--ms-border);
+    background: var(--ms-surface-elevated);
     font-family: var(--ms-font-mono);
-    font-size: 0.78rem;
+    font-size: 0.8rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
     word-break: break-all;
   }
 
@@ -433,6 +638,12 @@
     background: var(--ms-status-warn-bg);
     color: var(--ms-status-warn-fg);
     font-size: 0.78rem;
+  }
+
+  .ms-import-diag-item[data-severity='info'] {
+    border-color: var(--ms-status-info-border);
+    background: var(--ms-status-info-bg);
+    color: var(--ms-status-info-fg);
   }
 
   .ms-import-diag-item[data-severity='error'] {
@@ -467,6 +678,13 @@
     font-weight: 500;
   }
 
+  .ms-import-diag-excerpt {
+    font-family: var(--ms-font-mono);
+    font-size: 0.72rem;
+    color: var(--ms-fg-muted);
+    word-break: break-all;
+  }
+
   .ms-import-diag-hint {
     margin: 0;
     font-size: 0.74rem;
@@ -492,7 +710,8 @@
       width: 100%;
     }
 
-    .ms-import-metrics {
+    .ms-import-metrics,
+    .ms-import-diff-grid {
       grid-template-columns: 1fr;
     }
   }

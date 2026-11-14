@@ -115,7 +115,7 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     });
     expect(isBackInCm).toBe(true);
 
-    // Open ImportModal and test syntax error blocking
+    // Open ImportModal and test syntax error blocking (Step 1 Preview -> Apply disabled)
     await page.getByTestId('desktop-import-btn').click();
     await expect(page.getByTestId('import-modal')).toBeVisible();
     await page.getByTestId('import-latex-input').fill('\\frac{1}{');
@@ -123,10 +123,15 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
 
     await expect(page.getByTestId('import-report')).toBeVisible();
     await expect(page.getByTestId('import-blocked-banner')).toBeVisible();
+    await expect(page.getByTestId('import-apply-btn')).toBeDisabled();
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'import-error-blocking.png'),
+      fullPage: false,
+    });
     // Prior formula remains untouched!
     await expect(page.getByTestId('desktop-copy-preview')).toContainText('\\frac{1}{2}');
 
-    // Now import valid long formula and screenshot (S-004 / long-formula)
+    // Now preview & apply valid long formula and screenshot (S-004 / long-formula)
     await page
       .getByTestId('import-latex-input')
       .fill(
@@ -134,13 +139,57 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
       );
     await page.getByTestId('import-submit-btn').click();
     await expect(page.getByTestId('import-lossless-banner')).toBeVisible();
-    await page.getByTestId('desktop-close-import-btn').click();
+    await page.getByTestId('import-apply-btn').click();
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
 
     await expect(page.getByTestId('preview-viewport').locator('svg')).toBeVisible();
     await page.screenshot({
       path: resolve(ARTIFACT_DIR, 'long-formula.png'),
       fullPage: false,
     });
+  });
+
+  test('T4.1 / D-140 / D-142 / D-012: two-phase Diff preview, RawLatex warning badge, Cancel non-mutation, Apply & 1-step Undo', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    const cmContent = page.locator('.cm-content');
+    await cmContent.click();
+    await page.keyboard.type('▸f1;2;', { delay: 12 });
+    await expect(page.getByTestId('desktop-copy-preview')).toContainText('\\frac{1}{2}');
+
+    // Preview unsupported align with outer $$...$$ delimiters
+    await page.getByTestId('desktop-import-btn').click();
+    await page.getByTestId('import-latex-input').fill('$$\\begin{align} a &= b \\\\ c &= d \\end{align}$$');
+    await page.getByTestId('import-submit-btn').click();
+
+    await expect(page.getByTestId('import-diff-view')).toBeVisible();
+    await expect(page.getByTestId('import-degraded-badge')).toBeVisible();
+    await expect(page.getByTestId('import-diagnostics-list')).toContainText('OUTER_DELIMITERS_STRIPPED');
+    await expect(page.getByTestId('import-diagnostics-list')).toContainText('UNSUPPORTED_ENVIRONMENT');
+    await expect(page.getByTestId('import-apply-btn')).toBeEnabled();
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'import-diff-warning.png'),
+      fullPage: false,
+    });
+
+    // Preview alone and Cancel must NOT mutate document
+    await page.getByTestId('import-cancel-btn').click();
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
+    await expect(page.getByTestId('desktop-copy-preview')).toContainText('\\frac{1}{2}');
+
+    // Re-open, Preview $$\\sqrt{x+1}$$, Apply -> strips delimiters, then Control+z 1-step Undo restores \\frac{1}{2}
+    await page.getByTestId('desktop-import-btn').click();
+    await page.getByTestId('import-latex-input').fill('$$\\sqrt{x+1}$$');
+    await page.getByTestId('import-submit-btn').click();
+    await expect(page.getByTestId('import-roundtrip-latex')).toContainText('\\sqrt{x+1}');
+    await page.getByTestId('import-apply-btn').click();
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
+    await expect(page.getByTestId('desktop-copy-preview')).toContainText('\\sqrt{x+1}');
+
+    await cmContent.click();
+    await page.keyboard.press('Control+z');
+    await expect(page.getByTestId('desktop-copy-preview')).toContainText('\\frac{1}{2}');
   });
 
   test('S-004 / D-130: latex-rust backend fallback surfaces degraded badge and readable diagnostics', async ({
@@ -157,7 +206,9 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     await page.getByTestId('desktop-import-btn').click();
     await page.getByTestId('import-latex-input').fill('\\frac{1}{2} + \\unknownFallbackTest{x}');
     await page.getByTestId('import-submit-btn').click();
-    await page.getByTestId('desktop-close-import-btn').click();
+    await expect(page.getByTestId('import-degraded-badge')).toBeVisible();
+    await page.getByTestId('import-apply-btn').click();
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
 
     await expect(page.getByTestId('degraded-badge')).toBeVisible();
     await expect(page.getByTestId('preview-error-summary')).toBeVisible();

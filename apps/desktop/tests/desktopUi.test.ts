@@ -133,4 +133,49 @@ describe('apps/desktop UI & DesktopHostBridge (T3.5)', () => {
     expect(restoreSpy).toHaveBeenCalledWith('/tmp/library.bak-1.json');
     expect(target.querySelector('[data-testid="recovery-wizard"]')).toBeNull();
   });
+
+  it('D-143 / D-137: browser harness uses real Rust/WASM engine semantics for LaTeX import (no brace-counting fake)', async () => {
+    const bridge = createBrowserHarnessBridge();
+
+    // 1. Unknown macro must yield lossless=false, raw_nodes=1, UNKNOWN_MACRO Warning
+    const macroRes = await bridge.dispatch({ ImportLatex: '\\unknownFallbackTest{x}' });
+    expect(macroRes.snapshot.last_import?.blocked).toBe(false);
+    expect(macroRes.snapshot.last_import?.lossless).toBe(false);
+    expect(macroRes.snapshot.last_import?.raw_nodes).toBe(1);
+    expect(macroRes.snapshot.last_import?.diagnostics.some((d) => d.code === 'UNKNOWN_MACRO')).toBe(
+      true,
+    );
+
+    // 2. Unsupported align environment must degrade to RawLatex with Warning (D-138)
+    const alignRes = await bridge.dispatch({
+      ImportLatex: '\\begin{align} a &= b \\\\ c &= d \\end{align}',
+    });
+    expect(alignRes.snapshot.last_import?.blocked).toBe(false);
+    expect(alignRes.snapshot.last_import?.lossless).toBe(false);
+    expect(alignRes.snapshot.last_import?.raw_nodes).toBe(1);
+
+    // 3. PreviewImportLatex + outer delimiters $$...$$ stripped cleanly (D-140 / D-142)
+    const beforePreview = await bridge.snapshot();
+    const previewRes = await bridge.dispatch({ PreviewImportLatex: '$$\\frac{1}{2}$$' });
+    expect(previewRes.snapshot.latex).toBe(beforePreview.latex);
+    expect(previewRes.snapshot.last_import?.blocked).toBe(false);
+    expect(previewRes.snapshot.last_import?.roundtrip_latex).toBe('\\frac{1}{2}');
+    expect(
+      previewRes.snapshot.last_import?.diagnostics.some((d) => d.code === 'OUTER_DELIMITERS_STRIPPED'),
+    ).toBe(true);
+
+    const delimRes = await bridge.dispatch({ ImportLatex: '$$\\frac{1}{2}$$' });
+    expect(delimRes.snapshot.last_import?.blocked).toBe(false);
+    expect(delimRes.snapshot.last_import?.roundtrip_latex).toBe('\\frac{1}{2}');
+    expect(delimRes.snapshot.latex).toBe('\\frac{1}{2}');
+
+    // 4. 5000-level deep nesting & stray } must block with Error without crashing (D-141 / D-139)
+    const strayRes = await bridge.dispatch({ ImportLatex: '1 + 2}' });
+    expect(strayRes.snapshot.last_import?.blocked).toBe(true);
+    expect(strayRes.snapshot.latex).toBe('\\frac{1}{2}');
+    const deep = `${'{'.repeat(5000)}x${'}'.repeat(5000)}`;
+    const deepRes = await bridge.dispatch({ ImportLatex: deep });
+    expect(deepRes.snapshot.last_import?.blocked).toBe(true);
+    expect(deepRes.snapshot.latex).toBe('\\frac{1}{2}');
+  });
 });

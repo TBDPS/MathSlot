@@ -91,7 +91,7 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
     });
   });
 
-  test('D-133 / D-134: ImportModal keeps round-trip diff open, and render failure links PreviewPanel to DiagnosticsPanel', async ({
+  test('D-133 / D-134: ImportModal keeps round-trip diff open before Confirm Apply, and render failure links PreviewPanel to DiagnosticsPanel', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -102,10 +102,11 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
     await page.getByTestId('import-latex-input').fill('\\frac{a}{b}');
     await page.getByTestId('import-submit-btn').click();
 
-    // Non-blocking import keeps modal open so user can inspect round-trip report
+    // Preview keeps modal open so user can inspect round-trip diff report, then Confirm Apply writes to editor
     await expect(page.getByTestId('import-modal')).toBeVisible();
+    await expect(page.getByTestId('import-diff-view')).toBeVisible();
     await expect(page.getByTestId('import-roundtrip-latex')).toContainText('\\frac{a}{b}');
-    await page.getByTestId('import-close-btn').click();
+    await page.getByTestId('import-apply-btn').click();
     await expect(page.getByTestId('import-modal')).toHaveCount(0);
 
     // Host render failure surfaces degraded badge + copy/view actions + DiagnosticsPanel linkage
@@ -121,6 +122,58 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
       path: resolve(ARTIFACT_DIR, 'obsidian-render-diagnostics.png'),
       fullPage: false,
     });
+  });
+
+  test('T4.1 / D-138..D-142: Obsidian ImportModal Error blocking, RawLatex warning diff, Cancel non-mutation & 1-step Ctrl+Z undo', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/harness.html');
+
+    const cmContent = page.locator('.cm-content');
+    await cmContent.click();
+    await page.keyboard.type('▸f1;2;', { delay: 12 });
+    await expect(cmContent).toHaveText('\\frac{1}{2}');
+
+    // 1) Error input blocks Apply and preserves document
+    await page.getByTestId('obsidian-import-btn').click();
+    await page.getByTestId('import-latex-input').fill('1 + 2}');
+    await page.getByTestId('import-submit-btn').click();
+    await expect(page.getByTestId('import-blocked-banner')).toBeVisible();
+    await expect(page.getByTestId('import-apply-btn')).toBeDisabled();
+    await expect(page.getByTestId('import-diagnostics-list')).toContainText('UNMATCHED_DELIMITER');
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'obsidian-import-error-blocking.png'),
+      fullPage: false,
+    });
+
+    // 2) Unsupported environment with outer $$...$$ shows RawLatex warning badge & Diff, Cancel does not mutate
+    await page.getByTestId('import-latex-input').fill('$$\\begin{align} x &= 1 \\end{align}$$');
+    await page.getByTestId('import-submit-btn').click();
+    await expect(page.getByTestId('import-diff-view')).toBeVisible();
+    await expect(page.getByTestId('import-degraded-badge')).toBeVisible();
+    await expect(page.getByTestId('import-apply-btn')).toBeEnabled();
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'obsidian-import-diff-warning.png'),
+      fullPage: false,
+    });
+
+    await page.getByTestId('import-cancel-btn').click();
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
+    await expect(cmContent).toHaveText('\\frac{1}{2}');
+
+    // 3) Preview & Apply outer-delimited valid formula, then Control+z 1-step Undo restores \\frac{1}{2}
+    await page.getByTestId('obsidian-import-btn').click();
+    await page.getByTestId('import-latex-input').fill('$$\\sqrt{x+1}$$');
+    await page.getByTestId('import-submit-btn').click();
+    await expect(page.getByTestId('import-roundtrip-latex')).toContainText('\\sqrt{x+1}');
+    await page.getByTestId('import-apply-btn').click();
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
+    await expect(cmContent).toHaveText('\\sqrt{x+1}');
+
+    await cmContent.click();
+    await page.keyboard.press('Control+z');
+    await expect(cmContent).toHaveText('\\frac{1}{2}');
   });
 
   test('D-136 / A-OBS-003: Mobile 390x844 (.is-mobile) mounts usable workspace without horizontal overflow', async ({

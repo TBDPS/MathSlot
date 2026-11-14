@@ -281,7 +281,7 @@ impl<'a> Lexer<'a> {
         }
 
         // 4. 单字符定界符与操作符、数字、标识符
-        let c = self.peek_char().unwrap();
+        let c = self.peek_char()?;
         let char_len = c.len_utf8();
 
         match c {

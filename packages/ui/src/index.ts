@@ -130,6 +130,13 @@ export type { SettingsPanelProps } from './settings/SettingsPanel.svelte';
 
 export { default as ImportModal } from './import/ImportModal.svelte';
 export type { ImportModalProps } from './import/ImportModal.svelte';
+export {
+  computeLatexDiff,
+  tokenizeLatexForDiff,
+  type DiffSegment,
+  type DiffSegmentKind,
+  type LatexDiffResult,
+} from './import/diff';
 
 export {
   DEFAULT_SHORTCUTS,

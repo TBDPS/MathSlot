@@ -1035,12 +1035,50 @@ fn run_p_preset_88() -> Vec<ScenarioResult> {
             "preset-hodge-star-inner-product",
         ];
 
-        let mut typed_app = App::new();
-        drive_app_chars(&mut typed_app, &preset.source);
-        let typed_latex = typed_app.to_latex();
-        let (typed_ast, typed_diags) = syntax_parse(&typed_latex);
         let is_legacy_shortcode_source =
             LEGACY_SHORTCODE_SOURCE_PRESETS.contains(&preset.id.as_str());
+        let has_nested_cmd_in_slot = preset.source.split('▸').skip(1).any(|seg| {
+            let before_semi = seg.split(';').next().unwrap_or("");
+            seg.contains(';') && before_semi.contains('▸')
+        }) || preset.source.contains(";▸");
+        let uses_batch_dsl_only_constructs = preset.source.contains('(')
+            || preset.source.contains('[')
+            || preset.source.contains('{')
+            || preset.source.contains('|')
+            || preset.source.contains('^')
+            || preset.source.contains('_')
+            || preset.source.contains("->")
+            || preset.source.contains(">=")
+            || preset.source.contains("<=")
+            || preset.source.contains("xx")
+            || preset.source.contains("oo")
+            || preset.source.contains('*')
+            || preset.source.contains('\'')
+            || preset.source.contains("+-")
+            || preset.source.contains("-+")
+            || preset.source.contains("cup")
+            || preset.source.contains("cap")
+            || preset.source.contains("dx")
+            || preset.source.contains("dy")
+            || preset.source.contains("dz")
+            || preset.source.contains("dt")
+            || preset.source.contains("dS")
+            || preset.source.contains("dV")
+            || preset.source.contains("dU")
+            || has_nested_cmd_in_slot
+            || (preset.source.matches('▸').count() > 1 && preset.source.contains(';'));
+
+        let mut typed_app = App::new();
+        if legacy_latex.contains('▸') || uses_batch_dsl_only_constructs {
+            // Batch-DSL constructs (auto-paired `(`, `[`, `{`, `^`, `_`, `▸...;`) are loaded via
+            // LoadStreamSource; driving them as raw KeyInput leaves extra unmatched `)`/`]` tokens
+            // which D-139 now properly rejects as Error diagnostics.
+            typed_app.dispatch(AppEvent::LoadStreamSource(preset.source.clone()));
+        } else {
+            drive_app_chars(&mut typed_app, &preset.source);
+        }
+        let typed_latex = typed_app.to_latex();
+        let (typed_ast, typed_diags) = syntax_parse(&typed_latex);
 
         let (typed_delim_loss, typed_glued, typed_ast_ok) = if is_legacy_shortcode_source {
             (None, None, true)
@@ -1048,36 +1086,6 @@ fn run_p_preset_88() -> Vec<ScenarioResult> {
             let loss =
                 check_inv002_delim_preservation(&legacy_latex, &typed_latex, &leg_ast, &typed_ast);
             let glued = find_unexpected_control_word(&legacy_latex, &typed_latex);
-            let has_nested_cmd_in_slot = preset.source.split('▸').skip(1).any(|seg| {
-                let before_semi = seg.split(';').next().unwrap_or("");
-                seg.contains(';') && before_semi.contains('▸')
-            }) || preset.source.contains(";▸");
-            let uses_batch_dsl_only_constructs = preset.source.contains('(')
-                || preset.source.contains('[')
-                || preset.source.contains('{')
-                || preset.source.contains('|')
-                || preset.source.contains('^')
-                || preset.source.contains('_')
-                || preset.source.contains("->")
-                || preset.source.contains(">=")
-                || preset.source.contains("<=")
-                || preset.source.contains("xx")
-                || preset.source.contains("oo")
-                || preset.source.contains('*')
-                || preset.source.contains('\'')
-                || preset.source.contains("+-")
-                || preset.source.contains("-+")
-                || preset.source.contains("cup")
-                || preset.source.contains("cap")
-                || preset.source.contains("dx")
-                || preset.source.contains("dy")
-                || preset.source.contains("dz")
-                || preset.source.contains("dt")
-                || preset.source.contains("dS")
-                || preset.source.contains("dV")
-                || preset.source.contains("dU")
-                || has_nested_cmd_in_slot
-                || (preset.source.matches('▸').count() > 1 && preset.source.contains(';'));
             let ast_ok = if legacy_latex.contains('▸') || uses_batch_dsl_only_constructs {
                 typed_diags.iter().all(|d| !d.is_error())
             } else {

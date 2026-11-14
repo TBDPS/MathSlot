@@ -29,6 +29,7 @@
     isMobile?: boolean;
     initialSettingsOpen?: boolean;
     initialImportOpen?: boolean;
+    initialImportLatex?: string;
     delimiterStyle?: DelimiterStyle;
     initialUserFormulas?: UserFormulaEntry[];
     onInsert?: (formattedLatex: string, rawLatex: string) => void;
@@ -56,6 +57,7 @@
     isMobile = false,
     initialSettingsOpen = false,
     initialImportOpen = false,
+    initialImportLatex = '',
     delimiterStyle,
     initialUserFormulas = [],
     onInsert,
@@ -543,15 +545,24 @@
     <ImportModal
       open={importOpen}
       {client}
+      initialLatex={initialImportLatex}
       lastImport={snapshot.last_import ?? null}
       theme={resolvedTheme}
+      onPreviewed={(res) => {
+        snapshot = res.snapshot;
+        if (res.snapshot.last_import?.blocked) {
+          statusNotice = 'LaTeX 预览检测到语法错误，已禁用确认导入';
+        } else if (res.snapshot.last_import) {
+          statusNotice = 'LaTeX 导入预览已就绪，请审阅 Diff 后确认';
+        }
+      }}
       onImported={(res) => {
         snapshot = res.snapshot;
         renderGen += 1;
         if (res.snapshot.last_import?.blocked) {
           statusNotice = 'LaTeX 导入已阻断，请查看诊断';
         } else if (res.snapshot.last_import) {
-          statusNotice = 'LaTeX 导入完成，请在弹窗内审阅报告';
+          statusNotice = 'LaTeX 已导入（支持 Ctrl+Z 一步撤回）';
         }
       }}
       onClose={() => {

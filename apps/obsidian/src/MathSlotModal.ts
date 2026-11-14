@@ -42,12 +42,19 @@ export class MathSlotModal extends Modal {
     this.contentEl.replaceChildren();
 
     let openImport = this.options.initialImportOpen ?? false;
-    if (this.options.initialLatex && this.options.initialLatex.trim().length > 0) {
-      const res = await this.options.client.dispatch({
-        ImportLatex: this.options.initialLatex.trim(),
-      });
-      if (res.snapshot.last_import?.blocked) {
-        openImport = true;
+    const trimmedInitial = this.options.initialLatex?.trim() ?? '';
+    if (trimmedInitial.length > 0) {
+      if (openImport) {
+        await this.options.client.dispatch({
+          PreviewImportLatex: trimmedInitial,
+        });
+      } else {
+        const res = await this.options.client.dispatch({
+          ImportLatex: trimmedInitial,
+        });
+        if (res.snapshot.last_import?.blocked) {
+          openImport = true;
+        }
       }
     }
 
@@ -59,6 +66,7 @@ export class MathSlotModal extends Modal {
         isMobile: Platform.isMobile,
         delimiterStyle: this.options.delimiterStyle,
         initialImportOpen: openImport,
+        initialImportLatex: trimmedInitial,
         initialUserFormulas: this.options.initialUserFormulas ?? [],
         onInsert: (formatted: string, raw: string) => {
           this.options.onInsert(formatted, raw);

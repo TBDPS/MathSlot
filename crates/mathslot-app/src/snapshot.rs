@@ -131,9 +131,33 @@ impl DiagnosticSnapshot {
                 "UNCLOSED_DELIMITER",
                 Some(format!("请补全未闭合的定界符 `{delim}`")),
             ),
+            SyntaxErrorKind::UnmatchedDelimiter(delim) => (
+                "UNMATCHED_DELIMITER",
+                Some(format!("存在多余或未匹配的定界符 `{delim}`")),
+            ),
             SyntaxErrorKind::UnclosedEnvironment(env) => (
                 "UNCLOSED_ENVIRONMENT",
                 Some(format!("请补全 `\\end{{{env}}}` 闭合环境")),
+            ),
+            SyntaxErrorKind::MismatchedEnvironment { expected, found } => (
+                "MISMATCHED_ENVIRONMENT",
+                Some(format!(
+                    "环境不匹配：期望 `\\end{{{expected}}}`，实际遇到 `\\end{{{found}}}`"
+                )),
+            ),
+            SyntaxErrorKind::UnsupportedEnvironment(env) => (
+                "UNSUPPORTED_ENVIRONMENT",
+                Some(format!(
+                    "不支持的环境 `\\begin{{{env}}}` 已降级保留为原始 LaTeX 节点"
+                )),
+            ),
+            SyntaxErrorKind::DepthExceeded(limit) => (
+                "DEPTH_EXCEEDED",
+                Some(format!("LaTeX 嵌套深度超过安全上限 ({limit})，已拒绝解析")),
+            ),
+            SyntaxErrorKind::OuterDelimitersStripped { open, close } => (
+                "OUTER_DELIMITERS_STRIPPED",
+                Some(format!("已自动剥离外层数学定界符 `{open} ... {close}`")),
             ),
             SyntaxErrorKind::EmptyBlock => (
                 "EMPTY_BLOCK",
@@ -148,7 +172,9 @@ impl DiagnosticSnapshot {
                 Some("请检查输入 LaTeX 语法是否完整".to_string()),
             ),
         };
-        let severity = if diag.is_warning {
+        let severity = if diag.is_info() {
+            StatusSeverity::Info
+        } else if diag.is_warning {
             StatusSeverity::Warning
         } else {
             StatusSeverity::Error
@@ -175,6 +201,8 @@ impl DiagnosticSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportReportSnapshot {
+    #[serde(default)]
+    pub input_latex: String,
     pub lossless: bool,
     pub empty_slots: usize,
     pub raw_nodes: usize,

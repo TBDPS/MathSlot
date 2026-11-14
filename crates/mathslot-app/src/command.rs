@@ -25,6 +25,7 @@ pub enum AppCommand {
         copy_to_clipboard: bool,
     },
     ResetDocument,
+    PreviewImportLatex(String),
     ImportLatex(String),
     AcknowledgeImport,
     LoadStreamSource(String),

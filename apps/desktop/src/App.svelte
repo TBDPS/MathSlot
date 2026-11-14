@@ -683,6 +683,9 @@
           client={reactiveClient}
           lastImport={snapshot.last_import ?? null}
           theme={resolvedTheme}
+          onPreviewed={(resp) => {
+            snapshot = resp.snapshot;
+          }}
           onImported={(resp) => {
             snapshot = resp.snapshot;
             renderGeneration += 1;

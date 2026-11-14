@@ -68,3 +68,55 @@ fn d120_wasm_engine_catalog_and_presets_are_single_source_of_truth() {
         .expect("presets.presets must be array");
     assert_eq!(presets.len(), 88, "WASM presets must expose all 88 presets");
 }
+
+#[test]
+fn t4_1_wasm_preview_import_diff_strip_and_blocking_contract() {
+    let mut engine = WasmEngine::new();
+    let initial = serde_json::json!({ "ImportLatex": r"\frac{1}{2}" }).to_string();
+    engine.dispatch_json(&initial).expect("initial import");
+
+    // PreviewImportLatex with outer delimiters + unsupported env must NOT overwrite latex
+    let preview_evt =
+        serde_json::json!({ "PreviewImportLatex": r"$$\begin{align} x \end{align}$$" }).to_string();
+    let preview_raw = engine
+        .dispatch_json(&preview_evt)
+        .expect("dispatch PreviewImportLatex");
+    let preview_resp: Value = serde_json::from_str(&preview_raw).expect("valid preview response");
+    assert_eq!(preview_resp["snapshot"]["latex"], r"\frac{1}{2}");
+    assert_eq!(
+        preview_resp["snapshot"]["last_import"]["blocked"],
+        Value::Bool(false)
+    );
+    assert_eq!(
+        preview_resp["snapshot"]["last_import"]["lossless"],
+        Value::Bool(false)
+    );
+    assert_eq!(
+        preview_resp["snapshot"]["last_import"]["input_latex"],
+        r"$$\begin{align} x \end{align}$$"
+    );
+
+    // Cancel clears last_import without modifying formula
+    let ack = serde_json::json!("ImportAcknowledge").to_string();
+    let ack_raw = engine.dispatch_json(&ack).expect("dispatch ack");
+    let ack_resp: Value = serde_json::from_str(&ack_raw).expect("valid ack response");
+    assert!(ack_resp["snapshot"]["last_import"].is_null());
+    assert_eq!(ack_resp["snapshot"]["latex"], r"\frac{1}{2}");
+
+    // Deep nesting 5000 levels blocked cleanly without panic/crash
+    let deep = format!("{}{}{}", "{".repeat(5000), "x", "}".repeat(5000));
+    let deep_evt = serde_json::json!({ "PreviewImportLatex": deep }).to_string();
+    let deep_raw = engine
+        .dispatch_json(&deep_evt)
+        .expect("dispatch deep preview");
+    let deep_resp: Value = serde_json::from_str(&deep_raw).expect("valid deep response");
+    assert_eq!(
+        deep_resp["snapshot"]["last_import"]["blocked"],
+        Value::Bool(true)
+    );
+    assert!(
+        deep_resp["snapshot"]["last_import"]["diagnostics"]
+            .as_array()
+            .is_some_and(|arr| arr.iter().any(|d| d["code"] == "DEPTH_EXCEEDED"))
+    );
+}

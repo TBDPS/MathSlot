@@ -227,6 +227,7 @@ impl App {
             },
             AppEvent::SelectSlot(id) => AppCommand::SelectSlot(id),
             AppEvent::Clear => AppCommand::ResetDocument,
+            AppEvent::PreviewImportLatex(latex) => AppCommand::PreviewImportLatex(latex),
             AppEvent::ImportLatex(latex) => AppCommand::ImportLatex(latex),
             AppEvent::ImportAcknowledge => AppCommand::AcknowledgeImport,
             AppEvent::LoadStreamSource(source) => AppCommand::LoadStreamSource(source),
@@ -605,28 +606,21 @@ impl App {
                     }
                 }
             }
+            AppCommand::PreviewImportLatex(latex) => {
+                let (_report, import_snapshot) = build_import_report_snapshot(&latex);
+                self.last_import = Some(import_snapshot);
+            }
             AppCommand::ImportLatex(latex) => {
-                let (_ast, report) = mathslot_latex::convert_latex_with_report(&latex);
-                let blocked = report.has_errors();
-                let diag_snapshots: Vec<DiagnosticSnapshot> = report
-                    .diagnostics
-                    .iter()
-                    .map(|diag| DiagnosticSnapshot::from_syntax_diagnostic(diag, &latex))
-                    .collect();
-                let import_snapshot = ImportReportSnapshot {
-                    lossless: report.lossless,
-                    empty_slots: report.empty_slots,
-                    raw_nodes: report.raw_nodes,
-                    roundtrip_latex: report.roundtrip_latex.clone(),
-                    normalized_match: report.normalized_match,
-                    blocked,
-                    diagnostics: diag_snapshots.clone(),
-                };
+                let (report, import_snapshot) = build_import_report_snapshot(&latex);
+                let blocked = import_snapshot.blocked;
+                let diag_snapshots = import_snapshot.diagnostics.clone();
                 self.last_import = Some(import_snapshot);
 
                 if blocked {
                     let first_summary = diag_snapshots
-                        .first()
+                        .iter()
+                        .find(|d| d.severity == StatusSeverity::Error)
+                        .or_else(|| diag_snapshots.first())
                         .map(|d| d.summary.clone())
                         .unwrap_or_else(|| {
                             "LaTeX 导入存在语法错误，已阻断覆盖当前文档".to_string()
@@ -636,10 +630,11 @@ impl App {
                         message: first_summary,
                     }));
                 } else {
+                    let stripped = mathslot_latex::strip_outer_math_delimiters(&latex);
                     let prev_source = self.source_text.clone();
                     let prev_cursor = self.cursor_char;
                     let prev_undo_len = self.editor.history().undo_len();
-                    match self.editor.import_latex(&latex) {
+                    match self.editor.import_latex(stripped.inner) {
                         Ok(_) => {
                             self.pending_origin = None;
                             self.source_text = self.editor.to_latex();
@@ -1262,4 +1257,27 @@ fn replace_pending_prefix_on_line(s: &mut String, char_idx: &mut usize, replacem
     } else {
         insert_str_at_char(s, char_idx, replacement);
     }
+}
+
+fn build_import_report_snapshot(
+    latex: &str,
+) -> (mathslot_latex::ImportReport, ImportReportSnapshot) {
+    let (_ast, report) = mathslot_latex::convert_latex_with_report(latex);
+    let blocked = report.has_errors();
+    let diag_snapshots: Vec<DiagnosticSnapshot> = report
+        .diagnostics
+        .iter()
+        .map(|diag| DiagnosticSnapshot::from_syntax_diagnostic(diag, latex))
+        .collect();
+    let import_snapshot = ImportReportSnapshot {
+        input_latex: latex.to_string(),
+        lossless: report.lossless,
+        empty_slots: report.empty_slots,
+        raw_nodes: report.raw_nodes,
+        roundtrip_latex: report.roundtrip_latex.clone(),
+        normalized_match: report.normalized_match,
+        blocked,
+        diagnostics: diag_snapshots,
+    };
+    (report, import_snapshot)
 }

@@ -31,6 +31,7 @@ pub enum AppEvent {
     Navigate(NavAction),
     SelectSlot(u32),
     Clear,
+    PreviewImportLatex(String),
     ImportLatex(String),
     ImportAcknowledge,
     LoadStreamSource(String),

@@ -141,6 +141,7 @@ export type AppEvent =
   | { Navigate: NavAction }
   | { SelectSlot: number }
   | 'Clear'
+  | { PreviewImportLatex: string }
   | { ImportLatex: string }
   | 'ImportAcknowledge'
   | { LoadStreamSource: string }
@@ -222,6 +223,7 @@ export interface DiagnosticSnapshot {
 }
 
 export interface ImportReportSnapshot {
+  input_latex?: string;
   lossless: boolean;
   empty_slots: number;
   raw_nodes: number;

@@ -4,12 +4,17 @@ use crate::lexer::Lexer;
 use crate::span::{Span, Spanned};
 use crate::token::Token;
 
+/// 递归下降解析器的最大嵌套深度，防止极端恶意/畸形输入导致栈溢出 (D-141 / D-020)
+pub const MAX_PARSE_DEPTH: usize = 256;
+
 /// 容错递归下降语法解析器
 pub struct Parser<'a> {
     source: &'a str,
     tokens: Vec<Spanned<Token<'a>>>,
     cursor: usize,
     diagnostics: Vec<Diagnostic>,
+    depth: usize,
+    depth_exceeded: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -20,6 +25,8 @@ impl<'a> Parser<'a> {
             tokens,
             cursor: 0,
             diagnostics: Vec::new(),
+            depth: 0,
+            depth_exceeded: false,
         }
     }
 
@@ -81,18 +88,105 @@ impl<'a> Parser<'a> {
         false
     }
 
+    fn enter_depth(&mut self, span: Span) -> bool {
+        if self.depth >= MAX_PARSE_DEPTH {
+            if !self.depth_exceeded {
+                self.depth_exceeded = true;
+                self.diagnostics.push(Diagnostic::error(
+                    SyntaxErrorKind::DepthExceeded(MAX_PARSE_DEPTH),
+                    span,
+                ));
+            }
+            return false;
+        }
+        self.depth += 1;
+        true
+    }
+
+    fn leave_depth(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
+    }
+
+    fn consume_depth_overflow(&mut self, start_span: Span) -> Option<Spanned<Expr>> {
+        let mut braces = 0usize;
+        let mut parens = 0usize;
+        let mut brackets = 0usize;
+        let mut envs = 0usize;
+        let mut lefts = 0usize;
+        let mut last_span = start_span;
+        let mut consumed = false;
+
+        while let Some(tok) = self.peek() {
+            match &tok.node {
+                Token::LBrace => braces += 1,
+                Token::RBrace => {
+                    if braces == 0 {
+                        break;
+                    }
+                    braces -= 1;
+                }
+                Token::LParen => parens += 1,
+                Token::RParen => {
+                    if parens == 0 {
+                        break;
+                    }
+                    parens -= 1;
+                }
+                Token::LBracket => brackets += 1,
+                Token::RBracket => {
+                    if brackets == 0 {
+                        break;
+                    }
+                    brackets -= 1;
+                }
+                Token::CmdBegin => envs += 1,
+                Token::CmdEnd => {
+                    if envs == 0 {
+                        break;
+                    }
+                    envs -= 1;
+                }
+                Token::CmdLeft => lefts += 1,
+                Token::CmdRight => {
+                    if lefts == 0 {
+                        break;
+                    }
+                    lefts -= 1;
+                }
+                _ => {}
+            }
+            last_span = tok.span;
+            self.cursor += 1;
+            consumed = true;
+        }
+
+        if !consumed {
+            return None;
+        }
+
+        let span = start_span.merge(last_span);
+        Some(Spanned::new(
+            Expr::Error {
+                message: format!("Maximum nesting depth ({MAX_PARSE_DEPTH}) exceeded"),
+                raw: self.source[span.start..span.end].to_string(),
+            },
+            span,
+        ))
+    }
+
     fn expect(
         &mut self,
         expected: &Token<'a>,
         expected_desc: &str,
     ) -> Result<Spanned<Token<'a>>, Diagnostic> {
-        if let Some(tok) = self.peek() {
+        if let Some(tok) = self.peek().cloned() {
             if &tok.node == expected {
-                return Ok(self.bump().unwrap());
+                self.cursor += 1;
+                return Ok(tok);
             }
             let err = Diagnostic::error(
                 SyntaxErrorKind::ExpectedToken {
-                    expected: "token".to_string(),
+                    expected: expected_desc.to_string(),
                     found: format!("{:?} (expected {})", tok.node, expected_desc),
                 },
                 tok.span,
@@ -102,7 +196,7 @@ impl<'a> Parser<'a> {
         } else {
             let err = Diagnostic::error(
                 SyntaxErrorKind::ExpectedToken {
-                    expected: "token".to_string(),
+                    expected: expected_desc.to_string(),
                     found: format!("end of file (expected {})", expected_desc),
                 },
                 Span::point(self.source.len()),
@@ -122,12 +216,29 @@ impl<'a> Parser<'a> {
             if let Some(expr) = self.parse_expr_unit() {
                 exprs.push(expr);
             } else {
-                // 若无法解析任何有效单元，消费破损 Token 防止死循环
-                let broken = self.bump().unwrap();
+                // 若无法解析任何有效单元，消费破损 Token 并记录 Error 诊断防止死循环与静默吞错
+                let Some(broken) = self.bump() else {
+                    break;
+                };
+                let raw = self.source[broken.span.start..broken.span.end].to_string();
+                let diag = match &broken.node {
+                    Token::RBrace
+                    | Token::RBracket
+                    | Token::RParen
+                    | Token::FloorClose
+                    | Token::CeilClose
+                    | Token::CmdRight
+                    | Token::CmdEnd => Diagnostic::unmatched_delimiter(&raw, broken.span),
+                    _ => Diagnostic::error(
+                        SyntaxErrorKind::UnexpectedToken(raw.clone()),
+                        broken.span,
+                    ),
+                };
+                self.diagnostics.push(diag);
                 let err_expr = Spanned::new(
                     Expr::Error {
                         message: format!("Unexpected token: {:?}", broken.node),
-                        raw: self.source[broken.span.start..broken.span.end].to_string(),
+                        raw,
                     },
                     broken.span,
                 );
@@ -139,8 +250,15 @@ impl<'a> Parser<'a> {
 
     /// 解析一个完整的表达式单元（Atom + 后置脚本 ^/_）
     pub fn parse_expr_unit(&mut self) -> Option<Spanned<Expr>> {
-        let atom = self.parse_atom()?;
-        Some(self.parse_postfix_scripts(atom))
+        let span = self.current_span();
+        if !self.enter_depth(span) {
+            return self.consume_depth_overflow(span);
+        }
+        let res = self
+            .parse_atom()
+            .map(|atom| self.parse_postfix_scripts(atom));
+        self.leave_depth();
+        res
     }
 
     /// 循环处理后置脚本 ^ 与 _（彻底消灭旧版的单字符推断与结合律错误）
@@ -186,7 +304,7 @@ impl<'a> Parser<'a> {
 
     /// 解析上下标参数：支持 {...} 分组、一元负号复合项、分数、单字符/符号
     fn parse_script_arg(&mut self) -> Spanned<Expr> {
-        if self.is_eof() {
+        let Some(first_tok) = self.peek_token() else {
             let span = Span::point(self.source.len());
             return Spanned::new(
                 Expr::Placeholder {
@@ -195,14 +313,22 @@ impl<'a> Parser<'a> {
                 },
                 span,
             );
-        }
+        };
 
-        let first_tok = self.peek_token().unwrap();
         match first_tok {
             Token::LBrace => self.parse_group(),
             Token::Minus => {
                 // 一元负号复合项，例如 e^-x^2
-                let minus_tok = self.bump().unwrap();
+                let Some(minus_tok) = self.bump() else {
+                    let span = self.current_span();
+                    return Spanned::new(
+                        Expr::Placeholder {
+                            slot_id: SlotId(0),
+                            label: None,
+                        },
+                        span,
+                    );
+                };
                 let minus_expr = Spanned::new(
                     Expr::Symbol(SymbolKind::Operator("-".to_string())),
                     minus_tok.span,
@@ -232,12 +358,11 @@ impl<'a> Parser<'a> {
 
     /// 解析原子节点（不带后置脚本）
     fn parse_atom_no_scripts(&mut self) -> Option<Spanned<Expr>> {
-        if self.is_eof() {
-            return None;
-        }
-
         let tok_spanned = self.peek()?.clone();
-        match &tok_spanned.node {
+        if !self.enter_depth(tok_spanned.span) {
+            return self.consume_depth_overflow(tok_spanned.span);
+        }
+        let res = match &tok_spanned.node {
             Token::Ident(s) => {
                 self.bump();
                 Some(Spanned::new(Expr::Text((*s).to_string()), tok_spanned.span))
@@ -276,7 +401,9 @@ impl<'a> Parser<'a> {
                 ))
             }
             _ => None,
-        }
+        };
+        self.leave_depth();
+        res
     }
 
     /// 解析普通原子节点
@@ -337,6 +464,10 @@ impl<'a> Parser<'a> {
             Token::Comma => {
                 self.bump();
                 Some(Spanned::new(Expr::Text(",".to_string()), tok_spanned.span))
+            }
+            Token::Semicolon => {
+                self.bump();
+                Some(Spanned::new(Expr::Text(";".to_string()), tok_spanned.span))
             }
             Token::Colon => {
                 self.bump();
@@ -408,7 +539,9 @@ impl<'a> Parser<'a> {
 
     /// 解析花括号分组 { ... }
     fn parse_group(&mut self) -> Spanned<Expr> {
-        let open_tok = self.bump().unwrap(); // 消费 `{`
+        let Some(open_tok) = self.bump() else {
+            return Spanned::new(Expr::Group(Vec::new()), self.current_span());
+        };
         let mut body = Vec::new();
 
         while !self.is_eof() {
@@ -438,7 +571,9 @@ impl<'a> Parser<'a> {
 
     /// 解析裸括号 ( ... ) / [ ... ] / | ... |
     fn parse_bare_delimited(&mut self, delim: Delim, close_tok: &Token<'a>) -> Spanned<Expr> {
-        let open_spanned = self.bump().unwrap();
+        let Some(open_spanned) = self.bump() else {
+            return Spanned::new(Expr::Group(Vec::new()), self.current_span());
+        };
         let mut body = Vec::new();
 
         while !self.is_eof() {
@@ -478,7 +613,9 @@ impl<'a> Parser<'a> {
 
     /// 解析 \left ... \right 定界符节点（彻底切断 \left 与 \le 混淆）
     fn parse_delimited(&mut self) -> Spanned<Expr> {
-        let left_tok = self.bump().unwrap(); // 消费 `\left`
+        let Some(left_tok) = self.bump() else {
+            return Spanned::new(Expr::Group(Vec::new()), self.current_span());
+        };
 
         // 读取左定界符
         let (open_delim, open_span) = self.parse_single_delim_token();
@@ -641,8 +778,7 @@ impl<'a> Parser<'a> {
                 _ => (false, ""),
             };
 
-            if is_splittable {
-                let first_char = s_val.chars().next().unwrap();
+            if is_splittable && let Some(first_char) = s_val.chars().next() {
                 let char_len = first_char.len_utf8();
                 let first_slice = &s_val[..char_len];
                 let rem_slice = &s_val[char_len..];
@@ -677,9 +813,12 @@ impl<'a> Parser<'a> {
 
     /// 解析分数节点 \frac{num}{den} 或 ▸f
     fn parse_fraction(&mut self) -> Spanned<Expr> {
-        let start_spanned = self.bump().unwrap();
+        let Some(start_spanned) = self.bump() else {
+            return Spanned::new(Expr::Group(Vec::new()), self.current_span());
+        };
 
         // 解析分子
+        let num_lbrace_span = self.peek().map(|t| t.span);
         let num = if self.eat(&Token::LBrace) {
             let mut items = Vec::new();
             while !self.is_eof() && self.peek_token() != Some(&Token::RBrace) {
@@ -689,13 +828,19 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.eat(&Token::RBrace);
+            if !self.eat(&Token::RBrace) {
+                self.diagnostics.push(Diagnostic::unclosed_delimiter(
+                    "}",
+                    num_lbrace_span.unwrap_or(start_spanned.span),
+                ));
+            }
             items
         } else {
             self.parse_unbraced_macro_arg()
         };
 
         // 解析分母
+        let den_lbrace_span = self.peek().map(|t| t.span);
         let den = if self.eat(&Token::LBrace) {
             let mut items = Vec::new();
             while !self.is_eof() && self.peek_token() != Some(&Token::RBrace) {
@@ -705,7 +850,12 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.eat(&Token::RBrace);
+            if !self.eat(&Token::RBrace) {
+                self.diagnostics.push(Diagnostic::unclosed_delimiter(
+                    "}",
+                    den_lbrace_span.unwrap_or(start_spanned.span),
+                ));
+            }
             items
         } else {
             self.parse_unbraced_macro_arg()
@@ -723,9 +873,12 @@ impl<'a> Parser<'a> {
 
     /// 解析根号节点 \sqrt[index]{radicand} 或 \sqrt{radicand}
     fn parse_sqrt(&mut self) -> Spanned<Expr> {
-        let start_spanned = self.bump().unwrap();
+        let Some(start_spanned) = self.bump() else {
+            return Spanned::new(Expr::Group(Vec::new()), self.current_span());
+        };
 
         // 探测可选方括号根指数 [index]
+        let index_lbracket_span = self.peek().map(|t| t.span);
         let index = if self.eat(&Token::LBracket) {
             let mut items = Vec::new();
             while !self.is_eof() && self.peek_token() != Some(&Token::RBracket) {
@@ -735,13 +888,19 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.eat(&Token::RBracket);
+            if !self.eat(&Token::RBracket) {
+                self.diagnostics.push(Diagnostic::unclosed_delimiter(
+                    "]",
+                    index_lbracket_span.unwrap_or(start_spanned.span),
+                ));
+            }
             Some(items)
         } else {
             None
         };
 
         // 解析被开方数
+        let rad_lbrace_span = self.peek().map(|t| t.span);
         let radicand = if self.eat(&Token::LBrace) {
             let mut items = Vec::new();
             while !self.is_eof() && self.peek_token() != Some(&Token::RBrace) {
@@ -751,7 +910,12 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.eat(&Token::RBrace);
+            if !self.eat(&Token::RBrace) {
+                self.diagnostics.push(Diagnostic::unclosed_delimiter(
+                    "}",
+                    rad_lbrace_span.unwrap_or(start_spanned.span),
+                ));
+            }
             items
         } else {
             self.parse_unbraced_macro_arg()
@@ -766,27 +930,83 @@ impl<'a> Parser<'a> {
         Spanned::new(Expr::Root { index, radicand }, span)
     }
 
-    /// 解析矩阵环境（GT-06, GT-07 关键防线：& 与 \\ 严格隔离，绝不转义）
+    /// 解析矩阵环境（GT-06, GT-07 关键防线：& 与 \\ 严格隔离；未知环境绝不强转为 matrix）
     fn parse_matrix(&mut self) -> Spanned<Expr> {
-        let start_spanned = self.bump().unwrap(); // 消费 `\begin`
+        let Some(start_spanned) = self.bump() else {
+            return Spanned::new(Expr::Group(Vec::new()), self.current_span());
+        };
 
         // 期望 `{`
-        let _ = self.expect(&Token::LBrace, "{");
-        let env_name = if let Some(tok) = self.peek() {
-            match &tok.node {
-                Token::Ident(name) => {
-                    let s = *name;
-                    self.bump();
-                    s
-                }
-                _ => "matrix",
-            }
-        } else {
-            "matrix"
-        };
-        let _ = self.expect(&Token::RBrace, "}");
+        if self.expect(&Token::LBrace, "{").is_err() {
+            let span = start_spanned.span.merge(self.prev_span());
+            return Spanned::new(
+                Expr::Error {
+                    message: "Expected '{' after \\begin".to_string(),
+                    raw: self.source[span.start..span.end].to_string(),
+                },
+                span,
+            );
+        }
 
-        let env = MatrixEnv::from_latex_name(env_name).unwrap_or(MatrixEnv::Matrix);
+        let env_name = match self.peek().cloned() {
+            Some(tok) => match tok.node {
+                Token::Ident(name) => {
+                    self.bump();
+                    Some(name)
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        SyntaxErrorKind::ExpectedToken {
+                            expected: "environment name".to_string(),
+                            found: format!("{:?}", tok.node),
+                        },
+                        tok.span,
+                    ));
+                    None
+                }
+            },
+            None => {
+                self.diagnostics.push(Diagnostic::error(
+                    SyntaxErrorKind::ExpectedToken {
+                        expected: "environment name".to_string(),
+                        found: "end of file".to_string(),
+                    },
+                    Span::point(self.source.len()),
+                ));
+                None
+            }
+        };
+
+        if self.expect(&Token::RBrace, "}").is_err() {
+            let end_span = self.prev_span();
+            let span = start_spanned.span.merge(end_span);
+            if let Some(name) = env_name {
+                self.diagnostics
+                    .push(Diagnostic::unclosed_env(name, start_spanned.span));
+            }
+            return Spanned::new(
+                Expr::Error {
+                    message: "Unclosed \\begin{...}".to_string(),
+                    raw: self.source[span.start..span.end].to_string(),
+                },
+                span,
+            );
+        }
+
+        let Some(env_name) = env_name else {
+            let span = start_spanned.span.merge(self.prev_span());
+            return Spanned::new(
+                Expr::Error {
+                    message: "Missing environment name after \\begin".to_string(),
+                    raw: self.source[span.start..span.end].to_string(),
+                },
+                span,
+            );
+        };
+
+        let Some(env) = MatrixEnv::from_latex_name(env_name) else {
+            return self.parse_unsupported_environment(env_name, start_spanned.span);
+        };
 
         let mut rows = Vec::new();
         let mut current_row: Vec<Vec<Spanned<Expr>>> = Vec::new();
@@ -824,10 +1044,36 @@ impl<'a> Parser<'a> {
 
         // 消费 `\end{...}`
         let end_span = if self.eat(&Token::CmdEnd) {
-            let _ = self.expect(&Token::LBrace, "{");
-            let _ = self.expect(&Token::Ident(env_name), env_name);
-            let _ = self.expect(&Token::RBrace, "}");
-            self.prev_span()
+            let end_cmd_span = self.prev_span();
+            let has_lbrace = self.expect(&Token::LBrace, "{").is_ok();
+            match self.peek().cloned() {
+                Some(tok) => match tok.node {
+                    Token::Ident(found_name) => {
+                        self.bump();
+                        if found_name != env_name {
+                            self.diagnostics
+                                .push(Diagnostic::mismatched_env(env_name, found_name, tok.span));
+                        }
+                    }
+                    _ => {
+                        let found = &self.source[tok.span.start..tok.span.end];
+                        self.diagnostics
+                            .push(Diagnostic::mismatched_env(env_name, found, tok.span));
+                    }
+                },
+                None => {
+                    self.diagnostics
+                        .push(Diagnostic::unclosed_env(env_name, end_cmd_span));
+                }
+            }
+            if has_lbrace {
+                match self.expect(&Token::RBrace, "}") {
+                    Ok(tok) => tok.span,
+                    Err(_) => self.prev_span(),
+                }
+            } else {
+                self.prev_span()
+            }
         } else {
             self.diagnostics
                 .push(Diagnostic::unclosed_env(env_name, start_spanned.span));
@@ -838,9 +1084,114 @@ impl<'a> Parser<'a> {
         Spanned::new(Expr::Matrix { env, rows }, span)
     }
 
+    /// 处理未纳入 MatrixEnv 白名单的环境（如 align/equation/gather/array）：
+    /// - 完整成对闭合 -> 保留原始 LaTeX 为 Expr::RawLatex 并注入 Warning (UnsupportedEnvironment)
+    /// - 未闭合或环境名不匹配 -> 注入 Error 诊断 (UnclosedEnvironment / MismatchedEnvironment)
+    fn parse_unsupported_environment(
+        &mut self,
+        env_name: &'a str,
+        start_span: Span,
+    ) -> Spanned<Expr> {
+        let mut env_depth = 1usize;
+
+        while let Some(tok) = self.peek().cloned() {
+            match &tok.node {
+                Token::CmdBegin => {
+                    self.bump();
+                    if self.eat(&Token::LBrace) {
+                        if matches!(self.peek_token(), Some(Token::Ident(_))) {
+                            self.bump();
+                        }
+                        self.eat(&Token::RBrace);
+                    }
+                    env_depth += 1;
+                }
+                Token::CmdEnd => {
+                    let end_cmd_span = tok.span;
+                    self.bump();
+                    let has_lbrace = self.expect(&Token::LBrace, "{").is_ok();
+                    let found_name = match self.peek().cloned() {
+                        Some(name_tok) => match name_tok.node {
+                            Token::Ident(name) => {
+                                self.bump();
+                                Some((name, name_tok.span))
+                            }
+                            _ => None,
+                        },
+                        None => None,
+                    };
+                    if has_lbrace && self.expect(&Token::RBrace, "}").is_err() {
+                        self.diagnostics
+                            .push(Diagnostic::unclosed_env(env_name, end_cmd_span));
+                    }
+
+                    if env_depth == 1 {
+                        let span = start_span.merge(self.prev_span());
+                        let raw = self.source[span.start..span.end].to_string();
+                        match found_name {
+                            Some((found, _)) if found == env_name => {
+                                self.diagnostics
+                                    .push(Diagnostic::unsupported_env(env_name, span));
+                                return Spanned::new(
+                                    Expr::RawLatex {
+                                        latex: raw,
+                                        warning: Some(format!(
+                                            "Unsupported environment \\begin{{{env_name}}}"
+                                        )),
+                                    },
+                                    span,
+                                );
+                            }
+                            Some((found, found_span)) => {
+                                self.diagnostics
+                                    .push(Diagnostic::mismatched_env(env_name, found, found_span));
+                                return Spanned::new(
+                                    Expr::Error {
+                                        message: format!(
+                                            "Mismatched environment: expected \\end{{{env_name}}}, found \\end{{{found}}}"
+                                        ),
+                                        raw,
+                                    },
+                                    span,
+                                );
+                            }
+                            None => {
+                                self.diagnostics
+                                    .push(Diagnostic::unclosed_env(env_name, end_cmd_span));
+                                return Spanned::new(
+                                    Expr::Error {
+                                        message: format!("Unclosed environment: {env_name}"),
+                                        raw,
+                                    },
+                                    span,
+                                );
+                            }
+                        }
+                    }
+                    env_depth = env_depth.saturating_sub(1);
+                }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
+
+        let span = Span::new(start_span.start, self.source.len());
+        self.diagnostics
+            .push(Diagnostic::unclosed_env(env_name, start_span));
+        Spanned::new(
+            Expr::Error {
+                message: format!("Unclosed environment: {env_name}"),
+                raw: self.source[span.start..span.end].to_string(),
+            },
+            span,
+        )
+    }
+
     /// 解析样式命令：\mathrm{...}, \mathbf{...}, \text{...}
     fn parse_style_command(&mut self, style: &'a str, start_span: Span) -> Spanned<Expr> {
         let mut inner = Vec::new();
+        let lbrace_span = self.peek().map(|t| t.span);
         if self.eat(&Token::LBrace) {
             while !self.is_eof() && self.peek_token() != Some(&Token::RBrace) {
                 if let Some(expr) = self.parse_expr_unit() {
@@ -849,7 +1200,12 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.eat(&Token::RBrace);
+            if !self.eat(&Token::RBrace) {
+                self.diagnostics.push(Diagnostic::unclosed_delimiter(
+                    "}",
+                    lbrace_span.unwrap_or(start_span),
+                ));
+            }
         } else if let Some(atom) = self.parse_atom_no_scripts() {
             inner.push(atom);
         }
@@ -875,22 +1231,26 @@ impl<'a> Parser<'a> {
         let macro_start = start_span.start;
         let mut macro_end = start_span.end;
 
-        // 若未知宏后紧跟 {...} 参数或 [...] 可选参数，以大括号深度平衡完整吞入
+        // 若未知宏后紧跟 {...} 参数，以大括号深度平衡完整吞入；未闭合时保留文本并记录 Error
         if let Some(tok) = self.peek()
             && tok.node == Token::LBrace
         {
-            let mut depth = 0;
-            while !self.is_eof() {
-                let cur = self.bump().unwrap();
+            let lbrace_span = tok.span;
+            let mut depth = 0usize;
+            while let Some(cur) = self.bump() {
+                macro_end = cur.span.end;
                 if cur.node == Token::LBrace {
                     depth += 1;
                 } else if cur.node == Token::RBrace {
-                    depth -= 1;
+                    depth = depth.saturating_sub(1);
                     if depth == 0 {
-                        macro_end = cur.span.end;
                         break;
                     }
                 }
+            }
+            if depth > 0 {
+                self.diagnostics
+                    .push(Diagnostic::unclosed_delimiter("}", lbrace_span));
             }
         }
 
