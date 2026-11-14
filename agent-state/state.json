@@ -124,8 +124,12 @@
   "round": 37,
   "active_task": "T4.6",
   "next_task": "T4.6",
-  "last_verdict": "PASS",
-  "open_p1": [],
+  "last_verdict": "BLOCK",
+  "open_p1": [
+    "D-167",
+    "D-168",
+    "D-169"
+  ],
   "new_defects": [
     "D-101",
     "D-102",
@@ -191,7 +195,11 @@
     "D-163",
     "D-164",
     "D-165",
-    "D-166"
+    "D-166",
+    "D-167",
+    "D-168",
+    "D-169",
+    "D-170"
   ],
   "no_progress_rounds": 0,
   "reopened": {
