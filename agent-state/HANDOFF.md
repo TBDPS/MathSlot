@@ -2,21 +2,18 @@
 
 ## 当前
 
-- 轮次：28
+- 轮次：28 → 回炉修复 `T3.5`（Round 29）
 - Gate：G3
-- 当前任务：`T3.5`（`apps/desktop` Tauri 2 桌面壳 + Playwright / 桌面 E2E + `T3.7` 双端功能对齐）
-- 状态：**已触发停机保护（`agent-state/STOPPED`）** — 宿主机缺少 `webkit2gtk4.1-devel`、`gtk3-devel`、`libsoup3-devel`、`javascriptcoregtk4.1-devel`、`librsvg2-devel` 系统 `-devel` 包且无免密 `sudo` 权限，无法编译 `tauri = "2"` 桌面壳；详见 `agent-state/OVERNIGHT_REPORT.md`。
+- 当前任务：`T3.5`（`D-127` CM6 ↔ 引擎单一事实源同步竞态精确修复；其余 `D-128`/`D-129`/`D-130`/`D-008`/`D-009`/`D-015`/`D-016` 已在 `VER-28.md` 核对通过）
+- 状态：**VER-28 FAIL（`T3.5` reopen #1）** — 派发 `mathslot-implementer` 按 `VER-28.md` §5 根因定位修复 CM6 单字符输入竞态残留分号 `\frac{1}{2};` 问题并补全 `.cm-content` E2E/单测严格断言。
 
-## 本轮（Round 27）做过什么
+## 本轮（Round 28）做过什么
 
-- `T3.6` 回炉修复并通过独立验收（commit `3a22824` + `VER-27.md` **PASS**）：
-  - 修复 `apps/obsidian/src/styles.css` 5 处未定义 `--ms-*` 令牌断链并同步重建 `obsidian-mathslot/{main.js,styles.css}`；`obsidian.test.ts` 新增令牌完整性校验与 `recovery-restore-btn` 端到端恢复测试。
-  - 修复 `apps/obsidian/src/plugin.ts` 阅读视图 `mathslot` 代码块处理器，自动跟随宿主 `theme-dark` 主题并经由 `createObsidianHostRenderAdapter` 检测 `<mjx-merror>` 静默错误与降级告警。
-  - 关闭缺陷 `D-017`、`D-021`、`D-120`–`D-126`；全工作区门禁全绿（Rust `241 passed; 0 failed; 0 ignored`，`packages/ui` `29 passed`，`apps/obsidian` `10 passed`，`node obsidian-mathslot/scripts/build.mjs` `PASS`，`scripts/agent/acceptance.sh` `PASS=5 FAIL=0 WARN=3`）。
+- `7f42d74` 完成 `apps/desktop`（Tauri 2 Rust 后端 + Svelte 5 前端 + Playwright E2E）、`mathslot-store` 恢复原语、`mathslot-app` `source`/`cursor_char` 快照与 `SaveSnippet`、`SettingsPanel` 去重与 `ErrorSummary` camelCase DTO 映射。
+- `VER-28.md` 独立验收核实全部自动化命令（Rust 247 passed / UI 33 passed / Obsidian 10 passed / Desktop 3+5 E2E passed / `audit_palette` / `xtask check`）退出码 0，但通过直接查看 `apps/desktop/.e2e-artifacts/light-short.png` 捕获 **`D-127` 阻断缺陷**：`packages/ui/src/editor/keymap.ts:243-247` 对单字符 `keydown` 异步派发且未调用 `event.preventDefault()`，导致微任务中 `syncViewWithSnapshot` 重写 CM6 为 `\frac{1}{2}` 后，浏览器延迟到达的 `;` `beforeinput` 又向末尾插入 `;`，造成编辑框显示 `\frac{1}{2};`。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-25.md`
-- `agent-state/decisions/ADR-0029-t3-6-obsidian-shell-wasm-bindgen-and-shared-ui.md`
-- `agent-state/verify/VER-26.md`（FAIL）→ `agent-state/verify/VER-27.md`（PASS）
-- `agent-state/STOPPED` & `agent-state/OVERNIGHT_REPORT.md`
+- `agent-state/audits/AUD-26.md`
+- `agent-state/decisions/ADR-0030-t3-5-tauri-desktop-shell-and-e2e.md`
+- `agent-state/verify/VER-28.md`（FAIL — `D-127`）
