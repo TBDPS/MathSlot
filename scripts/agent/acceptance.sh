@@ -67,6 +67,42 @@ else
   fi
 fi
 
+if [[ -f "$ROOT/packages/ui/scripts/bench-budgets.mjs" ]] && command -v node >/dev/null 2>&1; then
+  if node "$ROOT/packages/ui/scripts/bench-budgets.mjs" >/tmp/mathslot-perf.json 2>/tmp/mathslot-perf.err; then
+    if python3 - "$ROOT/agent-state/baseline/perf-baseline.json" /tmp/mathslot-perf.json >/tmp/mathslot-perf-cmp.log 2>&1 <<'PY'
+import json, sys
+base_path, cur_path = sys.argv[1], sys.argv[2]
+cur = json.load(open(cur_path))
+try:
+    base = json.load(open(base_path))["wasm_node"]
+except FileNotFoundError:
+    print("no perf-baseline.json; budget thresholds only")
+    sys.exit(0)
+errs = []
+max_wasm_mem = int(base["stress_1000_edits"]["wasm_memory_after_1000_bytes"] * 1.10)
+cur_wasm_mem = cur["stress_1000_edits"]["wasm_memory_after_1000_bytes"]
+if cur_wasm_mem > max_wasm_mem:
+    errs.append(f"wasm_memory_after_1000 {cur_wasm_mem} > +10% baseline {max_wasm_mem}")
+max_rss = int(base["stress_1000_edits"]["node_rss_after_bytes"] * 1.10)
+cur_rss = cur["stress_1000_edits"]["node_rss_after_bytes"]
+if cur_rss > max_rss:
+    errs.append(f"node_rss_after {cur_rss} > +10% baseline {max_rss}")
+if errs:
+    print("; ".join(errs))
+    sys.exit(1)
+print(f"wasm={cur['wasm']['wasm_bytes']}B, mem1000={cur_wasm_mem}B, parse_p95={cur['parse']['p95_ms']}ms, render_p95={cur['render']['p95_ms']}ms")
+PY
+    then
+      record PASS "性能与 WASM 预算" "$(cat /tmp/mathslot-perf-cmp.log)"
+    else
+      record FAIL "性能与 WASM 预算" "超出 +10% 基线：$(cat /tmp/mathslot-perf-cmp.log)"
+    fi
+  else
+    record FAIL "性能与 WASM 预算" "bench-budgets.mjs 失败"
+    tail -n 12 /tmp/mathslot-perf.err | sed 's/^/    /'
+  fi
+fi
+
 count() { rg -c --no-filename "$1" "${@:2}" 2>/dev/null | awk '{s+=$1} END {print s+0}'; }
 
 LET_UNDERSCORE="$(count 'let _ = ' src crates --glob '!target' || true)"
