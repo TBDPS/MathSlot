@@ -33,6 +33,7 @@ export {
   type StatusMessage,
   type StatusSeverity,
   type ThemePreference,
+  type UserFormulaEntry,
 } from './client/engine';
 
 export {

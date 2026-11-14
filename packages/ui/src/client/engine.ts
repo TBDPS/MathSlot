@@ -57,6 +57,17 @@ export interface RecoveryStateSnapshot {
   error: string;
 }
 
+export interface UserFormulaEntry {
+  id: string;
+  name: string;
+  category: string;
+  source: string;
+  desc: string;
+  tags: string[];
+  is_builtin?: boolean;
+  created_at?: number;
+}
+
 export interface AppSettings {
   theme: ThemePreference;
   delimiter_style: DelimiterStyle;

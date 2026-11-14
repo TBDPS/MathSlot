@@ -22,9 +22,13 @@ import {
 } from './hostRenderAdapter';
 import { MathSlotModal } from './MathSlotModal';
 import {
+  exportPluginConfigJson,
+  importPluginConfigJson,
   loadAndValidateLibrary,
+  readUserFormulas,
   resetEmptyLibrary,
   restoreFromBackup,
+  saveUserSnippet,
   type PluginPersistedData,
 } from './storage';
 import { WasmEngineClient } from './wasmClient';
@@ -141,6 +145,7 @@ export default class MathSlotPlugin extends Plugin {
         delimiterStyle,
         initialLatex: selection.length > 0 ? selection : undefined,
         initialImportOpen: options.initialImportOpen,
+        initialUserFormulas: readUserFormulas(this.persisted),
         onInsert: (formattedLatex) => {
           const active = targetEditor ?? this.getActiveEditor();
           if (active) {
@@ -162,6 +167,26 @@ export default class MathSlotPlugin extends Plugin {
         onPersistSettings: async (settings: AppSettings) => {
           this.persisted.settings = settings;
           await this.savePersisted(this.persisted);
+        },
+        onSaveSnippet: async (source: string, latex: string) => {
+          return saveUserSnippet(
+            this.persisted,
+            (next) => this.savePersisted(next),
+            source,
+            latex,
+          );
+        },
+        onImportConfigData: async (rawJson: string) => {
+          const imported = await importPluginConfigJson(rawJson, this.persisted, (next) =>
+            this.savePersisted(next),
+          );
+          return {
+            settings: imported.settings,
+            userFormulas: imported.userFormulas,
+          };
+        },
+        onExportConfigData: async (settings: AppSettings) => {
+          return exportPluginConfigJson(this.persisted, settings);
         },
       });
       modal.open();

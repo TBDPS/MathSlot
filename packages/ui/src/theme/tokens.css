@@ -262,10 +262,10 @@
 }
 
 /* Obsidian Host CSS Variable Mapping (D-124 / A-OBS-001) */
-[data-host='obsidian'],
-[data-host='obsidian'] [data-theme],
-.mathslot-obsidian-host,
-.mathslot-obsidian-host [data-theme] {
+[data-host='obsidian']:not([data-theme-override]),
+[data-host='obsidian']:not([data-theme-override]) [data-theme],
+.mathslot-obsidian-host:not([data-theme-override]),
+.mathslot-obsidian-host:not([data-theme-override]) [data-theme] {
   --ms-font-sans: var(--font-interface, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   --ms-font-mono: var(--font-monospace, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace);
 

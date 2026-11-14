@@ -316,4 +316,66 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
       });
     }
   });
+
+  it('D-134 / D-135: PreviewPanel applies previewScalePct and triggers onCopyError + onViewDiagnostics on degraded render', async () => {
+    const mockAdapter: RenderAdapter = {
+      kind: 'mathjax',
+      render: vi.fn(async (req: PreviewRenderRequest): Promise<PreviewRenderResult> => ({
+        generation: req.generation,
+        backend: 'mathjax',
+        svg: '<svg><text>err</text></svg>',
+        degraded: true,
+        diagnostics: [
+          {
+            code: 'PRIMARY_RENDER_FAILED',
+            severity: 'Error',
+            summary: '[PRIMARY_RENDER_FAILED] boom',
+            message: 'boom',
+            sourceExcerpt: 'x',
+            truncated: false,
+            detail: 'boom detail',
+          },
+        ],
+        cacheHit: false,
+      })),
+    };
+    const onCopyError = vi.fn();
+    const onViewDiagnostics = vi.fn();
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(PreviewPanel, {
+      target,
+      props: {
+        latex: 'x',
+        generation: 1,
+        renderer: mockAdapter,
+        previewScalePct: 125,
+        onCopyError,
+        onViewDiagnostics,
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+
+    await tick();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(target.querySelector('[data-testid="zoom-percent"]')?.textContent).toContain('125%');
+
+    const copyBtn = target.querySelector<HTMLButtonElement>('[data-testid="preview-copy-error-btn"]');
+    const viewBtn = target.querySelector<HTMLButtonElement>('[data-testid="preview-view-diagnostics-btn"]');
+    expect(copyBtn).not.toBeNull();
+    expect(viewBtn).not.toBeNull();
+
+    copyBtn!.click();
+    viewBtn!.click();
+    await tick();
+
+    expect(onCopyError).toHaveBeenCalledTimes(1);
+    expect(onViewDiagnostics).toHaveBeenCalledTimes(1);
+  });
 });

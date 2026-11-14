@@ -24,8 +24,10 @@
     type EngineClient,
     type EngineSnapshot,
     type ManagedRenderer,
+    type PreviewDiagnostic,
     type RenderAdapter,
     type StatusSeverity,
+    type UserFormulaEntry,
   } from '@mathslot/ui';
   import { createDesktopHostBridge, type DesktopHostBridge } from './lib/desktopClient';
 
@@ -48,6 +50,9 @@
   let toastMessage = $state<string | null>(null);
   let toastSeverity = $state<StatusSeverity>('Info');
   let editorRef = $state<{ focus: () => void } | null>(null);
+  let diagnosticsRef = $state<{ expand: () => void } | null>(null);
+  let renderDiagnostics = $state<PreviewDiagnostic[]>([]);
+  let userFormulas = $state<UserFormulaEntry[]>([]);
   let fileInputEl: HTMLInputElement | null = null;
   let lastTriggerEl: HTMLElement | null = null;
 
@@ -143,6 +148,13 @@
           } else {
             showToast('存在未完成或错误诊断，严格导出已阻断', 'Error');
           }
+        } else if (
+          'Host' in effect &&
+          typeof effect.Host === 'object' &&
+          effect.Host !== null &&
+          'SaveSnippet' in effect.Host
+        ) {
+          userFormulas = await hostBridge.getUserFormulas();
         }
       }
     }
@@ -215,6 +227,7 @@
   async function handleRestoreBackup(backupPath: string | null): Promise<void> {
     try {
       snapshot = await hostBridge.restoreBackup(backupPath);
+      userFormulas = await hostBridge.getUserFormulas();
       showToast('已从备份恢复配置', 'Info');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -225,6 +238,7 @@
   async function handleConfirmResetEmpty(): Promise<void> {
     try {
       snapshot = await hostBridge.resetEmptyConfig();
+      userFormulas = await hostBridge.getUserFormulas();
       showToast('已确认重置为空配置', 'Info');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -263,6 +277,7 @@
     try {
       const raw = await file.text();
       snapshot = await hostBridge.importConfigJson(raw);
+      userFormulas = await hostBridge.getUserFormulas();
       showToast('配置文件已验证并导入', 'Info');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -325,12 +340,14 @@
 
     void (async () => {
       try {
-        const [initialSnap, version] = await Promise.all([
+        const [initialSnap, version, formulas] = await Promise.all([
           hostBridge.snapshot(),
           hostBridge.engineVersion(),
+          hostBridge.getUserFormulas(),
         ]);
         snapshot = initialSnap;
         engineVer = version;
+        userFormulas = formulas;
         if (initialSnap.recovery) {
           showSettingsModal = true;
           showToast('检测到配置损坏，已启用恢复向导', 'Warning');
@@ -499,12 +516,17 @@
         <PalettePanel
           client={reactiveClient}
           theme={resolvedTheme}
+          {userFormulas}
           onRequestEditorFocus={() => editorRef?.focus()}
           onCommandApplied={(_cmd, resp) => {
             snapshot = resp.snapshot;
             renderGeneration += 1;
           }}
           onPresetLoaded={(_preset, resp) => {
+            snapshot = resp.snapshot;
+            renderGeneration += 1;
+          }}
+          onUserFormulaLoaded={(_formula, resp) => {
             snapshot = resp.snapshot;
             renderGeneration += 1;
           }}
@@ -525,6 +547,16 @@
           theme={resolvedTheme}
           generation={renderGeneration}
           display={true}
+          previewScalePct={currentSettings.preview_scale_pct ?? null}
+          onRenderResult={(res) => {
+            renderDiagnostics = res.degraded ? res.diagnostics : [];
+          }}
+          onViewDiagnostics={() => {
+            showDiagnosticsPanel = true;
+            void tick().then(() => {
+              diagnosticsRef?.expand();
+            });
+          }}
           onCopyLatex={() => {
             void handleCopyLatex();
           }}
@@ -570,9 +602,9 @@
             诊断与校验
             <span
               class="ms-count-badge"
-              data-alert={snapshot.diagnostics.length > 0 ? 'true' : 'false'}
+              data-alert={snapshot.diagnostics.length + renderDiagnostics.length > 0 ? 'true' : 'false'}
             >
-              {snapshot.diagnostics.length}
+              {snapshot.diagnostics.length + renderDiagnostics.length}
             </span>
           </h2>
           <button
@@ -588,7 +620,13 @@
           </button>
         </div>
         {#if showDiagnosticsPanel}
-          <DiagnosticsPanel diagnostics={snapshot.diagnostics} theme={resolvedTheme} />
+          <DiagnosticsPanel
+            bind:this={diagnosticsRef}
+            diagnostics={snapshot.diagnostics}
+            {renderDiagnostics}
+            sourceLatex={snapshot.latex}
+            theme={resolvedTheme}
+          />
         {/if}
       </div>
     </section>
@@ -679,6 +717,7 @@
           settings={currentSettings}
           recovery={snapshot.recovery ?? null}
           sampleLatex={snapshot.latex || '\\frac{a}{b}'}
+          supportedBackends={['mathjax', 'latex-rust']}
           theme={resolvedTheme}
           onSaveSettings={handleSaveSettings}
           onResetDefaults={handleResetDefaults}

@@ -22,10 +22,13 @@
     theme?: 'light' | 'dark' | 'auto';
     generation?: number;
     display?: boolean;
+    previewScalePct?: number | null;
     ariaLabel?: string;
     onRenderResult?: (result: PreviewRenderResult) => void;
     onCopyLatex?: (latex: string, diagnostics: DiagnosticSnapshot[]) => void;
     onExportLatex?: (strict: boolean) => void;
+    onViewDiagnostics?: () => void;
+    onCopyError?: (text: string) => void | Promise<void>;
   }
 
   let {
@@ -36,10 +39,13 @@
     theme = 'auto',
     generation = 1,
     display = true,
+    previewScalePct = null,
     ariaLabel = '公式实时预览',
     onRenderResult,
     onCopyLatex,
     onExportLatex,
+    onViewDiagnostics,
+    onCopyError,
   }: PreviewPanelProps = $props();
 
   type FitMode = 'fit-to-width' | 'actual';
@@ -55,9 +61,29 @@
   let zoomScale = $state(1.0);
   let renderResult = $state<PreviewRenderResult | null>(null);
   let renderPending = $state(false);
+  let copyErrorStatus = $state<'idle' | 'copied' | 'failed'>('idle');
   let systemPrefersDark = $state(readSystemPrefersDark());
   let internalGenCounter = 0;
   let latestAppliedGen = 0;
+  let lastAppliedScalePct: number | null | undefined = undefined;
+
+  function clampScalePct(pct: number): number {
+    return Math.min(200, Math.max(75, Math.round(pct)));
+  }
+
+  $effect.pre(() => {
+    const nextPct = previewScalePct;
+    if (nextPct !== lastAppliedScalePct) {
+      lastAppliedScalePct = nextPct;
+      if (typeof nextPct === 'number' && Number.isFinite(nextPct)) {
+        const clamped = clampScalePct(nextPct);
+        zoomScale = Number((clamped / 100).toFixed(2));
+        if (clamped !== 100) {
+          fitMode = 'actual';
+        }
+      }
+    }
+  });
 
   let ownedManaged: ManagedRenderer | null = null;
   let lastPrimaryRef: RenderAdapter | ManagedRenderer | undefined = undefined;
@@ -141,6 +167,31 @@
     fitMode = 'actual';
   }
 
+  async function handleCopyError(): Promise<void> {
+    if (!headerDiagnostic) return;
+    const lines = [
+      `[${headerDiagnostic.code}] (${headerDiagnostic.severity})`,
+      `摘要: ${headerDiagnostic.summary}`,
+      `详情: ${headerDiagnostic.detail || headerDiagnostic.message}`,
+    ];
+    if (headerDiagnostic.hint) {
+      lines.push(`建议: ${headerDiagnostic.hint}`);
+    }
+    const payload = lines.join('\n');
+    try {
+      if (onCopyError) {
+        await onCopyError(payload);
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        throw new Error('Clipboard unavailable');
+      }
+      copyErrorStatus = 'copied';
+    } catch {
+      copyErrorStatus = 'failed';
+    }
+  }
+
   $effect(() => {
     const currentLatex = effectiveLatex;
     const currentPreview = effectivePreviewLatex;
@@ -171,6 +222,7 @@
         }
         latestAppliedGen = res.generation;
         renderResult = res;
+        copyErrorStatus = 'idle';
         renderPending = false;
         onRenderResult?.(res);
       })
@@ -189,6 +241,7 @@
           errorSummary: diag,
         };
         renderResult = errOut;
+        copyErrorStatus = 'idle';
         renderPending = false;
         onRenderResult?.(errOut);
       });
@@ -227,6 +280,35 @@
         >
           {headerSummaryText}
         </span>
+      {/if}
+
+      {#if isDegraded}
+        <div class="ms-degraded-actions">
+          {#if headerDiagnostic}
+            <button
+              type="button"
+              class="ms-toolbar-btn ms-degraded-action-btn"
+              data-testid="preview-copy-error-btn"
+              onclick={() => void handleCopyError()}
+            >
+              {copyErrorStatus === 'copied'
+                ? '已复制'
+                : copyErrorStatus === 'failed'
+                  ? '复制失败'
+                  : '复制错误'}
+            </button>
+          {/if}
+          {#if onViewDiagnostics}
+            <button
+              type="button"
+              class="ms-toolbar-btn ms-degraded-action-btn"
+              data-testid="preview-view-diagnostics-btn"
+              onclick={() => onViewDiagnostics?.()}
+            >
+              查看诊断
+            </button>
+          {/if}
+        </div>
       {/if}
     </div>
 
@@ -393,6 +475,25 @@
     font-family: var(--ms-font-mono);
   }
 
+  .ms-degraded-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .ms-degraded-action-btn {
+    border-color: var(--ms-badge-degraded-border);
+    background: var(--ms-badge-degraded-bg);
+    color: var(--ms-badge-degraded-fg);
+    font-size: 0.72rem;
+    padding: 2px 7px;
+  }
+
+  .ms-degraded-action-btn:hover {
+    background: var(--ms-status-warn-bg);
+  }
+
   .ms-preview-actions {
     display: flex;
     align-items: center;
@@ -498,6 +599,12 @@
     .ms-preview-toolbar {
       flex-direction: column;
       align-items: stretch;
+    }
+
+    .ms-preview-status {
+      flex: 0 0 auto;
+      min-width: 0;
+      flex-wrap: wrap;
     }
 
     .ms-preview-actions {

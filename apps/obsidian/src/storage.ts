@@ -1,4 +1,9 @@
-import type { AppSettings, RecoveryStateSnapshot } from '@mathslot/ui';
+import {
+  createDefaultAppSettings,
+  type AppSettings,
+  type RecoveryStateSnapshot,
+  type UserFormulaEntry,
+} from '@mathslot/ui';
 
 export interface CorruptBackupEntry {
   id: string;
@@ -132,4 +137,172 @@ export async function resetEmptyLibrary(
   data.lastValidLibraryJson = DEFAULT_EMPTY_LIBRARY_JSON;
   await saveData(data);
   return DEFAULT_EMPTY_LIBRARY_JSON;
+}
+
+function normalizeUserFormulaEntry(raw: unknown, idx: number): UserFormulaEntry | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  const obj = raw as Record<string, unknown>;
+  const source =
+    typeof obj.source === 'string'
+      ? obj.source
+      : typeof obj.latex === 'string'
+        ? obj.latex
+        : '';
+  if (!source.trim()) return null;
+  return {
+    id: typeof obj.id === 'string' && obj.id ? obj.id : `snippet-${idx + 1}`,
+    name: typeof obj.name === 'string' && obj.name ? obj.name : `片段 ${source.slice(0, 18)}`,
+    category: typeof obj.category === 'string' && obj.category ? obj.category : '自定义',
+    source,
+    desc: typeof obj.desc === 'string' ? obj.desc : '从编辑器保存',
+    tags: Array.isArray(obj.tags)
+      ? obj.tags.filter((t): t is string => typeof t === 'string')
+      : ['snippet'],
+    is_builtin: false,
+    created_at: typeof obj.created_at === 'number' ? obj.created_at : undefined,
+  };
+}
+
+function parseLibraryRecord(rawLibraryJson: string | undefined): Record<string, unknown> {
+  const raw = rawLibraryJson && rawLibraryJson.trim().length > 0 ? rawLibraryJson : DEFAULT_EMPTY_LIBRARY_JSON;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Fall back to empty library object; corruption recovery handles invalid JSON separately.
+  }
+  return {
+    schema_version: 3,
+    customFormats: [],
+    snippets: [],
+  };
+}
+
+export function readUserFormulas(data: PluginPersistedData): UserFormulaEntry[] {
+  const lib = parseLibraryRecord(data.libraryJson);
+  const rawList = Array.isArray(lib.snippets)
+    ? lib.snippets
+    : Array.isArray(lib.user_formulas)
+      ? lib.user_formulas
+      : [];
+  const entries: UserFormulaEntry[] = [];
+  rawList.forEach((item, idx) => {
+    const normalized = normalizeUserFormulaEntry(item, idx);
+    if (normalized) {
+      entries.push(normalized);
+    }
+  });
+  return entries;
+}
+
+export async function saveUserSnippet(
+  data: PluginPersistedData,
+  saveData: (next: PluginPersistedData) => Promise<void>,
+  source: string,
+  latex: string,
+): Promise<UserFormulaEntry[]> {
+  const snippetSource = source.trim().length > 0 ? source : latex;
+  if (!snippetSource.trim()) {
+    return readUserFormulas(data);
+  }
+  const lib = parseLibraryRecord(data.libraryJson);
+  const existing = readUserFormulas(data);
+  const entry: UserFormulaEntry = {
+    id: `snippet-${Date.now()}-${existing.length + 1}`,
+    name: `片段 ${snippetSource.slice(0, 18)}`,
+    category: '自定义',
+    source: snippetSource,
+    desc: '从编辑器保存',
+    tags: ['snippet'],
+    is_builtin: false,
+    created_at: Math.floor(Date.now() / 1000),
+  };
+  const updated = [...existing, entry];
+  const nextLib = {
+    ...lib,
+    schema_version: typeof lib.schema_version === 'number' ? lib.schema_version : 3,
+    snippets: updated,
+  };
+  const serialized = JSON.stringify(nextLib);
+  data.libraryJson = serialized;
+  data.lastValidLibraryJson = serialized;
+  await saveData(data);
+  return updated;
+}
+
+export function exportPluginConfigJson(
+  data: PluginPersistedData,
+  currentSettings?: AppSettings,
+): string {
+  const lib = parseLibraryRecord(data.libraryJson);
+  return JSON.stringify(
+    {
+      schema_version: 3,
+      settings: currentSettings ?? data.settings ?? createDefaultAppSettings(),
+      customFormats: Array.isArray(lib.customFormats) ? lib.customFormats : [],
+      snippets: readUserFormulas(data),
+    },
+    null,
+    2,
+  );
+}
+
+export async function importPluginConfigJson(
+  rawJson: string,
+  data: PluginPersistedData,
+  saveData: (next: PluginPersistedData) => Promise<void>,
+): Promise<{ settings?: AppSettings; libraryJson: string; userFormulas: UserFormulaEntry[] }> {
+  const parsed: unknown = JSON.parse(rawJson);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('Config JSON root must be an object.');
+  }
+  const obj = parsed as Record<string, unknown>;
+  const libObj = parseLibraryRecord(
+    typeof obj.libraryJson === 'string' ? obj.libraryJson : JSON.stringify(obj),
+  );
+  const nextLib = {
+    schema_version: typeof libObj.schema_version === 'number' ? libObj.schema_version : 3,
+    customFormats: Array.isArray(libObj.customFormats) ? libObj.customFormats : [],
+    snippets: Array.isArray(libObj.snippets)
+      ? libObj.snippets
+      : Array.isArray(libObj.user_formulas)
+        ? libObj.user_formulas
+        : [],
+  };
+  const validationErr = validateParsedLibrary(nextLib);
+  if (validationErr !== null) {
+    throw new Error(validationErr);
+  }
+
+  let nextSettings: AppSettings | undefined;
+  if (typeof obj.settings === 'object' && obj.settings !== null && !Array.isArray(obj.settings)) {
+    const rawSettings = obj.settings as Partial<AppSettings>;
+    const defaults = createDefaultAppSettings();
+    nextSettings = {
+      ...defaults,
+      ...rawSettings,
+      shortcuts: {
+        ...defaults.shortcuts,
+        ...(typeof rawSettings.shortcuts === 'object' && rawSettings.shortcuts !== null
+          ? rawSettings.shortcuts
+          : {}),
+      },
+    };
+    data.settings = nextSettings;
+  }
+
+  const serialized = JSON.stringify(nextLib);
+  data.libraryJson = serialized;
+  data.lastValidLibraryJson = serialized;
+  await saveData(data);
+
+  return {
+    settings: nextSettings,
+    libraryJson: serialized,
+    userFormulas: readUserFormulas(data),
+  };
 }

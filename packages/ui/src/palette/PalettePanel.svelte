@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DispatchResponse, EngineClient } from '../client/engine';
+  import type { DispatchResponse, EngineClient, UserFormulaEntry } from '../client/engine';
   import type { CommandCategory, CommandEntry } from '../generated/catalog';
   import type { PresetCategory, PresetEntry } from '../generated/presets';
   import {
@@ -15,11 +15,13 @@
   export interface PalettePanelProps {
     client: EngineClient;
     theme?: 'light' | 'dark' | 'auto';
-    initialMode?: 'commands' | 'presets';
+    initialMode?: 'commands' | 'presets' | 'snippets';
     columns?: number;
+    userFormulas?: UserFormulaEntry[];
     onRequestEditorFocus?: () => void;
     onCommandApplied?: (cmd: CommandEntry, response: DispatchResponse) => void;
     onPresetLoaded?: (preset: PresetEntry, response: DispatchResponse) => void;
+    onUserFormulaLoaded?: (formula: UserFormulaEntry, response: DispatchResponse) => void;
   }
 
   let {
@@ -27,12 +29,14 @@
     theme = 'auto',
     initialMode = 'commands',
     columns = 3,
+    userFormulas = [],
     onRequestEditorFocus,
     onCommandApplied,
     onPresetLoaded,
+    onUserFormulaLoaded,
   }: PalettePanelProps = $props();
 
-  let modeOverride = $state<'commands' | 'presets' | null>(null);
+  let modeOverride = $state<'commands' | 'presets' | 'snippets' | null>(null);
   const mode = $derived(modeOverride ?? initialMode);
   let searchQuery = $state('');
   let commandCategory = $state<'all' | CommandCategory>('all');
@@ -45,6 +49,19 @@
   const featuredCommands = getFeaturedCommands();
   const filteredCommands = $derived(filterCommands(searchQuery, commandCategory));
   const filteredPresets = $derived(filterPresets(searchQuery, presetCategory));
+  const filteredSnippets = $derived.by(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return userFormulas;
+    return userFormulas.filter((item) => {
+      return (
+        item.name.toLowerCase().includes(q) ||
+        item.category.toLowerCase().includes(q) ||
+        item.source.toLowerCase().includes(q) ||
+        item.desc.toLowerCase().includes(q) ||
+        item.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    });
+  });
   const showFeaturedStrip = $derived(
     mode === 'commands' && commandCategory === 'all' && searchQuery.trim() === '',
   );
@@ -61,7 +78,13 @@
     onRequestEditorFocus?.();
   }
 
-  function handleModeSwitch(nextMode: 'commands' | 'presets'): void {
+  async function activateSnippet(formula: UserFormulaEntry): Promise<void> {
+    const response = await client.dispatch({ LoadStreamSource: formula.source });
+    onUserFormulaLoaded?.(formula, response);
+    onRequestEditorFocus?.();
+  }
+
+  function handleModeSwitch(nextMode: 'commands' | 'presets' | 'snippets'): void {
     modeOverride = nextMode;
     activeCardIndex = 0;
   }
@@ -145,6 +168,16 @@
       >
         预置公式 (88)
       </button>
+      <button
+        type="button"
+        role="tab"
+        class="ms-mode-tab"
+        aria-selected={mode === 'snippets'}
+        data-palette-mode="snippets"
+        onclick={() => handleModeSwitch('snippets')}
+      >
+        片段 ({userFormulas.length})
+      </button>
     </div>
 
     <div class="ms-search-wrap">
@@ -153,7 +186,9 @@
         class="ms-search-input"
         placeholder={mode === 'commands'
           ? '搜索命令、简码 (如 oc / frac) 或 LaTeX…'
-          : '搜索预置公式、分类或简码…'}
+          : mode === 'presets'
+            ? '搜索预置公式、分类或简码…'
+            : '搜索已保存自定义片段…'}
         aria-label="搜索命令或预置"
         value={searchQuery}
         oninput={(evt) => {
@@ -263,7 +298,7 @@
         </div>
       </div>
     {/if}
-  {:else}
+  {:else if mode === 'presets'}
     <div class="ms-category-tabs" role="tablist" aria-label="预置分类">
       {#each PRESET_CATEGORY_TABS as cat, idx (cat.id)}
         <button
@@ -322,6 +357,51 @@
               </div>
               <div class="ms-preset-desc">{preset.desc}</div>
               <code class="ms-preset-source">{preset.source}</code>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
+  {:else}
+    <div class="ms-palette-meta">
+      <span>显示 {filteredSnippets.length} / {userFormulas.length} 条自定义片段</span>
+    </div>
+
+    {#if userFormulas.length === 0}
+      <div class="ms-empty-state" data-testid="snippets-empty-state" role="status">
+        暂无保存的自定义片段，可在编辑器中点击「存为片段」或按快捷键保存。
+      </div>
+    {:else if filteredSnippets.length === 0}
+      <div class="ms-empty-state" role="status">
+        未找到匹配「{searchQuery}」的自定义片段
+      </div>
+    {:else}
+      <div class="ms-palette-scroll" role="region" aria-label="自定义片段列表">
+        <div class="ms-preset-grid">
+          {#each filteredSnippets as formula, idx (formula.id)}
+            <button
+              type="button"
+              class="ms-preset-card"
+              data-snippet-card={formula.id}
+              tabindex={idx === activeCardIndex ? 0 : -1}
+              aria-label={`插入片段 ${formula.name}`}
+              onclick={() => {
+                activeCardIndex = idx;
+                void activateSnippet(formula);
+              }}
+              onkeydown={(evt) =>
+                handleGridCardKeydown(evt, idx, filteredSnippets.length, '[data-snippet-card]', () => {
+                  void activateSnippet(formula);
+                })}
+            >
+              <div class="ms-preset-head">
+                <span class="ms-preset-name">{formula.name}</span>
+                <span class="ms-preset-cat">{formula.category}</span>
+              </div>
+              {#if formula.desc}
+                <div class="ms-preset-desc">{formula.desc}</div>
+              {/if}
+              <code class="ms-preset-source">{formula.source}</code>
             </button>
           {/each}
         </div>
@@ -650,7 +730,7 @@
     .ms-mode-tabs {
       width: 100%;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .ms-search-wrap {

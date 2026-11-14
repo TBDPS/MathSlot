@@ -24,6 +24,7 @@
     client?: EngineClient;
     theme?: 'light' | 'dark' | 'auto';
     sampleLatex?: string;
+    supportedBackends?: RenderBackendPreference[];
     ariaLabel?: string;
     onSaveSettings?: (next: AppSettings) => void | Promise<void>;
     onResetDefaults?: (defaults: AppSettings) => void | Promise<void>;
@@ -40,6 +41,7 @@
     client,
     theme,
     sampleLatex = '\\frac{a + b}{c}',
+    supportedBackends = ['mathjax', 'latex-rust'],
     ariaLabel = 'MathSlot 设置面板',
     onSaveSettings,
     onResetDefaults,
@@ -135,6 +137,18 @@
     },
   ];
 
+  const visibleBackendOptions = $derived(
+    BACKEND_OPTIONS.filter((opt) => supportedBackends.includes(opt.value)),
+  );
+  const obsidianHostBackendOnly = $derived(
+    supportedBackends.length === 1 && supportedBackends[0] === 'mathjax',
+  );
+  const effectivePreviewScalePct = $derived(
+    typeof draft.preview_scale_pct === 'number' && Number.isFinite(draft.preview_scale_pct)
+      ? Math.min(200, Math.max(75, Math.round(draft.preview_scale_pct)))
+      : 100,
+  );
+
   function updateTheme(next: ThemePreference): void {
     draft.theme = next;
     saveFeedback = 'idle';
@@ -147,6 +161,13 @@
 
   function updateBackend(next: RenderBackendPreference): void {
     draft.render_backend = next;
+    saveFeedback = 'idle';
+  }
+
+  function updatePreviewScalePct(rawValue: number): void {
+    if (!Number.isFinite(rawValue)) return;
+    const clamped = Math.min(200, Math.max(75, Math.round(rawValue)));
+    draft.preview_scale_pct = clamped;
     saveFeedback = 'idle';
   }
 
@@ -394,28 +415,70 @@
       </div>
     </section>
 
-    <!-- 2. 渲染引擎 -->
+    <!-- 2. 渲染引擎与默认预览缩放 -->
     <section class="ms-card" aria-labelledby="ms-sec-backend">
       <div class="ms-card-head">
-        <h3 id="ms-sec-backend" class="ms-card-title">渲染后端</h3>
-        <span class="ms-card-desc">选择公式预览所使用的首选 SVG 渲染引擎</span>
+        <h3 id="ms-sec-backend" class="ms-card-title">渲染后端与默认缩放</h3>
+        <span class="ms-card-desc">选择公式预览渲染方式及默认预览缩放比例（75%–200%）</span>
       </div>
 
-      <div class="ms-segmented ms-segmented-2" role="radiogroup" aria-label="渲染后端选择">
-        {#each BACKEND_OPTIONS as opt (opt.value)}
+      <div
+        class="ms-segmented"
+        class:ms-segmented-2={visibleBackendOptions.length >= 2}
+        class:ms-segmented-1={visibleBackendOptions.length === 1}
+        role="radiogroup"
+        aria-label="渲染后端选择"
+      >
+        {#each visibleBackendOptions as opt (opt.value)}
           <button
             type="button"
             role="radio"
-            aria-checked={draft.render_backend === opt.value}
+            aria-checked={draft.render_backend === opt.value || (obsidianHostBackendOnly && opt.value === 'mathjax')}
             class="ms-choice-card"
-            class:ms-choice-active={draft.render_backend === opt.value}
+            class:ms-choice-active={draft.render_backend === opt.value || (obsidianHostBackendOnly && opt.value === 'mathjax')}
             data-testid={`backend-option-${opt.value}`}
             onclick={() => updateBackend(opt.value)}
           >
-            <span class="ms-choice-label">{opt.label}</span>
-            <span class="ms-choice-hint">{opt.detail}</span>
+            <span class="ms-choice-label">
+              {obsidianHostBackendOnly ? '宿主 renderMath + MathJax 回退' : opt.label}
+            </span>
+            <span class="ms-choice-hint">
+              {obsidianHostBackendOnly
+                ? 'Obsidian 插件优先使用宿主 MarkdownRenderer.renderMath，异常时自动回退至 MathJax 3 SVG（不支持离线 latex-rust IPC）'
+                : opt.detail}
+            </span>
           </button>
         {/each}
+      </div>
+
+      <div class="ms-scale-row">
+        <label class="ms-scale-label" for="ms-preview-scale-range">
+          默认预览缩放：<strong>{effectivePreviewScalePct}%</strong>
+        </label>
+        <div class="ms-scale-controls">
+          <input
+            id="ms-preview-scale-range"
+            type="range"
+            min="75"
+            max="200"
+            step="5"
+            class="ms-scale-range"
+            data-testid="settings-preview-scale-range"
+            value={effectivePreviewScalePct}
+            oninput={(e) => updatePreviewScalePct(Number(e.currentTarget.value))}
+          />
+          <input
+            type="number"
+            min="75"
+            max="200"
+            step="5"
+            aria-label="预览缩放百分比"
+            class="ms-scale-number"
+            data-testid="settings-preview-scale"
+            value={effectivePreviewScalePct}
+            oninput={(e) => updatePreviewScalePct(Number(e.currentTarget.value))}
+          />
+        </div>
       </div>
     </section>
 
@@ -859,6 +922,58 @@
 
   .ms-segmented-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ms-segmented-1 {
+    grid-template-columns: 1fr;
+  }
+
+  .ms-scale-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: var(--ms-radius-sm);
+    border: 1px solid var(--ms-border);
+    background: var(--ms-surface-elevated);
+  }
+
+  .ms-scale-label {
+    font-size: 0.78rem;
+    color: var(--ms-fg-muted);
+  }
+
+  .ms-scale-label strong {
+    color: var(--ms-fg);
+    font-family: var(--ms-font-mono);
+  }
+
+  .ms-scale-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .ms-scale-range {
+    flex: 1 1 auto;
+    accent-color: var(--ms-accent);
+  }
+
+  .ms-scale-number {
+    width: 68px;
+    padding: 4px 6px;
+    border: 1px solid var(--ms-border-strong);
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-surface);
+    color: var(--ms-fg);
+    font-family: var(--ms-font-mono);
+    font-size: 0.8rem;
+  }
+
+  .ms-scale-number:focus-visible,
+  .ms-scale-range:focus-visible {
+    outline: 2px solid var(--ms-focus-ring);
+    outline-offset: 2px;
   }
 
   .ms-segmented-4 {

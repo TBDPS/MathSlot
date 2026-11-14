@@ -17,6 +17,6 @@
       "@mathslot/ui/tokens.css": ["../../packages/ui/src/theme/tokens.css"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.d.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/wasm-pkg"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.d.ts", "tests/**/*.ts", "e2e/**/*.ts"],
+  "exclude": ["node_modules", "dist", "dist-e2e", "src/wasm-pkg"]
 }

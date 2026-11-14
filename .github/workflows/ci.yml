@@ -91,11 +91,14 @@ jobs:
           npx playwright install chromium
           npm run test:e2e
 
-      - name: Build and smoke-test Obsidian plugin
-        run: node obsidian-mathslot/scripts/build.mjs
+      - name: Build, smoke-test, and verify freshness of Obsidian plugin
+        run: |
+          node obsidian-mathslot/scripts/build.mjs
+          git diff --exit-code -- obsidian-mathslot/
 
-      - name: Test and typecheck Obsidian shell (apps/obsidian)
+      - name: Test, typecheck, and E2E test Obsidian shell (apps/obsidian)
         run: |
           cd apps/obsidian
           npm test
           npm run check
+          npm run test:e2e

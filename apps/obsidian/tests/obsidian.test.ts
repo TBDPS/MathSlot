@@ -500,4 +500,234 @@ describe('apps/obsidian WASM & shared UI integration (T3.6)', () => {
 
     plugin.onunload();
   });
+
+  it('D-132: saving SettingsPanel dark theme and resetting defaults immediately syncs live WasmEngineClient snapshot and root data-theme', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+    const persistedCalls: unknown[] = [];
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: {
+        client,
+        initialSettingsOpen: true,
+        onPersistSettings: async (next) => {
+          persistedCalls.push(next);
+        },
+      },
+    });
+    await tick();
+    await tick();
+
+    const hostRoot = target.querySelector('[data-host="obsidian"]');
+    expect(hostRoot?.getAttribute('data-theme')).toBe('light');
+
+    // Switch theme to dark and save without closing modal
+    const darkOption = target.querySelector('[data-testid="theme-option-dark"]') as HTMLButtonElement;
+    darkOption.click();
+    await tick();
+
+    const saveBtn = target.querySelector('[data-testid="settings-save-btn"]') as HTMLButtonElement;
+    saveBtn.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+    await tick();
+
+    const snapAfterSave = await client.snapshot();
+    expect(snapAfterSave.settings?.theme).toBe('dark');
+    expect(hostRoot?.getAttribute('data-theme')).toBe('dark');
+    expect(persistedCalls).toHaveLength(1);
+
+    // Reset Defaults must also immediately sync runtime WasmEngineClient snapshot
+    const resetTrigger = target.querySelector('[data-testid="settings-reset-trigger"]') as HTMLButtonElement;
+    resetTrigger.click();
+    await tick();
+    const resetConfirm = target.querySelector('[data-testid="settings-reset-confirm"]') as HTMLButtonElement;
+    resetConfirm.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+    await tick();
+
+    const snapAfterReset = await client.snapshot();
+    expect(snapAfterReset.settings?.theme).toBe('system');
+    expect(hostRoot?.getAttribute('data-theme')).toBe('light');
+    expect(persistedCalls).toHaveLength(2);
+
+    client.dispose();
+  });
+
+  it('D-133: ImportModal keeps round-trip report open on non-blocking import, SettingsPanel export triggers JSON download/hook, and PreviewPanel strict export blocks error/empty slots', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+    const dispatchSpy = vi.spyOn(client, 'dispatch');
+    const exportedPayloads: string[] = [];
+    const onCopy = vi.fn();
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: {
+        client,
+        onCopy,
+        onConfigExported: (rawJson: string) => {
+          exportedPayloads.push(rawJson);
+        },
+      },
+    });
+    await tick();
+    await tick();
+
+    // 1) ImportModal non-blocking import must stay open showing round-trip report
+    const importBtn = target.querySelector('[data-testid="obsidian-import-btn"]') as HTMLButtonElement;
+    importBtn.click();
+    await tick();
+
+    const textarea = target.querySelector('[data-testid="import-latex-input"]') as HTMLTextAreaElement;
+    textarea.value = '\\frac{1}{2}';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+
+    const submitBtn = target.querySelector('[data-testid="import-submit-btn"]') as HTMLButtonElement;
+    submitBtn.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+    await tick();
+
+    expect(target.querySelector('[data-testid="import-modal"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="import-report"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="import-roundtrip-latex"]')?.textContent).toContain(
+      '\\frac{1}{2}',
+    );
+
+    // Close ImportModal manually
+    (target.querySelector('[data-testid="import-close-btn"]') as HTMLButtonElement).click();
+    await tick();
+    expect(target.querySelector('[data-testid="import-modal"]')).toBeNull();
+
+    // 2) SettingsPanel export config triggers JSON export hook/download
+    (target.querySelector('[data-testid="obsidian-settings-btn"]') as HTMLButtonElement).click();
+    await tick();
+    (target.querySelector('[data-testid="settings-export-btn"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(exportedPayloads).toHaveLength(1);
+    const parsedExport = JSON.parse(exportedPayloads[0]!) as Record<string, unknown>;
+    expect(parsedExport).toHaveProperty('settings');
+    (target.querySelector('[data-testid="settings-close-btn"]') as HTMLButtonElement).click();
+    await tick();
+
+    // 3) PreviewPanel strict export dispatches RequestExport { strict: true } and blocks empty slots / errors
+    await client.dispatch({ ApplyCard: 'frac' }); // \frac{}{} with empty slots
+    await tick();
+    await tick();
+
+    const strictExportBtn = target.querySelector('[data-testid="preview-export-btn"]') as HTMLButtonElement | null;
+    expect(strictExportBtn).not.toBeNull();
+    strictExportBtn!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(dispatchSpy).toHaveBeenCalledWith({ RequestExport: { strict: true } });
+    expect(onCopy).not.toHaveBeenCalled();
+    expect(target.querySelector('.ms-obsidian-status')?.textContent).toContain('阻断');
+
+    client.dispose();
+  });
+
+  it('D-134: PreviewPanel render failure forwards renderDiagnostics to DiagnosticsPanel and surfaces copy/view actions', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+    await client.dispatch({ ImportLatex: '\\frac{1}{2}' });
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: {
+        client,
+        hostRenderMath: async () => {
+          throw new Error('Simulated Obsidian renderMath crash');
+        },
+        hostFinishRenderMath: async () => {},
+      },
+    });
+
+    await tick();
+    await new Promise((r) => setTimeout(r, 60));
+    await tick();
+    await tick();
+
+    expect(target.querySelector('[data-testid="degraded-badge"]')).not.toBeNull();
+    const copyErrBtn = target.querySelector('[data-testid="preview-copy-error-btn"]') as HTMLButtonElement | null;
+    const viewDiagBtn = target.querySelector('[data-testid="preview-view-diagnostics-btn"]') as HTMLButtonElement | null;
+    expect(copyErrBtn).not.toBeNull();
+    expect(viewDiagBtn).not.toBeNull();
+
+    // DiagnosticsPanel receives renderDiagnostics synchronously
+    const diagPanel = target.querySelector('[data-testid="mathslot-diagnostics"]');
+    expect(diagPanel?.textContent).toContain('PRIMARY_RENDER_FAILED');
+    const copyDiagBtn = target.querySelector('[data-testid="copy-diagnostics-btn"]') as HTMLButtonElement;
+    expect(copyDiagBtn.disabled).toBe(false);
+
+    // Clicking "查看诊断" expands DiagnosticsPanel drawer
+    viewDiagBtn!.click();
+    await tick();
+    expect(target.querySelector('[data-testid="diagnostics-toggle"]')?.getAttribute('aria-expanded')).toBe('true');
+
+    client.dispose();
+  });
+
+  it('D-135: SaveSnippet persists user_formulas to Obsidian PalettePanel and SettingsPanel enforces mathjax host constraint + preview_scale_pct', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+    await client.dispatch({ LoadStreamSource: '▸f3;4;' });
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: { client },
+    });
+    await tick();
+    await tick();
+
+    // Save snippet
+    (target.querySelector('[data-testid="obsidian-save-snippet-btn"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    // Switch PalettePanel to snippets tab and verify saved entry
+    const snippetsTab = target.querySelector('[data-palette-mode="snippets"]') as HTMLButtonElement;
+    expect(snippetsTab.textContent).toContain('片段 (1)');
+    snippetsTab.click();
+    await tick();
+
+    const snippetCards = target.querySelectorAll('[data-snippet-card]');
+    expect(snippetCards).toHaveLength(1);
+    expect(snippetCards[0]?.textContent).toContain('\\frac{3}{4}');
+
+    // Open SettingsPanel: latex-rust must be hidden and preview_scale_pct applies to PreviewPanel
+    (target.querySelector('[data-testid="obsidian-settings-btn"]') as HTMLButtonElement).click();
+    await tick();
+
+    expect(target.querySelector('[data-testid="backend-option-mathjax"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="backend-option-latex-rust"]')).toBeNull();
+
+    const scaleInput = target.querySelector('[data-testid="settings-preview-scale"]') as HTMLInputElement;
+    scaleInput.value = '135';
+    scaleInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+
+    (target.querySelector('[data-testid="settings-save-btn"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(target.querySelector('[data-testid="zoom-percent"]')?.textContent).toContain('135%');
+
+    client.dispose();
+  });
 });

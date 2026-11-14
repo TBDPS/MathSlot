@@ -249,4 +249,47 @@ describe('PalettePanel & paletteModel (T3.2)', () => {
     await tick();
     expect(events).toContainEqual({ ApplyCard: secondId });
   });
+
+  it('D-135: displays saved userFormulas in snippets tab and dispatches LoadStreamSource on click', async () => {
+    const { client, events } = createMockClient();
+    const onUserFormulaLoaded = vi.fn();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(PalettePanel, {
+      target,
+      props: {
+        client,
+        userFormulas: [
+          {
+            id: 'u-1',
+            name: '高斯积分',
+            category: '自定义',
+            source: '▸f1;2;',
+            desc: '自定义测试片段',
+            tags: ['snippet'],
+          },
+        ],
+        onUserFormulaLoaded,
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    const snippetsTab = target.querySelector<HTMLButtonElement>('[data-palette-mode="snippets"]');
+    expect(snippetsTab).not.toBeNull();
+    expect(snippetsTab!.textContent).toContain('片段 (1)');
+    snippetsTab!.click();
+    await tick();
+
+    const card = target.querySelector<HTMLButtonElement>('[data-snippet-card="u-1"]');
+    expect(card).not.toBeNull();
+    card!.click();
+    await tick();
+
+    expect(events).toContainEqual({ LoadStreamSource: '▸f1;2;' });
+    expect(onUserFormulaLoaded).toHaveBeenCalledTimes(1);
+  });
 });

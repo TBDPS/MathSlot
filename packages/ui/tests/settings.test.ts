@@ -414,4 +414,38 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     expect(onExportConfig).toHaveBeenCalledTimes(1);
     expect(events).toHaveLength(0);
   });
+
+  it('D-135: supports supportedBackends=["mathjax"] host constraint and preview_scale_pct persistence', async () => {
+    const onSaveSettings = vi.fn();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(SettingsPanel, {
+      target,
+      props: {
+        settings: createDefaultAppSettings(),
+        supportedBackends: ['mathjax'],
+        onSaveSettings,
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    expect(target.querySelector('[data-testid="backend-option-mathjax"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="backend-option-latex-rust"]')).toBeNull();
+
+    const scaleInput = target.querySelector<HTMLInputElement>('[data-testid="settings-preview-scale"]');
+    expect(scaleInput).not.toBeNull();
+    scaleInput!.value = '150';
+    scaleInput!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-save-btn"]')?.click();
+    await tick();
+
+    expect(onSaveSettings).toHaveBeenCalledTimes(1);
+    expect(onSaveSettings.mock.calls[0]?.[0]?.preview_scale_pct).toBe(150);
+  });
 });

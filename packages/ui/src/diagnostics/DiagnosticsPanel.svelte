@@ -41,6 +41,12 @@
   let expanded = $state(false);
   let didApplyDefaultExpanded = false;
   let copyStatus = $state<'idle' | 'copied' | 'failed'>('idle');
+  let shellEl: HTMLElement | null = null;
+
+  export function expand(): void {
+    expanded = true;
+    shellEl?.scrollIntoView?.({ block: 'nearest' });
+  }
 
   $effect(() => {
     if (!didApplyDefaultExpanded) {
@@ -159,6 +165,7 @@
 </script>
 
 <section
+  bind:this={shellEl}
   class="ms-diag-shell"
   data-testid="mathslot-diagnostics"
   data-theme={resolvedThemeAttr}

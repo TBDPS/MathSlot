@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "gate": "G3",
+  "task": "T3.7",
+  "platforms": ["desktop", "obsidian"],
+  "categories": [
+    {
+      "id": "core_engine_catalog",
+      "name": "核心引擎与目录（INV-001 / INV-006）",
+      "items": [
+        {
+          "id": "catalog_121_presets_88",
+          "name": "121 条命令与 88 条预置单一事实源",
+          "status": "aligned",
+          "desktopEvidence": "packages/ui/src/generated/catalog.ts + packages/ui/src/generated/presets.ts + apps/desktop/src-tauri/src/lib.rs",
+          "obsidianEvidence": "packages/ui/src/generated/catalog.ts + packages/ui/src/generated/presets.ts + crates/mathslot-wasm/src/lib.rs"
+        },
+        {
+          "id": "engine_app_state_machine",
+          "name": "mathslot-app 事件流与快照单一引擎驱动",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src-tauri/src/lib.rs (DesktopBackend -> mathslot_app::App)",
+          "obsidianEvidence": "crates/mathslot-wasm/src/lib.rs (WasmEngine -> mathslot_app::App) + apps/obsidian/src/wasmClient.ts"
+        },
+        {
+          "id": "desktop_browser_harness_bridge",
+          "name": "非 Tauri 浏览器预览桥接（D-137 延后至 G4）",
+          "status": "intentional_diff",
+          "desktopEvidence": "apps/desktop/src/lib/desktopClient.ts (createBrowserHarnessBridge guarded by !isTauriEnvironment())",
+          "obsidianEvidence": "apps/obsidian/src/wasmClient.ts (始终运行真实 mathslot-wasm)",
+          "reason": "Desktop 原生运行始终使用 Tauri DesktopBackend；仅在非 __TAURI_INTERNALS__ 浏览器 E2E 启用隔离的 createBrowserHarnessBridge（D-137 已记录于 ADR-0031 并在 Gate G4 硬化替换为 WASM）。"
+        }
+      ]
+    },
+    {
+      "id": "editor_interaction",
+      "name": "编辑器交互（A-EDIT-* / A-UI-001..002）",
+      "items": [
+        {
+          "id": "cm6_stream_multiline_undo_redo",
+          "name": "CM6 编辑器、▸ 流式直达、Enter 多行与 Undo/Redo 双向同步",
+          "status": "aligned",
+          "desktopEvidence": "packages/ui/src/editor/MathSlotEditor.svelte + packages/ui/src/editor/keymap.ts",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte + packages/ui/src/editor/MathSlotEditor.svelte + obsidian-mathslot/main.js"
+        },
+        {
+          "id": "focus_escape_tab_escape",
+          "name": "Tab / Shift+Tab / Escape 焦点逃逸与全局弹窗关闭",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (svelte:window onkeydown) + packages/ui/src/editor/keymap.ts",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte (svelte:window onkeydown) + packages/ui/src/editor/keymap.ts"
+        },
+        {
+          "id": "focus_editor_shortcut",
+          "name": "Mod+E 聚焦编辑器与自定义全局快捷键调度",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (focus_editor / open_settings / toggle_nav)",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte (focus_editor / open_settings / toggle_nav / onFocusEditor)"
+        }
+      ]
+    },
+    {
+      "id": "palette_nav_responsive",
+      "name": "调色板、结构导航树与响应式布局（A-UI-003）",
+      "items": [
+        {
+          "id": "palette_12_cards_121_cmds_88_presets",
+          "name": "12 张高频卡片、搜索、分类与 121 命令 / 88 预置切换",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte -> PalettePanel.svelte",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte -> PalettePanel.svelte"
+        },
+        {
+          "id": "nav_tree_3x3_matrix",
+          "name": "3x3 矩阵结构导航树与槽位跳转",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte -> NavTreePanel.svelte",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte -> NavTreePanel.svelte"
+        },
+        {
+          "id": "responsive_breakpoints_mobile",
+          "name": "响应式宽度与 Obsidian 移动端 390px 适配",
+          "status": "intentional_diff",
+          "desktopEvidence": "apps/desktop/src/styles.css (@media max-width: 960px)",
+          "obsidianEvidence": "apps/obsidian/src/styles.css (.is-mobile + @media max-width: 480px) + apps/obsidian/tests/e2e/obsidian.spec.ts",
+          "reason": "Desktop 为独立桌面窗口布局（960px 断点），Obsidian 额外适配宿主模态框、Platform.isMobile 与 390px 移动 Vault 视口。"
+        }
+      ]
+    },
+    {
+      "id": "preview_and_diagnostics",
+      "name": "实时预览与降级诊断（A-RENDER-005 / A-UI-005）",
+      "items": [
+        {
+          "id": "primary_fallback_render_strategy",
+          "name": "主/备 SVG 渲染策略（Desktop: MathJax + latex-rust；Obsidian: renderMath + MathJax）",
+          "status": "intentional_diff",
+          "desktopEvidence": "apps/desktop/src/App.svelte + apps/desktop/src-tauri/src/lib.rs (latex-rust IPC)",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte + apps/obsidian/src/hostRenderAdapter.ts (Obsidian renderMath + MathJax fallback)",
+          "reason": "Desktop 拥有本地 Rust 进程可运行 latex-rust；Obsidian 插件遵循 SPEC §9/§11 在宿主 Renderer 内优先使用 Obsidian renderMath 并以 MathJax 3 SVG 回退。"
+        },
+        {
+          "id": "merror_degraded_detection",
+          "name": "<mjx-merror> / data-mjx-error 降级检测与徽章展示",
+          "status": "aligned",
+          "desktopEvidence": "packages/ui/src/preview/renderAdapter.ts + PreviewPanel.svelte",
+          "obsidianEvidence": "apps/obsidian/src/hostRenderAdapter.ts + apps/obsidian/src/plugin.ts + PreviewPanel.svelte"
+        },
+        {
+          "id": "render_result_to_diagnostics_and_copy",
+          "name": "PreviewPanel.onRenderResult -> DiagnosticsPanel.renderDiagnostics 联动与错误复制/查看入口",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (onRenderResult -> renderDiagnostics) + PreviewPanel.svelte",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte (onRenderResult -> renderDiagnostics) + PreviewPanel.svelte"
+        },
+        {
+          "id": "strict_export_blocking",
+          "name": "严格导出 RequestExport { strict: true } 遇错误或空槽阻断",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (onExportLatex -> RequestExport { strict })",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte (onExportLatex -> RequestExport { strict })"
+        }
+      ]
+    },
+    {
+      "id": "settings_persistence_recovery",
+      "name": "设置、主题、持久化与故障恢复（A-UI-004 / A-OBS-002）",
+      "items": [
+        {
+          "id": "settings_delimiter_shortcuts_live_sync",
+          "name": "设置保存与恢复默认即时刷新运行期快照、定界符与快捷键",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (UpdateSettings / ResetSettingsConfirmed)",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte (UpdateSettings / ResetSettingsConfirmed -> onPersistSettings)"
+        },
+        {
+          "id": "theme_light_dark_system_tokens",
+          "name": "Light / Dark / System 主题令牌与宿主变量映射",
+          "status": "intentional_diff",
+          "desktopEvidence": "packages/ui/src/theme/tokens.css ([data-theme='light'|'dark']) + apps/desktop/src/App.svelte",
+          "obsidianEvidence": "packages/ui/src/theme/tokens.css ([data-host='obsidian']) + apps/obsidian/src/AppShell.svelte",
+          "reason": "两套壳层共享 tokens.css 基础语义令牌；Obsidian 额外通过 [data-host='obsidian'] 继承宿主 --background-* / --text-* / --interactive-accent 变量。"
+        },
+        {
+          "id": "render_backend_options",
+          "name": "SettingsPanel render_backend 可选后端约束",
+          "status": "intentional_diff",
+          "desktopEvidence": "apps/desktop/src/App.svelte -> SettingsPanel (supportedBackends=['mathjax', 'latex-rust'])",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte -> SettingsPanel (supportedBackends=['mathjax'])",
+          "reason": "Obsidian 运行于无本地 Tauri IPC 的插件环境，SettingsPanel 仅展示 ['mathjax'] 并说明宿主 renderMath + MathJax 回退策略。"
+        },
+        {
+          "id": "preview_scale_pct_control",
+          "name": "preview_scale_pct 预览缩放比例设置与 PreviewPanel 联动",
+          "status": "aligned",
+          "desktopEvidence": "packages/ui/src/settings/SettingsPanel.svelte + PreviewPanel.svelte + apps/desktop/src/App.svelte",
+          "obsidianEvidence": "packages/ui/src/settings/SettingsPanel.svelte + PreviewPanel.svelte + apps/obsidian/src/AppShell.svelte"
+        },
+        {
+          "id": "config_import_export_recovery",
+          "name": "配置 JSON 导入/导出、损坏隔离备份恢复与 Reset Empty 向导",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (onImportConfig / onExportConfig / onRestoreBackup / onConfirmResetEmpty)",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte + apps/obsidian/src/storage.ts"
+        },
+        {
+          "id": "save_snippet_and_user_formulas_ui",
+          "name": "保存自定义片段与 PalettePanel userFormulas 展示/一键插入",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte (handleSaveSnippet + PalettePanel userFormulas)",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte (RequestSaveSnippet -> HostAction::SaveSnippet + storage + PalettePanel userFormulas)"
+        }
+      ]
+    },
+    {
+      "id": "latex_import",
+      "name": "LaTeX 导入（A-OBS-005 / A-UI-005）",
+      "items": [
+        {
+          "id": "import_modal_blocking_and_roundtrip_review",
+          "name": "ImportModal Error 阻断覆写及非阻断导入保留 round-trip diff 审阅",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/src/App.svelte + packages/ui/src/import/ImportModal.svelte",
+          "obsidianEvidence": "apps/obsidian/src/AppShell.svelte + packages/ui/src/import/ImportModal.svelte"
+        }
+      ]
+    },
+    {
+      "id": "obsidian_host_and_e2e",
+      "name": "Obsidian 宿主能力、构建产物新鲜度与双端 E2E（A-OBS-001..005）",
+      "items": [
+        {
+          "id": "obsidian_commands_and_codeblock",
+          "name": "3 个 Obsidian Vault 命令与 mathslot 阅读模式代码块处理器",
+          "status": "intentional_diff",
+          "desktopEvidence": "N/A（Desktop 为独立窗口应用，无 Obsidian Vault 命令与 Markdown 代码块宿主）",
+          "obsidianEvidence": "apps/obsidian/src/plugin.ts (open-mathslot-inline / open-mathslot-display / open-mathslot-import / mathslot codeblock)",
+          "reason": "Obsidian 插件专属宿主集成能力。"
+        },
+        {
+          "id": "obsidian_bundled_artifact_sync",
+          "name": "obsidian-mathslot/{main.js, styles.css} 与最新共享 UI / WASM 源码同步",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/dist（随 CI/构建脚本生成）",
+          "obsidianEvidence": "obsidian-mathslot/{main.js, styles.css, manifest.json}（经 obsidian-mathslot/scripts/build.mjs 同步并由 parity 门禁校验）"
+        },
+        {
+          "id": "dual_e2e_and_parity_gate",
+          "name": "Desktop E2E + Obsidian Desktop/Mobile(390px) Playwright E2E + Parity 契约门禁",
+          "status": "aligned",
+          "desktopEvidence": "apps/desktop/tests/e2e/desktop.spec.ts",
+          "obsidianEvidence": "apps/obsidian/tests/e2e/obsidian.spec.ts + packages/ui/tests/parity.test.ts"
+        }
+      ]
+    }
+  ]
+}
