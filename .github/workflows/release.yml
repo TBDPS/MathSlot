@@ -5,13 +5,24 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Publish as GitHub pre-release (for staged rollout)'
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: 'Create GitHub Release as draft before publishing'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
-  build-linux-x86_64:
-    name: Build Linux x86_64 Bundle
+  preflight:
+    name: Release Preflight Gate
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -19,11 +30,16 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
 
-      - name: Install system dependencies for egui / wayland / tauri
+      - name: Install Linux system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            binaryen \
+            desktop-file-utils \
             libasound2-dev \
             libudev-dev \
             libwayland-dev \
@@ -36,42 +52,146 @@ jobs:
             libjavascriptcoregtk-4.1-dev \
             librsvg2-dev
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Build desktop frontend assets
+      - name: Install frontend dependencies (packages/ui & apps/desktop)
         run: |
           npm ci --prefix packages/ui
           npm ci --prefix apps/desktop
+
+      - name: Verify cross-package release versions and Git tag
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+            node scripts/verify-release-versions.mjs --tag "${{ github.ref_name }}"
+          else
+            node scripts/verify-release-versions.mjs
+          fi
+
+      - name: Check formatting, clippy, and desktop entry
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          desktop-file-validate assets/mathslot.desktop
+
+      - name: Build shared UI and desktop frontend assets
+        run: |
+          npm test --prefix packages/ui
+          npm run check --prefix packages/ui
+          npm run build --prefix packages/ui
+          npm test --prefix apps/desktop
+          npm run check --prefix apps/desktop
           npm run build --prefix apps/desktop
+
+      - name: Check generated SSoT artifacts
+        run: |
+          cargo run --locked -p xtask -- check
+          cargo run --locked -p xtask -- generate
+          git diff --exit-code
+
+      - name: Run workspace and Tauri desktop backend tests
+        run: |
+          cargo test --workspace --locked
+          cargo test -p mathslot-desktop --locked
+
+      - name: Install wasm-bindgen-cli 0.2.130 and verify Obsidian plugin
+        run: |
+          if [ "$(wasm-bindgen --version 2>/dev/null || true)" != "wasm-bindgen 0.2.130" ]; then
+            cargo install --locked wasm-bindgen-cli --version 0.2.130
+          fi
+          npm test --prefix apps/obsidian
+          npm run check --prefix apps/obsidian
+          npm run build --prefix apps/obsidian
+          node obsidian-mathslot/scripts/build.mjs
+          git diff --exit-code -- obsidian-mathslot/
+
+      - name: Run E2E suites and performance budgets
+        run: |
+          npx --prefix apps/desktop playwright install chromium
+          npm run test:e2e --prefix apps/desktop
+          npm run test:e2e --prefix apps/obsidian
+          node packages/ui/scripts/bench-budgets.mjs
+
+  build-linux-x86_64:
+    name: Build Linux x86_64 Tauri Bundle
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri 2 Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            desktop-file-utils \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            patchelf \
+            file
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binaries
-        run: cargo build --release --locked --bin mathslot --bin mathslot-desktop
-
-      - name: Package Linux distribution
+      - name: Test and build desktop frontend assets
         run: |
-          PKG_NAME="mathslot-linux-x86_64"
-          mkdir -p "${PKG_NAME}/assets" "${PKG_NAME}/scripts"
-          cp target/release/mathslot target/release/mathslot-desktop "${PKG_NAME}/"
+          npm ci --prefix packages/ui
+          npm ci --prefix apps/desktop
+          npm test --prefix apps/desktop
+          npm run check --prefix apps/desktop
+          npm run build --prefix apps/desktop
+
+      - name: Run Tauri desktop backend tests
+        run: cargo test -p mathslot-desktop --locked
+
+      - name: Build Tauri 2 native installers (.deb, .AppImage) and mathslot-desktop binary
+        working-directory: apps/desktop
+        run: npx --yes @tauri-apps/cli@2 build --bundles deb,appimage
+
+      - name: Stage Linux native installers and portable archive
+        run: |
+          mkdir -p dist-linux
+          find target/release/bundle/deb -name '*.deb' -exec cp -v {} dist-linux/ \;
+          find target/release/bundle/appimage -name '*.AppImage' -exec cp -v {} dist-linux/ \;
+
+          PKG_NAME="mathslot-desktop-linux-x86_64"
+          mkdir -p "${PKG_NAME}/assets" "${PKG_NAME}/scripts" "${PKG_NAME}/docs"
+          cp target/release/mathslot-desktop "${PKG_NAME}/mathslot-desktop"
+          chmod +x "${PKG_NAME}/mathslot-desktop"
           cp -r assets/* "${PKG_NAME}/assets/"
           cp scripts/install-desktop.sh "${PKG_NAME}/scripts/"
-          chmod +x "${PKG_NAME}/scripts/install-desktop.sh" "${PKG_NAME}/mathslot" "${PKG_NAME}/mathslot-desktop"
+          chmod +x "${PKG_NAME}/scripts/install-desktop.sh"
           cp README.md HELP.md "${PKG_NAME}/"
-          tar -czvf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          cp docs/RELEASE_ROLLBACK.md "${PKG_NAME}/docs/"
+          tar -czvf "dist-linux/${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          ls -lh dist-linux/
 
-      - name: Upload Linux artifact
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mathslot-linux-x86_64.tar.gz
-          path: mathslot-linux-x86_64.tar.gz
+          name: linux-x86_64-assets
+          path: dist-linux/*
 
   build-windows-x86_64:
-    name: Build Windows x86_64 Binary
+    name: Build Windows x86_64 Tauri Bundle
+    needs: preflight
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -85,80 +205,105 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build desktop frontend assets
-        run: |
-          npm ci --prefix packages/ui
-          npm ci --prefix apps/desktop
-          npm run build --prefix apps/desktop
-
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binaries
-        run: cargo build --release --locked --bin mathslot --bin mathslot-desktop
+      - name: Test and build desktop frontend assets
+        run: |
+          npm ci --prefix packages/ui
+          npm ci --prefix apps/desktop
+          npm test --prefix apps/desktop
+          npm run check --prefix apps/desktop
+          npm run build --prefix apps/desktop
 
-      - name: Package Windows distribution
+      - name: Run Tauri desktop backend tests
+        run: cargo test -p mathslot-desktop --locked
+
+      - name: Build Tauri 2 native installers (.msi, NSIS .exe) and mathslot-desktop.exe
+        working-directory: apps/desktop
+        run: npx --yes @tauri-apps/cli@2 build --bundles msi,nsis
+
+      - name: Stage Windows native installers and portable archive
         shell: bash
         run: |
-          PKG_NAME="mathslot-windows-x86_64"
-          mkdir -p "${PKG_NAME}/assets"
-          cp target/release/mathslot.exe target/release/mathslot-desktop.exe "${PKG_NAME}/"
+          mkdir -p dist-windows
+          find target/release/bundle/msi -name '*.msi' -exec cp -v {} dist-windows/ \;
+          find target/release/bundle/nsis -name '*.exe' -exec cp -v {} dist-windows/ \;
+
+          PKG_NAME="mathslot-desktop-windows-x86_64"
+          mkdir -p "${PKG_NAME}/assets" "${PKG_NAME}/docs"
+          cp target/release/mathslot-desktop.exe "${PKG_NAME}/mathslot-desktop.exe"
           cp -r assets/* "${PKG_NAME}/assets/"
           cp README.md HELP.md "${PKG_NAME}/"
-          7z a "${PKG_NAME}.zip" "${PKG_NAME}"
+          cp docs/RELEASE_ROLLBACK.md "${PKG_NAME}/docs/"
+          7z a "dist-windows/${PKG_NAME}.zip" "${PKG_NAME}"
+          ls -lh dist-windows/
 
-      - name: Upload Windows artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mathslot-windows-x86_64.zip
-          path: mathslot-windows-x86_64.zip
+          name: windows-x86_64-assets
+          path: dist-windows/*
 
   build-macos:
-    name: Build macOS Apple Silicon (aarch64)
+    name: Build macOS Universal Tauri Bundle (aarch64 + x86_64)
+    needs: preflight
     runs-on: macos-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Rust toolchain
+      - name: Setup Rust toolchain (universal Apple targets)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Build desktop frontend assets
-        run: |
-          npm ci --prefix packages/ui
-          npm ci --prefix apps/desktop
-          npm run build --prefix apps/desktop
-
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build release binaries
-        run: cargo build --release --locked --bin mathslot --bin mathslot-desktop
-
-      - name: Package macOS distribution
+      - name: Test and build desktop frontend assets
         run: |
-          PKG_NAME="mathslot-macos-aarch64"
-          mkdir -p "${PKG_NAME}/assets"
-          cp target/release/mathslot target/release/mathslot-desktop "${PKG_NAME}/"
-          cp -r assets/* "${PKG_NAME}/assets/"
-          chmod +x "${PKG_NAME}/mathslot" "${PKG_NAME}/mathslot-desktop"
-          cp README.md HELP.md "${PKG_NAME}/"
-          tar -czvf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          npm ci --prefix packages/ui
+          npm ci --prefix apps/desktop
+          npm test --prefix apps/desktop
+          npm run check --prefix apps/desktop
+          npm run build --prefix apps/desktop
 
-      - name: Upload macOS artifact
+      - name: Run Tauri desktop backend tests
+        run: cargo test -p mathslot-desktop --locked
+
+      - name: Build Tauri 2 universal macOS bundle (.app, .dmg)
+        working-directory: apps/desktop
+        run: npx --yes @tauri-apps/cli@2 build --target universal-apple-darwin --bundles app,dmg
+
+      - name: Stage macOS native installers and portable .app archive
+        run: |
+          mkdir -p dist-macos
+          find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' -exec cp -v {} dist-macos/ \;
+
+          PKG_NAME="mathslot-desktop-macos-universal"
+          mkdir -p "${PKG_NAME}/docs"
+          cp -R target/universal-apple-darwin/release/bundle/macos/*.app "${PKG_NAME}/"
+          cp README.md HELP.md "${PKG_NAME}/"
+          cp docs/RELEASE_ROLLBACK.md "${PKG_NAME}/docs/"
+          tar -czvf "dist-macos/${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          ls -lh dist-macos/
+
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mathslot-macos-aarch64.tar.gz
-          path: mathslot-macos-aarch64.tar.gz
+          name: macos-universal-assets
+          path: dist-macos/*
 
   build-obsidian-plugin:
     name: Build Obsidian WASM Plugin
-    runs-on: ubuntu-latest
+    needs: preflight
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -167,6 +312,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+
+      - name: Install wasm-opt (binaryen)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends binaryen
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -182,31 +332,36 @@ jobs:
             cargo install --locked wasm-bindgen-cli --version 0.2.130
           fi
 
-      - name: Build and Bundle Obsidian Plugin
-        run: node obsidian-mathslot/scripts/build.mjs
+      - name: Test, typecheck, build, and verify Obsidian Plugin
+        run: |
+          npm test --prefix apps/obsidian
+          npm run check --prefix apps/obsidian
+          node obsidian-mathslot/scripts/build.mjs
+          git diff --exit-code -- obsidian-mathslot/
 
       - name: Package Obsidian Plugin
         run: |
           PKG_NAME="mathslot-obsidian-plugin"
           mkdir -p "${PKG_NAME}"
           cp obsidian-mathslot/manifest.json obsidian-mathslot/main.js obsidian-mathslot/styles.css "${PKG_NAME}/"
-          cp README.md "${PKG_NAME}/"
+          cp obsidian-mathslot/README.md "${PKG_NAME}/README.md"
           zip -r "${PKG_NAME}.zip" "${PKG_NAME}"
 
       - name: Upload Obsidian artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mathslot-obsidian-plugin.zip
+          name: obsidian-plugin-assets
           path: mathslot-obsidian-plugin.zip
 
   publish-release:
     name: Publish GitHub Release
     needs:
+      - preflight
       - build-linux-x86_64
       - build-windows-x86_64
       - build-macos
       - build-obsidian-plugin
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -216,11 +371,18 @@ jobs:
         with:
           path: dist
 
-      - name: List downloaded artifacts
+      - name: Collect artifacts and generate SHA256SUMS.txt
         run: |
           mkdir -p release-assets
           find dist -type f -exec mv -v {} release-assets/ \;
+          (
+            cd release-assets
+            rm -f SHA256SUMS.txt
+            LC_ALL=C sha256sum * > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
           ls -lh release-assets/
+          cat release-assets/SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -228,23 +390,23 @@ jobs:
         with:
           files: release-assets/*
           name: MathSlot ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ inputs.prerelease || false }}
           generate_release_notes: true
           body: |
-            ### MathSlot 公式编辑器跨平台正式发布
+            ### MathSlot 公式编辑器跨平台正式发布（Tauri 2 桌面端 + Obsidian WASM 插件）
 
-            🎉 欢迎使用 **MathSlot** —— 专为极速录入与排版打造的超轻量流式简码数学公式编辑器！
+            🎉 欢迎使用 **MathSlot** —— 面向学者、算法工程师与数学公式重度输入者的流式简码公式编辑器。
 
-            #### 制品下载清单 (Release Artifacts)
-            - **Linux (x86_64)**: `mathslot-linux-x86_64.tar.gz` (含原生可执行程序、桌面入口、图标全套与一键安装脚本)
-            - **Windows (x86_64)**: `mathslot-windows-x86_64.zip` (开箱即用)
-            - **macOS (Apple Silicon aarch64)**: `mathslot-macos-aarch64.tar.gz`
-            - **Obsidian 插件**: `mathslot-obsidian-plugin.zip` (零依赖 WebAssembly 插件)
+            #### 制品下载清单与校验 (`SHA256SUMS.txt`)
+            - **Linux (`x86_64`)**: 原生 `.deb` / `.AppImage` 安装包，以及便携包 `mathslot-desktop-linux-x86_64.tar.gz`（内含 `mathslot-desktop`、`assets/` 与 `scripts/install-desktop.sh`）
+            - **Windows (`x86_64`)**: 原生 `.msi` / `-setup.exe` 安装包，以及便携包 `mathslot-desktop-windows-x86_64.zip`
+            - **macOS (`universal`: `aarch64` + `x86_64`)**: 原生 `.dmg` 安装包与 `mathslot-desktop-macos-universal.tar.gz`（含 `MathSlot.app`）
+            - **Obsidian 插件**: `mathslot-obsidian-plugin.zip`（零外部网络依赖 WebAssembly 插件，内含 `manifest.json`、`main.js`、`styles.css` 与 `README.md`）
+            - **完整性校验**: 下载后请执行 `sha256sum -c SHA256SUMS.txt --ignore-missing` 核验所有制品校验和。
 
-            #### 核心特性亮点
-            - **海量经典公式库 (Preset Library)**：收录 60+ 覆盖微积分、线代、概率、物理、复变、离散算法等学科的经典权威公式；
-            - **欧拉恒等式规范书写**：`▸ue;i▸gp;; + 1 = 0`，完美解决基底在上、指数在外的历史偏差；
-            - **全结构槽位书写顺序严密规范**：全结构严格贴合人类自然书写思考流与排版直觉；
-            - **Linux / Fedora Wayland 原生集成**：独立 Application ID、现代化矢量与多尺寸应用图标，告别黄色问号与齿轮；
-            - **配置与模版双重容灾**：Schema 版本化管理，自动原子写盘与备份容灾 (`library.json.bak`)。
+            #### 核心特性与架构说明
+            - **单一事实源同源内核**：内置 `121` 条流式简码命令（`8` 大分类）与 `88` 条经典预置公式（`9` 大分类），Tauri 2 桌面端与 Obsidian 插件共享同一套 Rust 引擎与 Svelte 5 / CM6 前端；
+            - **全结构槽位顺序与 LaTeX 逆向导入**：支持欧拉恒等式 `▸ue;i▸gp;; + 1 = 0` 等自然书写流输入，导入错误阻断替换并输出诊断详情；
+            - **配置容灾 (`schema_version = 3`)**：原子写盘与 3–5 代轮转备份，异常文件自动隔离为 `library.corrupt-*.json` 并支持恢复向导；
+            - **旧版维护说明与回滚规程**：旧版 `egui` (`mathslot`) 已进入维护模式并停止随 Release 分发；若遇回归问题，请参阅 [docs/RELEASE_ROLLBACK.md](docs/RELEASE_ROLLBACK.md) 执行版本回退或降级。

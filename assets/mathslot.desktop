@@ -3,11 +3,11 @@
 Name=MathSlot
 GenericName=Math Formula Editor
 Comment=Ultra-lightweight stream-first math formula editor exporting LaTeX
-Exec=mathslot %U
+Exec=mathslot-desktop %U
 Icon=mathslot
 Terminal=false
 Type=Application
-Categories=Education;Science;Math;Utility;
-StartupWMClass=mathslot
+Categories=Science;Math;
+StartupWMClass=mathslot-desktop
 Keywords=math;latex;formula;editor;symbols;calculus;
 MimeType=text/x-tex;

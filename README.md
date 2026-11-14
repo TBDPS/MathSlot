@@ -308,10 +308,39 @@ node obsidian-mathslot/scripts/build.mjs
 
 ---
 
+## 跨平台发布包
+
+MathSlot 通过 `.github/workflows/release.yml`（前置 `preflight` 全量门禁 + 版本号与 Tag 一致性校验）统一构建并随 Release 附带 `SHA256SUMS.txt` 校验文件：
+
+- **桌面端（Tauri 2 `mathslot-desktop`）**：
+  - **Linux (`x86_64`)**：原生 `.deb` / `.AppImage` 安装包，以及便携归档 `mathslot-desktop-linux-x86_64.tar.gz`（内含 `mathslot-desktop`、`assets/` 与一键集成脚本 `scripts/install-desktop.sh`）；
+  - **Windows (`x86_64`)**：原生 `.msi` / `-setup.exe` 安装包，以及便携压缩包 `mathslot-desktop-windows-x86_64.zip`；
+  - **macOS (`aarch64` & `x86_64` / `universal`)**：原生 `.app` / `.dmg` 安装包与便携归档 `mathslot-desktop-macos-universal.tar.gz`。
+  - *注*：旧版 `egui` 二进制 `mathslot` 已进入维护模式并停止在 Release 中分发。
+- **Obsidian 插件（零外部依赖 WASM）**：
+  - `mathslot-obsidian-plugin.zip`（包含 `manifest.json`、`main.js`、`styles.css` 与 [obsidian-mathslot/README.md](obsidian-mathslot/README.md)）。
+- **本地离线原生包构建与校验**：
+
+```bash
+# 校验工作区与各端清单版本一致性
+node scripts/verify-release-versions.mjs
+
+# 离线构建 Linux 原生包与 SHA256SUMS.txt（输出至 target/release-dist/）
+bash scripts/package-desktop-local.sh
+
+# 解压后安装桌面快捷方式与 Wayland/X11 应用图标
+bash scripts/install-desktop.sh
+```
+
+- **下载校验与发布回滚**：请使用 `sha256sum -c SHA256SUMS.txt --ignore-missing` 校验发布包完整性；发布异常处理与回滚 SOP 见 [docs/RELEASE_ROLLBACK.md](docs/RELEASE_ROLLBACK.md)。
+
+---
+
 ## 更多文档
 
 - 完整使用教程、导航、导入导出与配置存储说明：[HELP.md](HELP.md)
 - 完整命令速查表（独立生成文件）：[docs/commands.md](docs/commands.md)
 - 系统架构与模块边界说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Obsidian 插件安装、构建与使用文档：[obsidian-mathslot/README.md](obsidian-mathslot/README.md)
+- 发布校验与回滚规程：[docs/RELEASE_ROLLBACK.md](docs/RELEASE_ROLLBACK.md)
 - 开源协议：`MIT OR Apache-2.0`（权威声明见 [Cargo.toml](Cargo.toml)）。

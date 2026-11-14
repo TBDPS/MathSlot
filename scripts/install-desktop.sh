@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# MathSlot Linux 原生桌面与 Wayland 图标一键安装脚本
+# MathSlot (Tauri 2) Linux 原生桌面与 Wayland 图标一键安装脚本
 # 适用平台：Fedora, Ubuntu, Debian, Arch 等遵循 XDG 标准的 Linux 桌面系统 (GNOME / KDE)
 # ==============================================================================
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-echo "==> [MathSlot] 正在准备安装 Linux 原生桌面集成组件..."
+echo "==> [MathSlot] 正在准备安装 mathslot-desktop (Tauri 2) Linux 原生桌面集成组件..."
 
 # 1. 确保目标目录存在
 BIN_DIR="${HOME}/.local/bin"
@@ -18,20 +18,23 @@ ICON_BASE="${HOME}/.local/share/icons/hicolor"
 mkdir -p "${BIN_DIR}"
 mkdir -p "${APP_DIR}"
 
-# 2. 安装可执行文件
-TARGET_BIN="${PROJECT_ROOT}/target/release/mathslot"
+# 2. 查找或构建可执行文件 mathslot-desktop
+TARGET_BIN="${PROJECT_ROOT}/target/release/mathslot-desktop"
 if [ ! -f "${TARGET_BIN}" ]; then
-    if [ -f "${PROJECT_ROOT}/mathslot" ]; then
-        TARGET_BIN="${PROJECT_ROOT}/mathslot"
+    if [ -f "${PROJECT_ROOT}/mathslot-desktop" ]; then
+        TARGET_BIN="${PROJECT_ROOT}/mathslot-desktop"
     else
-        echo "==> 未发现 release 构建，正在执行 cargo build --release..."
-        (cd "${PROJECT_ROOT}" && cargo build --release)
+        echo "==> 未发现 release 构建，正在构建前端并执行 cargo build --release -p mathslot-desktop..."
+        if [ ! -d "${PROJECT_ROOT}/apps/desktop/dist" ]; then
+            (cd "${PROJECT_ROOT}" && npm --prefix apps/desktop run build)
+        fi
+        (cd "${PROJECT_ROOT}" && cargo build --release -p mathslot-desktop)
     fi
 fi
 
-echo "==> 复制二进制文件至 ${BIN_DIR}/mathslot ..."
-cp -f "${TARGET_BIN}" "${BIN_DIR}/mathslot"
-chmod +x "${BIN_DIR}/mathslot"
+echo "==> 复制二进制文件至 ${BIN_DIR}/mathslot-desktop ..."
+cp -f "${TARGET_BIN}" "${BIN_DIR}/mathslot-desktop"
+chmod +x "${BIN_DIR}/mathslot-desktop"
 
 # 3. 安装各分辨率图标至 hicolor 图标主题目录
 echo "==> 安装应用程序图标至 ${ICON_BASE} ..."
@@ -53,6 +56,9 @@ fi
 # 5. 安装 Desktop 入口文件
 echo "==> 安装桌面入口至 ${APP_DIR}/mathslot.desktop ..."
 cp -f "${PROJECT_ROOT}/assets/mathslot.desktop" "${APP_DIR}/mathslot.desktop"
+if command -v desktop-file-validate >/dev/null 2>&1; then
+    desktop-file-validate "${APP_DIR}/mathslot.desktop"
+fi
 
 # 6. 刷新桌面数据库与图标缓存
 echo "==> 正在刷新系统桌面与图标数据库..."
@@ -65,9 +71,9 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 echo "=============================================================================="
-echo "✓ MathSlot 桌面集成安装成功！"
-echo "  - 二进制路径:  ${BIN_DIR}/mathslot"
+echo "✓ MathSlot (Tauri 2) 桌面集成安装成功！"
+echo "  - 二进制路径:  ${BIN_DIR}/mathslot-desktop"
 echo "  - 桌面入口项:  ${APP_DIR}/mathslot.desktop"
 echo "  - 图标资源库:  ${ICON_BASE}/ (16x16 ~ 512x512 及 scalable SVG)"
-echo "  - Wayland 匹配: StartupWMClass=mathslot, with_app_id('mathslot')"
+echo "  - Wayland/X11: Exec=mathslot-desktop %U, StartupWMClass=mathslot-desktop"
 echo "=============================================================================="

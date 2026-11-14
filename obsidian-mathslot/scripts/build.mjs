@@ -30,7 +30,23 @@ const wasmTargetPath = path.join(
 );
 
 const MAX_WASM_BYTES = 409_600;
-const EXPECTED_ENGINE_VERSION = "0.7.0+schema1";
+const pluginManifest = JSON.parse(readFileSync(path.join(pluginRoot, "manifest.json"), "utf8"));
+const srcManifest = JSON.parse(readFileSync(path.join(appsObsidianDir, "manifest.json"), "utf8"));
+assert.equal(
+  pluginManifest.version,
+  srcManifest.version,
+  `Manifest version mismatch: obsidian-mathslot/manifest.json (${pluginManifest.version}) !== apps/obsidian/manifest.json (${srcManifest.version})`,
+);
+const wasmClientSrc = readFileSync(path.join(appsObsidianDir, "src", "wasmClient.ts"), "utf8");
+const engineVersionMatch = wasmClientSrc.match(
+  /export\s+const\s+EXPECTED_ENGINE_VERSION\s*=\s*['"]([^'"]+)['"]\s*;/,
+);
+assert.ok(engineVersionMatch, "Missing EXPECTED_ENGINE_VERSION in apps/obsidian/src/wasmClient.ts");
+const EXPECTED_ENGINE_VERSION = engineVersionMatch[1];
+assert.ok(
+  EXPECTED_ENGINE_VERSION.startsWith(`${srcManifest.version}+`),
+  `EXPECTED_ENGINE_VERSION (${EXPECTED_ENGINE_VERSION}) must match manifest.json version (${srcManifest.version})`,
+);
 
 function resolveWasmBindgenBin() {
   const candidates = ["wasm-bindgen", path.join(os.homedir(), ".cargo", "bin", "wasm-bindgen")];
@@ -203,7 +219,10 @@ try {
   const PluginClass = requireCjs(pluginPath);
   assert.equal(typeof PluginClass, "function", "Default CJS export must be MathSlotPlugin class");
 
-  const instance = new PluginClass({ workspace: {} }, { id: "mathslot", name: "MathSlot", version: "0.7.0" });
+  const instance = new PluginClass(
+    { workspace: {} },
+    { id: srcManifest.id, name: srcManifest.name, version: srcManifest.version },
+  );
   await instance.onload();
   assert.ok(registeredCommands.includes("open-mathslot-inline"));
   assert.ok(registeredCommands.includes("open-mathslot-display"));

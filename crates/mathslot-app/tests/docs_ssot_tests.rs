@@ -19,6 +19,7 @@ const ACTIVE_DOC_PATHS: &[&str] = &[
     "HELP.md",
     "obsidian-mathslot/README.md",
     "docs/ARCHITECTURE.md",
+    "docs/RELEASE_ROLLBACK.md",
 ];
 
 fn extract_triangle_tokens(content: &str) -> Vec<(usize, String)> {
@@ -60,14 +61,22 @@ fn resolve_triangle_command(
     None
 }
 
-fn extract_markdown_relative_links(content: &str) -> Vec<(usize, String)> {
+fn extract_markdown_links(content: &str) -> Vec<(usize, String)> {
     let mut links = Vec::new();
+    let mut in_fence = false;
     for (line_idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
         let bytes = line.as_bytes();
         let mut i = 0;
         while i < bytes.len() {
             if bytes[i] == b']' && i + 1 < bytes.len() && bytes[i + 1] == b'(' {
-                // Ignore image badges/external links handled below, check matching '('..')'
                 let start = i + 2;
                 let mut depth = 1usize;
                 let mut j = start;
@@ -89,7 +98,6 @@ fn extract_markdown_relative_links(content: &str) -> Vec<(usize, String)> {
                         && !target_path.starts_with("http://")
                         && !target_path.starts_with("https://")
                         && !target_path.starts_with("mailto:")
-                        && !target_path.starts_with('#')
                     {
                         links.push((line_idx + 1, target_path.to_string()));
                     }
@@ -101,6 +109,52 @@ fn extract_markdown_relative_links(content: &str) -> Vec<(usize, String)> {
         }
     }
     links
+}
+
+fn github_heading_slug(raw_heading: &str) -> String {
+    let mut out = String::new();
+    for ch in raw_heading.trim().chars() {
+        if ch == ' ' {
+            out.push('-');
+        } else if ch == '-' || ch == '_' || ch.is_alphanumeric() {
+            for lc in ch.to_lowercase() {
+                out.push(lc);
+            }
+        }
+    }
+    out
+}
+
+fn collect_heading_anchors(content: &str) -> BTreeSet<String> {
+    let mut anchors = BTreeSet::new();
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut in_fence = false;
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
+        if (1..=6).contains(&hashes) && trimmed.as_bytes().get(hashes) == Some(&b' ') {
+            let title = trimmed[hashes + 1..].trim_end_matches('#').trim();
+            let base = github_heading_slug(title);
+            if !base.is_empty() {
+                let entry = counts.entry(base.clone()).or_insert(0);
+                let slug = if *entry == 0 {
+                    base
+                } else {
+                    format!("{base}-{}", *entry)
+                };
+                *entry += 1;
+                anchors.insert(slug);
+            }
+        }
+    }
+    anchors
 }
 
 #[test]
@@ -245,7 +299,10 @@ fn test_active_docs_relative_links_exist() {
         let base_dir = full_path.parent().unwrap_or_else(|| Path::new(""));
         let content = std::fs::read_to_string(&full_path).unwrap();
 
-        for (line_no, target) in extract_markdown_relative_links(&content) {
+        for (line_no, target) in extract_markdown_links(&content) {
+            if target.starts_with('#') {
+                continue;
+            }
             let without_fragment = target.split('#').next().unwrap_or("");
             if without_fragment.is_empty() {
                 continue;
@@ -264,6 +321,53 @@ fn test_active_docs_relative_links_exist() {
         dead_links.is_empty(),
         "Active docs contain dead relative links (D-163/D-165):\n{}",
         dead_links.join("\n")
+    );
+}
+
+#[test]
+fn test_active_docs_in_page_and_fragment_anchors_resolve() {
+    let root = workspace_root();
+    let mut dead_anchors = Vec::new();
+
+    for rel_path in ACTIVE_DOC_PATHS {
+        let full_path = root.join(rel_path);
+        assert!(
+            full_path.exists(),
+            "Active document '{}' must exist",
+            rel_path
+        );
+        let base_dir = full_path.parent().unwrap_or_else(|| Path::new(""));
+        let content = std::fs::read_to_string(&full_path)
+            .unwrap_or_else(|e| panic!("Failed to read '{}': {e}", rel_path));
+        let local_anchors = collect_heading_anchors(&content);
+
+        for (line_no, target) in extract_markdown_links(&content) {
+            if let Some(frag) = target.strip_prefix('#') {
+                if !local_anchors.contains(frag) {
+                    dead_anchors.push(format!(
+                        "{rel_path}:{line_no}: dead in-page anchor '(#{frag})'"
+                    ));
+                }
+            } else if let Some((file_part, frag)) = target.split_once('#') {
+                let resolved = base_dir.join(file_part);
+                if resolved.exists() && resolved.is_file() {
+                    let target_content = std::fs::read_to_string(&resolved)
+                        .unwrap_or_else(|e| panic!("Failed to read '{}': {e}", resolved.display()));
+                    let target_anchors = collect_heading_anchors(&target_content);
+                    if !target_anchors.contains(frag) {
+                        dead_anchors.push(format!(
+                            "{rel_path}:{line_no}: dead fragment anchor '({target})'"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        dead_anchors.is_empty(),
+        "Active docs contain dead markdown anchors (D-169):\n{}",
+        dead_anchors.join("\n")
     );
 }
 
