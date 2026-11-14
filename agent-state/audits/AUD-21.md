@@ -1,0 +1,193 @@
+---
+id: AUD-21
+round: 22
+gate: G3
+scope: [T3.1, A-EDIT-006, A-EDIT-007, A-EDIT-008, D-009, D-015]
+verdict: BLOCK
+auditor: mathslot-auditor
+date: 2026-11-14
+---
+
+# 独立审计报告 AUD-21：Gate G3 / `T3.1`（CodeMirror 6 编辑器与 `packages/ui` 底座）前置只读审计
+
+## 1. 判定摘要
+
+- **审计裁定**：**`BLOCK`**（`T3.1` 交付物——`packages/ui/package.json`、CodeMirror 6 编辑器组件、命令装饰/槽位扩展、`EngineClient` 接口适配及前端单元测试——尚未创建，当前 `packages/ui/` 仅包含 `xtask` 生成的 `src/generated/catalog.ts`）。
+- **Scoped 结论（按 `OPEN` / `FIXED` / `NOT-REPRODUCIBLE`）**：
+  1. **`T3.1`（`packages/ui` CM6 编辑器 + 命令装饰/槽位）**：**`OPEN`** — `packages/ui/package.json`、`apps/` 目录、Svelte 5 组件、CM6 编辑器及 `A-EDIT-006/007/008` 前端测试均不存在（仅 [`packages/ui/src/generated/catalog.ts`](file:///home/mat/Projects/mathslot-next/packages/ui/src/generated/catalog.ts) 1529 行已由 `xtask` 生成）。
+  2. **`A-EDIT-006` / `A-EDIT-007` / `A-EDIT-008`（跨端状态机与 UI 接线）**：
+     - Rust 无头状态机侧（[`crates/mathslot-app/src/app.rs`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs) + [`crates/mathslot-app/tests/app_state_machine_tests.rs:224-350`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/tests/app_state_machine_tests.rs#L224-L350)）：**`FIXED`**（已通过单测）。
+     - `packages/ui` CM6 侧：**`OPEN`**（前端编辑器与 `EngineClient` 尚未建立；且 `mathslot-app` 尚缺少向 CM6 暴露诊断 `Span`、统一视图快照 `EditorSnapshot` 与多行换行/Tab 脱焦配合字段，见 §2.2 & §2.3）。
+  3. **`D-009`（singleline 视觉换行 / 真多行一致）**：
+     - 原生 `egui` 端（[`src/app.rs:1815-1844`](file:///home/mat/Projects/mathslot-next/src/app.rs#L1815-L1844)）：**`FIXED`**（`wrap.max_width = f32::INFINITY` + 水平 `ScrollArea`）。
+     - G3 CM6 目标端（`S-007` / `INV-009`）：**`OPEN`**（CM6 未创建；且 [`crates/mathslot-app/src/app.rs:86,102`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L86) 将 `Key::Enter` / `EditorAction::Enter` 映射为 `AppCommand::Noop`，[`crates/mathslot-doc/src/editor.rs:680-683`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/editor.rs#L680-L683) 在 `Idle` 态跳过所有 `ch.is_whitespace()`）。
+  4. **`D-015`（焦点/快捷键/Tab 可离开）**：
+     - 原生 `egui` 端（[`src/app.rs:1832-1844, 2548-2574`](file:///home/mat/Projects/mathslot-next/src/app.rs#L2548-L2574)）：**`FIXED`**（已移除 `.lock_focus(true)` 与每帧 `request_focus`）。
+     - G3 CM6 目标端（规范 §12.2 / `A-UI-001`）：**`OPEN`**（CM6 键位映射尚未实现；[`crates/mathslot-app/src/app.rs:78,93`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L78) 当前将 `Key::Tab` 与 `EditorAction::TabNext` 无条件映射为 `NavAction::NextSlot`，在 CM6 接入时需避免 Tab 焦点陷阱并注意规范 §7.1 的 `Idle + Tab -> PrefixRoot` 契约差异）。
+  5. **`D-024` / `D-025` / `D-026`（P3 关联项）**：
+     - **`D-024`**：[`crates/mathslot-core/src/editor.rs:2233-2281`](file:///home/mat/Projects/mathslot-next/crates/mathslot-core/src/editor.rs#L2233-L2281) 仍为单字符 `bracket_pairs`（legacy **`OPEN`**）；[`crates/mathslot-syntax/src/parser.rs:480-542`](file:///home/mat/Projects/mathslot-next/crates/mathslot-syntax/src/parser.rs#L480-L542) 已解析 `\left ... \right` 为 `Expr::Delimited`，CM6 装饰层应消费 AST/解析上下文而非重写字符扫描。
+     - **`D-025`**：[`crates/mathslot-core/src/editor.rs:838-869`](file:///home/mat/Projects/mathslot-next/crates/mathslot-core/src/editor.rs#L838-L869) 与 [`src/app.rs:674-677`](file:///home/mat/Projects/mathslot-next/src/app.rs#L674-L677) 仍将包裹光标固定在 `e + 2`（**`OPEN`**）；`mathslot-doc` 已有 [`Edit::WrapDelimited`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/transaction.rs#L562-L605) 但尚未接入 `AppEvent`/`AppCommand`。
+     - **`D-026`**：[`src/theme.rs:123`](file:///home/mat/Projects/mathslot-next/src/theme.rs#L123) 仍硬编码 `ThemePreference::Dark`（**`OPEN`**）；`packages/ui` CSS 变量与 a11y 标签尚待从 `T3.1` 起建立。
+- **工具链与依赖环境**：
+  - `node v22.23.1`、`npm 10.9.8` 就绪，在线 npm registry 可正常解析 Svelte 5 / CodeMirror 6 / Vite / Vitest / TypeScript 全部包版本。
+  - `pkg-config` 缺失 `webkit2gtk-4.1` 与 `gtk+-3.0`（exit `1`）；但这**不阻塞 `T3.1..T3.4`**（纯 `packages/ui` Web/Vite/Vitest 组件库不依赖 GTK/WebKit），仅在后续 `T3.5`（`apps/desktop` Tauri 2 原生壳编译）时成为前置系统依赖（与 [`ADR-0022`](file:///home/mat/Projects/mathslot-next/agent-state/decisions/ADR-0022-close-open-0002-and-pre-tauri-roadmap.md#L33) 一致）。
+
+---
+
+## 2. 逐项代码与契约审计证据
+
+### 2.1 `packages/` 与 `apps/` 目录现状（`T3.1` 基线盘点）
+
+- **命令**：`find packages apps -maxdepth 6 2>&1 || true`（exit `0`）
+- **实测输出**：
+  ```text
+  packages
+  packages/ui
+  packages/ui/src
+  packages/ui/src/generated
+  packages/ui/src/generated/catalog.ts
+  find: “apps”: 没有那个文件或目录
+  ```
+- **文件行数统计**：`wc -l packages/ui/src/generated/catalog.ts`（exit `0`）→ `1529 packages/ui/src/generated/catalog.ts`。
+- **缺失清单**：
+  - 无 `packages/ui/package.json`、`tsconfig.json`、`vite.config.ts`、`vitest.config.*`；
+  - 无 CodeMirror 6 编辑器扩展（命令前缀高亮、槽位占位符装饰、光标/选区同步、IME/粘贴/导航拦截）；
+  - 无 Svelte 5 组件及前端测试；
+  - 无 `apps/desktop`、`apps/obsidian`、`packages/core-wasm`。
+- **已有生成产物 Schema 核验**（[`packages/ui/src/generated/catalog.ts:1-40, 1407-1529`](file:///home/mat/Projects/mathslot-next/packages/ui/src/generated/catalog.ts#L1-L40)）：
+  - 由 [`xtask/src/main.rs:39`](file:///home/mat/Projects/mathslot-next/xtask/src/main.rs#L39) 自动生成（`// @generated by xtask. DO NOT EDIT.`，INV-006/INV-015）。
+  - 导出类型与常量：
+    - `export type CommandCategory = "structure" | "calculus" | "matrix" | "accent" | "greek" | "symbol" | "relation" | "setlogic";`（`:3-12`）
+    - `export interface CommandEntry { id: string; keys: readonly string[]; label: string; category: CommandCategory; glyph: string; slots: readonly string[]; latex: string; doc: string; examples: readonly string[]; is_default?: boolean; wrap_body_slot?: number; }`（`:14-26`）
+    - `export const COMMANDS: readonly CommandEntry[]`（`:28-1405`，共 121 条命令，`COMMANDS[0]`..`COMMANDS[120]`）
+    - `export const COMMANDS_BY_ID: Readonly<Record<string, CommandEntry>>`（`:1407-1529`）
+- **判定**：**`OPEN`**（`T3.1` 尚未实现）。
+
+---
+
+### 2.2 `crates/mathslot-app` 公开 API 与 `EngineClient` 接口契约核查
+
+按照规范 §5.2–§5.3（[`docs/LLM_IMPLEMENTATION_SPEC.md:355-364`](file:///home/mat/Projects/mathslot-next/docs/LLM_IMPLEMENTATION_SPEC.md#L355-L364)），`packages/ui` **MUST 只依赖 `EngineClient` 抽象**，不得直接依赖 Tauri `invoke` 或 `wasm-bindgen`，且不得在 TS 侧复制命令表、解析规则或 LaTeX 模板（`INV-001` / `INV-006`）。
+
+经核查 [`crates/mathslot-app/src/lib.rs:1-17`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/lib.rs#L1-L17)、[`app.rs:9-481`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L9-L481)、[`event.rs:3-63`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/event.rs#L3-L63)、[`effect.rs:6-39`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/effect.rs#L6-L39)、[`state.rs:3-23`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/state.rs#L3-L23)，`EngineClient` 必须对接的精确 Rust 类型如下：
+
+| 类型 | 精确定义位置 | 关键字段 / 变体 | 对 `T3.1` CM6 的影响与缺口 |
+|---|---|---|---|
+| `App` | [`crates/mathslot-app/src/app.rs:18-22, 51-58, 413-481`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L18-L22) | `dispatch(&mut self, AppEvent) -> Vec<Effect>`、`state() -> &EditorState`、`to_latex() -> String`、`diagnostics() -> &[Diagnostic]`、`cursor() -> &Cursor`、`selection() -> &Selection`、`doc() -> &Document` | `App` 本身不派生 `Serialize`，也未提供聚合状态快照（如 `source`、光标 UTF-16 偏移、slot spans、diagnostics）的序列化 DTO |
+| `AppEvent` | [`crates/mathslot-app/src/event.rs:3-32`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/event.rs#L3-L32) | `KeyInput(char)` / `Key(char)`、`KeyDown(Key)`、`Action(EditorAction)`、`Paste(String)` / `PasteText(String)`、`PaletteCard(String)` / `ApplyCard(String)`、`Undo`、`Redo`、`RequestExport { strict }`、`RequestCopy`、`ExportRequested { strict, copy_to_clipboard }`、`ImeCompositionUpdate(String)`、`ImeCompositionCommit(String)`、`EnterNavMode`、`ExitNavMode`、`Navigate(NavAction)`、`Clear`、`ImportLatex(String)` | 派生 `Serialize/Deserialize`；存在多组别名变体（如 `Paste`/`PasteText`、`ImeCompositionUpdate`/`ImeComposition`）；尚无选区包裹事件（`WrapDelimited`） |
+| `Key` / `EditorAction` / `NavAction` | [`crates/mathslot-app/src/event.rs:34-63`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/event.rs#L34-L63) | `Key::{Backspace, Delete, Tab, Escape, Enter, ArrowLeft, ArrowRight}`；`EditorAction::{Backspace, Delete, TabNext, TabPrev, Escape, Enter}`；`NavAction::{EnterNav, ExitNav, NextSlot, PrevSlot, StepLeft, StepRight}` | `Key::Enter` 与 `EditorAction::Enter` 在 [`app.rs:86,102`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L86) 均映射为 `AppCommand::Noop`；`Key::Tab` 在 [`app.rs:78`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L78) 无条件映射为 `NextSlot` |
+| `Effect` | [`crates/mathslot-app/src/effect.rs:6-39`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/effect.rs#L6-L39) | `Render(RenderRequest { request_id, latex, has_diagnostics })`、`Clipboard(String)`、`Status(StatusMessage { severity: StatusSeverity, message })`、`Focus(FocusTarget)`、`ExportResult(Result<(String, Vec<Diagnostic>), AppError>)` | `FocusTarget` 为 `Slot(SlotId) \| End`（派生 `Serialize`），可驱动 CM6 槽位高亮与焦点同步 |
+| `EditorState` | [`crates/mathslot-app/src/state.rs:3-11`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/state.rs#L3-L11) | `Idle`、`PrefixRoot`、`PrefixSub { key: char }`、`Jump { tail: String }`、`Nav { path: Vec<String> }`、`InvalidPrefix { key: char }` | `EditorState::Jump` 在 [`app.rs:384-411`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L384-L411) 的 `sync_state()` 中尚未有分支产生（仅 `Idle`/`PrefixRoot`/`PrefixSub`/`Nav`/`InvalidPrefix`） |
+| `Diagnostic`（`EditorDiagnostic`） | [`crates/mathslot-app/src/lib.rs:16`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/lib.rs#L16) → [`crates/mathslot-doc/src/editor.rs:28-33`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/editor.rs#L28-L33) | `PendingCommand { prefix, message }`、`UnknownCommand { command, message }`、`Syntax(String)` | **关键缺口（对比规范 §6.1 & §6.2）**：`EditorDiagnostic` **不携带 `Span`、`code` 或 `hint`**，CM6 无法仅靠 `App::diagnostics()` 在编辑器源码中标出波浪线/内联位置 |
+| `Cursor` / `Selection` / `Document` / `SlotTable` / `Slot` | [`crates/mathslot-doc/src/cursor.rs:7-22`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/cursor.rs#L7-L22)、[`document.rs:8-13`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/document.rs#L8-L13)、[`slot.rs:6-38`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/slot.rs#L6-L38) | `Cursor::{AtStart, AtEnd, InSlot { slot_id, offset }, AtNode(AstPath)}`；`Document { nodes, slots: SlotTable, version }`；`Slot { id: SlotId(u32), role: SlotRole, path, span: Span { start: usize, end: usize }, is_empty, label }` | `Document` 内部保存 AST 与 `SlotTable`（含字节 `Span`），**不直接保存原始简码 `source: String`**（对比规范 §6.1 `Document { source, ast, slots, diagnostics }`），且 `mathslot_syntax::Span` 使用字节偏移 `usize`（需注意规范 §6.2 JS 边界 UTF-16 转换要求） |
+
+---
+
+### 2.3 与 `T3.1` 相关的编辑语义、缺陷与不变量核查
+
+1. **`A-EDIT-006`（粘贴含 `▸` 文本按纯文本插入，不触发命令展开）**：
+   - `mathslot-app` 现状：[`crates/mathslot-app/src/app.rs:104, 162-174`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L104) 与 [`crates/mathslot-doc/src/editor.rs:532-543`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/editor.rs#L532-L543) 通过 `Edit::InsertLiteralText` 实现，并有 [`app_state_machine_tests.rs:224-247`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/tests/app_state_machine_tests.rs#L224-L247) 验证通过。
+   - `T3.1` CM6 要求：CM6 扩展必须显式拦截 `paste` DOM 事件或识别 `Transaction.isUserEvent("input.paste")` 并派发 `AppEvent::Paste(text)`（**`OPEN`**，尚未在 `packages/ui` 实现）。
+2. **`A-EDIT-007`（中文 IME 组合期间不丢字、不跳光标、不污染 undo）**：
+   - `mathslot-app` 现状：[`crates/mathslot-app/src/app.rs:125-128, 241-257`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L125-L128) 与 [`crates/mathslot-doc/src/editor.rs:168-183`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/editor.rs#L168-L183) 支持 `ImeCompositionUpdate` / `ImeCompositionCommit`，并有 [`app_state_machine_tests.rs:250-291`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/tests/app_state_machine_tests.rs#L250-L291) 验证。
+   - `T3.1` CM6 要求：遵循规范 §7.1（[`docs/LLM_IMPLEMENTATION_SPEC.md:531`](file:///home/mat/Projects/mathslot-next/docs/LLM_IMPLEMENTATION_SPEC.md#L531)）与 `INV-009`，在 `view.composing` / `compositionstart..compositionend` 期间不拦截按键、不重写文本或强制移动 CM6 选区（**`OPEN`**，尚未在 `packages/ui` 实现）。
+3. **`A-EDIT-008`（导航模式按键只移动光标/槽位，文本与 undo 不变）**：
+   - `mathslot-app` 现状：[`crates/mathslot-app/src/app.rs:63-70`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L63-L70) 与 [`crates/mathslot-doc/src/editor.rs:652-670`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/editor.rs#L652-L670) 仅在 `nav_mode` 下分发 `j/n/\t/k/p/l/h` 并忽略其他字符，有 [`app_state_machine_tests.rs:294-350`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/tests/app_state_machine_tests.rs#L294-L350) 验证。
+   - `T3.1` CM6 要求：当 `EditorState` 为 `Nav` 时，CM6 keymap/domEventHandlers 必须阻止字母键进入原生文本插入流，转发为 `AppEvent::KeyInput` / `Navigate` 并保持 CM6 文档文本与 undo 栈不变（**`OPEN`**，尚未在 `packages/ui` 实现）。
+4. **`D-009`（单行不伪折行 / 真多行语义与视觉一致）**：
+   - 原生 `egui` 端已修复（[`src/app.rs:1815-1844`](file:///home/mat/Projects/mathslot-next/src/app.rs#L1815-L1844)，[`src/p1_regression_tests.rs:534`](file:///home/mat/Projects/mathslot-next/src/p1_regression_tests.rs#L534)）。
+   - `T3.1` CM6 目标端：规范 §4.2 D-009、§2 INV-009、§13.3 `S-007`（“3 行输入：多行语义与视觉一致”）要求 CM6 原生支持真多行输入与视觉一致；但目前 [`crates/mathslot-app/src/app.rs:86,102`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L86) 将 `Enter` 映射为 `Noop`，[`crates/mathslot-doc/src/editor.rs:680-683`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/editor.rs#L680-L683) 吞掉空白字符（含 `\n`）而仅执行 `break_coalesce()`。因此在 `T3.1` 接入多行 CM6 编辑器时，需显式对齐单/多行换行契约（**`OPEN`**）。
+5. **`D-015`（焦点/快捷键/Tab 可离开）**：
+   - 原生 `egui` 端已移除 `.lock_focus(true)` 与每帧 `request_focus`（[`src/app.rs:2548-2574`](file:///home/mat/Projects/mathslot-next/src/app.rs#L2548-L2574)，[`src/p1_regression_tests.rs:477`](file:///home/mat/Projects/mathslot-next/src/p1_regression_tests.rs#L477)）。
+   - `T3.1` CM6 目标端：规范 §12.2（[`docs/LLM_IMPLEMENTATION_SPEC.md:835-839`](file:///home/mat/Projects/mathslot-next/docs/LLM_IMPLEMENTATION_SPEC.md#L835-L839)）要求 `Tab` 必须能离开输入框到调色板/其他控件、禁止每帧 `request_focus`、快捷键可配置。注意：[`crates/mathslot-app/src/app.rs:78,93`](file:///home/mat/Projects/mathslot-next/crates/mathslot-app/src/app.rs#L78) 将 `Key::Tab` 映射为 `NextSlot`（与规范 §7.1 `Idle + Tab -> PrefixRoot` 亦存在差异），CM6 keymap 必须明确区分“在编辑器内触发命令/跳槽”与“焦点逃逸出编辑器”，不可再次形成 Tab 焦点死锁（**`OPEN`**）。
+6. **`D-024` / `D-025` / `D-026`（P3 关联）**：
+   - `D-024`：[`crates/mathslot-core/src/editor.rs:2233-2281`](file:///home/mat/Projects/mathslot-next/crates/mathslot-core/src/editor.rs#L2233-L2281) 仍只按单字符扫描括号；[`crates/mathslot-syntax/src/parser.rs:480-542`](file:///home/mat/Projects/mathslot-next/crates/mathslot-syntax/src/parser.rs#L480-L542) 已解析 `\left ... \right` 成 `Expr::Delimited { auto_scale: true, .. }`，CM6 括号高亮/装饰应基于解析上下文。
+   - `D-025`：[`crates/mathslot-core/src/editor.rs:838-869`](file:///home/mat/Projects/mathslot-next/crates/mathslot-core/src/editor.rs#L838-L869) 仍把选区包裹光标设在右括号外侧（`e + 2`）；`mathslot-doc` 的 [`apply_wrap_delimited`](file:///home/mat/Projects/mathslot-next/crates/mathslot-doc/src/transaction.rs#L562-L605) 尚未暴露为 `AppEvent`/`AppCommand`。
+   - `D-026`：[`src/theme.rs:123`](file:///home/mat/Projects/mathslot-next/src/theme.rs#L123) 仍固定 `ThemePreference::Dark`；`packages/ui` 建立时需从 `T3.1` 起使用 CSS 变量与 ARIA 可访问性属性。
+7. **静默失败与测试弱化检查（`crates/mathslot-app/` 与 `packages/`）**：
+   - 命令：`rg -n "let _\s*=|\.unwrap\(|#\[ignore" crates/mathslot-app/src/ crates/mathslot-app/tests/ packages/`（exit `1`，0 匹配）— `crates/mathslot-app` 源码与测试中无 `let _ =`、`.unwrap()` 或 `#[ignore]`。
+
+---
+
+## 3. 工具链、npm 注册表与系统库实测
+
+### 3.1 Node / npm 与 `T3.1` 前端包可用性
+- **命令**：
+  ```bash
+  node -v && npm -v && for pkg in svelte codemirror @codemirror/view @codemirror/state vite vitest @sveltejs/vite-plugin-svelte typescript; do echo -n "$pkg: "; npm view "$pkg" version 2>&1 || true; done
+  ```
+- **退出码**：`0`
+- **完整输出**：
+  ```text
+  v22.23.1
+  10.9.8
+  svelte: 5.57.3
+  codemirror: 6.0.2
+  @codemirror/view: 6.43.15
+  @codemirror/state: 6.7.6
+  vite: 8.3.8
+  vitest: 5.1.0
+  @sveltejs/vite-plugin-svelte: 7.3.1
+  typescript: 7.0.2
+  ```
+- **结论**：Node 22 + npm 10 与全部 Svelte 5 / CodeMirror 6 / Vite / Vitest / TypeScript 依赖包均可在当前环境正常查询与安装。
+
+### 3.2 系统桌面 WebView 库检查（`webkit2gtk-4.1` / `gtk+-3.0`）
+- **命令**：`pkg-config --modversion webkit2gtk-4.1 gtk+-3.0; echo "EXIT=$?"`
+- **退出码**：`1`（`pkg-config` 返回 `1`）
+- **完整输出**：
+  ```text
+  Package webkit2gtk-4.1 was not found in the pkg-config search path.
+  Perhaps you should add the directory containing `webkit2gtk-4.1.pc'
+  to the PKG_CONFIG_PATH environment variable
+  Package 'webkit2gtk-4.1' not found
+  Package 'gtk+-3.0' not found
+  EXIT=1
+  ```
+- **结论**：`T3.1`–`T3.4` 位于纯前端共享包 `packages/ui`，**不依赖 `webkit2gtk-4.1` 或 `gtk+-3.0`**，可立即推进；仅后续 `T3.5`（`apps/desktop` Tauri 2 Rust 编译）需预先安装 `webkit2gtk4.1-devel`、`gtk3-devel` 等系统包。
+
+---
+
+## 4. 门禁脚本实测
+
+### 4.1 `scripts/agent/acceptance.sh --fast`
+- **命令**：`scripts/agent/acceptance.sh --fast`
+- **退出码**：`0`
+- **完整输出**：
+  ```text
+  == MathSlot 门禁（/home/mat/Projects/mathslot-next）==
+  时间：2026-11-14T11:25:41+08:00
+
+
+  结果 检查项                    说明
+  ------ ---------------------------- ----
+  PASS   cargo fmt --check            exit 0
+  WARN   cargo clippy -D warnings     跳过（--fast）
+  PASS   cargo test --workspace       exit 0
+  PASS   调色板一致性           exit 0（gate=G3）
+  WARN   let _ = 计数               15 处（G4 前应清零）
+  WARN   unwrap() 计数              20 处（用户输入路径应为 0）
+  WARN   命令表常量              3 处（G1 后应只剩 catalog）
+  PASS   工作区干净              0 个未提交改动
+
+  PASS=4 FAIL=0 WARN=4
+  结论：PASS
+  ```
+
+---
+
+## 5. 历史结论抽查（按 `independent-audit` §3.3）
+
+| 来源（`file:line`） | 历史声称 | 本轮代码/命令实测 | 结论 |
+|---|---|---|---|
+| [`docs/ACCEPTANCE_REPORT_ROUND_12_FINAL.md:30, 96`](file:///home/mat/Projects/mathslot-next/docs/ACCEPTANCE_REPORT_ROUND_12_FINAL.md#L30) | 声称“`.gitignore` 明确声明 `docs/`；经 `git ls-files docs/` 检验，零设计文档污染 Git 版本库（`git ls-files docs/` 输出 0）” | [`.gitignore:8`](file:///home/mat/Projects/mathslot-next/.gitignore#L8) 实际写明 `# docs/ 是审计与验收证据，必须进版本库；不要忽略。`；实测 `git ls-files docs/ \| wc -l`（exit `0`）输出 `60` 个已跟踪文件 | **历史声称与事实完全相反** |
+| [`docs/ACCEPTANCE_REPORT_ROUND_12_FINAL.md:112`](file:///home/mat/Projects/mathslot-next/docs/ACCEPTANCE_REPORT_ROUND_12_FINAL.md#L112)（及 [`docs/ACCEPTANCE_REPORT_ROUND_11_FINAL.md:117`](file:///home/mat/Projects/mathslot-next/docs/ACCEPTANCE_REPORT_ROUND_11_FINAL.md#L117)） | 声称“无文本内嵌 `▸j`、无三套键位表 \| `StreamEditor` 与单一命令注册表彻底治理” | 实测 `rg -n "▸j" obsidian-mathslot/ src/ crates/mathslot-core/`（exit `0`）命中 [`crates/mathslot-core/src/parser.rs:396`](file:///home/mat/Projects/mathslot-next/crates/mathslot-core/src/parser.rs#L396)、[`crates/mathslot-core/src/editor.rs:200,255,331`](file:///home/mat/Projects/mathslot-next/crates/mathslot-core/src/editor.rs#L200)、[`src/app.rs:3025`](file:///home/mat/Projects/mathslot-next/src/app.rs#L3025)、[`obsidian-mathslot/src/plugin.js:944,967`](file:///home/mat/Projects/mathslot-next/obsidian-mathslot/src/plugin.js#L944)；且 `acceptance.sh` 仍检出 `命令表常量 3 处` | **历史声称失实（`▸j` 内联文本与多命令表残留至今）** |
+
+---
+
+## 6. 下一步建议（不写实现方案）
+
+1. **优先启动 `T3.1` 架构 ADR 与契约对齐**：
+   - 先决定 `packages/ui` 的 `EngineClient` 接口、编辑器源码与诊断 `Span`（UTF-8/UTF-16 映射）、多行（`Enter` / `D-009` / `S-007`）及 `Tab` 焦点逃逸与命令前缀冲突（`D-015` vs 规范 §7.1）的最小必要扩展，确保不复制第二套命令表或 parser（`INV-001` / `INV-006`）。
+2. **TDD 先红后绿搭建 `packages/ui` + CodeMirror 6**：
+   - 初始化 `packages/ui/package.json`（Svelte 5 + CM6 + Vite + Vitest + TypeScript），先写覆盖 `A-EDIT-006`（粘贴 `▸` 原样保留）、`A-EDIT-007`（IME 组合隔离）、`A-EDIT-008`（导航模式不改文本/undo）、`D-009`（多行/单行一致）与 `D-015`（`Tab` 可脱焦）的失败测试，再实现 CM6 编辑器、命令/槽位装饰与 `EngineClient` 适配，确保门禁与前端单测全绿后交由独立 `verifier` 验收。
