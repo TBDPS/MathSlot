@@ -16,11 +16,12 @@
   - `crates/mathslot-app/Cargo.toml`、`crates/mathslot-app/src/**`、`crates/mathslot-app/tests/**`（接入 `mathslot-latex`、`ImportLatex` 输出 `ImportReportSnapshot` 且 `Error` 阻断 `Edit::ReplaceAll`）
   - `crates/mathslot-wasm/**`（`#![forbid(unsafe_code)]`，移除 `mathslot-core`、28 个 C ABI 与重复 `tokenize_stream`，迁移到 `#[wasm_bindgen]` `Engine` + `mathslot-app`）
   - `catalog/presets.json`、`packages/ui/src/generated/presets.ts`（修复 `D-126` 3 条失败预置并通过 `cargo run -p xtask -- generate` 重新生成，确保 `xtask check` 无 diff）
+  - `crates/mathslot-store/src/migrate.rs`、`crates/mathslot-store/tests/data_safety_tests.rs`（仅用于 `D-126` v1/v2→v3 迁移对 3 条历史损坏预置的升级剥离与精确对照断言，严禁弱化或删除既有 `stripped_builtin_count == 87` 等测试断言）
   - `packages/ui/src/**`、`packages/ui/tests/**`（`ImportModal.svelte`、`ImportReportSnapshot` 类型、Obsidian 宿主 CSS 变量兼容、`<= 480px` 移动端断点与触控尺寸）
   - `apps/obsidian/**`（新建 Obsidian 插件源码、Svelte 5 宿主壳、WASM 单文件内联打包、宿主 `renderMath` 适配器、`backupJson` 隔离恢复逻辑、Vitest + JSDOM / Node E2E 测试）
   - `obsidian-mathslot/**`、`.github/workflows/ci.yml`、`.github/workflows/release.yml`（同步构建脚本使其统一从 `apps/obsidian` + `wasm-bindgen` 构建单文件 `main.js` / `styles.css`，保 `node obsidian-mathslot/scripts/build.mjs` 绿灯与 CI 兼容）
 - **禁止修改**：
-  - `xtask/**`、`catalog/commands.toml`、`src/**`、`crates/mathslot-core/**`、`crates/mathslot-command/**`、`crates/mathslot-syntax/**`、`crates/mathslot-doc/**`、`crates/mathslot-store/**`、`scripts/agent/**`、`docs/**`、`agent-state/**`
+  - `xtask/**`、`catalog/commands.toml`、`src/**`、`crates/mathslot-core/**`、`crates/mathslot-command/**`、`crates/mathslot-syntax/**`、`crates/mathslot-doc/**`、`crates/mathslot-store/src/{lib.rs,paths.rs,error.rs}`、`scripts/agent/**`、`docs/**`、`agent-state/**`
 
 ---
 
@@ -43,8 +44,9 @@
      - **当 `diagnostics` 含任意 `DiagnosticLevel::Error` 时，`blocked = true`，严格禁止调用 `Edit::ReplaceAll` 覆盖当前文档**；发送 `StatusSeverity::Error` 通知。
      - 仅当无 `Error` 诊断（`blocked = false`）时才应用新文档（如为有损但无 Error 仍通过 `last_import` 暴露警告与 `raw_nodes` 给 UI）。
 
-### 2.2 修复 3 条预置流式源码（`D-126`, `A-OBS-004`）
-- 修正 `catalog/presets.json` 中 `preset-003`（`▸kg`）、`preset-044`（`▸gg` → `▸gc` `\gamma`）、`preset-084`（`▸kd` → 规范 `catalog/commands.toml` 已有命令或标准符号组合），执行 `cargo run -p xtask -- generate` 同步 `packages/ui/src/generated/presets.ts`，通过自动化测试验证 88/88 条预置在 `mathslot-app::LoadStreamSource` 下全部无错误展开。
+### 2.2 修复 3 条预置流式源码与 v1/v2→v3 升级剥离（`D-126`, `A-OBS-004`）
+- 修正 `catalog/presets.json` 中 `preset-003`（`▸kg` → `▸aq` 等规范命令）、`preset-044`（`▸gg` → `▸gc` `\gamma`）、`preset-084`（`▸kd` → `▸an` 等规范命令），执行 `cargo run -p xtask -- generate` 同步 `packages/ui/src/generated/presets.ts`，通过自动化测试验证 88/88 条预置在 `mathslot-app::LoadStreamSource` 下全部无错误展开。
+- 在 `crates/mathslot-store/src/migrate.rs` 识别这 3 条历史 v1/v2 损坏默认内置源串（未修改用户不应把旧损坏源码当成个人覆盖），按 unmodified built-in 剥离升级至 `D-126` 固定预置（保证既有 `stripped_builtin_count == 87` 与 `converted_override_count == 1` 契约完全保持不变），并在 `crates/mathslot-store/tests/data_safety_tests.rs` 仅针对该 3 条历史 ID 显式校验升级前/后源串对照。
 
 ### 2.3 `crates/mathslot-wasm` 迁移 `#[wasm_bindgen]` 与单源 `mathslot-app`（`D-120`, `D-021`, `INV-001`, `INV-011`, `OPEN-003`）
 1. 启用 `#![forbid(unsafe_code)]`，删除 `mathslot-core` 依赖、28 个手写 `extern "C"` 导出与重复 `tokenize_stream`、硬编码 5 预置。
