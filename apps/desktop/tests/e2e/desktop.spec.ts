@@ -19,6 +19,10 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     // Stream command typing ▸f1;2;
     await page.keyboard.type('▸f1;2;', { delay: 12 });
     await expect(page.getByTestId('desktop-copy-preview')).toContainText('\\frac{1}{2}');
+    await expect(page.getByTestId('mathslot-editor').locator('.cm-content')).toHaveText(
+      '\\frac{1}{2}',
+    );
+    await expect(cmContent).not.toContainText(';');
     await expect(page.getByTestId('preview-viewport').locator('svg')).toBeVisible();
 
     await page.screenshot({
@@ -36,14 +40,17 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     await page.keyboard.type('c');
 
     await expect(page.locator('.cm-line')).toHaveCount(3);
+    await expect(page.locator('.cm-line')).toHaveText(['a', 'b', 'c']);
     await expect(page.getByTestId('mathslot-editor').locator('.ms-header-meta')).toContainText(
       '3 行',
     );
 
     // Undo and Redo stay synchronized with CM6 doc
     await page.keyboard.press('Control+z');
+    await expect(page.locator('.cm-line')).toHaveText(['a', 'b', '']);
     await expect(page.locator('.cm-content')).not.toContainText('c');
     await page.keyboard.press('Control+Shift+Z');
+    await expect(page.locator('.cm-line')).toHaveText(['a', 'b', 'c']);
     await expect(page.locator('.cm-content')).toContainText('c');
 
     // Pending command prefix blocks strict export (S-005)

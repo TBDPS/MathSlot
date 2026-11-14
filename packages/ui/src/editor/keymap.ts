@@ -84,27 +84,43 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
       options.dispatchEvent({ Paste: text });
       return true;
     },
+    keyup() {
+      lastKeydownInputChar = null;
+      return false;
+    },
+    blur() {
+      lastKeydownInputChar = null;
+      return false;
+    },
     beforeinput(event, view) {
-      if (composing || view.composing) {
+      if (composing || view.composing || event.isComposing) {
         lastKeydownInputChar = null;
         return false;
       }
       if (event.inputType === 'insertText' && typeof event.data === 'string' && event.data.length > 0) {
+        event.preventDefault();
         if (lastKeydownInputChar === event.data) {
           lastKeydownInputChar = null;
-          return false;
+          return true;
         }
         lastKeydownInputChar = null;
         for (const ch of event.data) {
           options.dispatchEvent({ KeyInput: ch });
         }
+        return true;
       }
       return false;
     },
     keydown(event, view) {
       lastKeydownInputChar = null;
       // A-EDIT-007: Never intercept or mutate during active IME composition
-      if (composing || view.composing || event.isComposing) {
+      if (
+        composing ||
+        view.composing ||
+        event.isComposing ||
+        event.key === 'Process' ||
+        event.key === 'Dead'
+      ) {
         return false;
       }
 
@@ -241,8 +257,10 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
       }
 
       if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
         lastKeydownInputChar = event.key;
         options.dispatchEvent({ KeyInput: event.key });
+        return true;
       }
       return false;
     },

@@ -579,4 +579,182 @@ describe('MathSlotEditor (T3.1)', () => {
 
     expect(events).toEqual([{ KeyInput: '▸' }, { KeyInput: 'f' }]);
   });
+
+  it('D-127: prevents delayed beforeinput(";") from appending ";" after async snapshot.source rewrite to \\frac{1}{2}', async () => {
+    let currentSnap: EngineSnapshot = {
+      ...createEmptySnapshot(),
+      source: '▸f1;2',
+      cursor_char: 5,
+    };
+    const events: AppEvent[] = [];
+    const client: EngineClient = {
+      dispatch: vi.fn(async (event: AppEvent): Promise<DispatchResponse> => {
+        events.push(event);
+        if (typeof event === 'object' && event !== null && 'KeyInput' in event && event.KeyInput === ';') {
+          currentSnap = {
+            ...currentSnap,
+            latex: '\\frac{1}{2}',
+            preview_latex: '\\frac{1}{2}',
+            copy_text: '\\frac{1}{2}',
+            source: '\\frac{1}{2}',
+            cursor_char: 11,
+          };
+        }
+        return { effects: [], snapshot: currentSnap };
+      }),
+      snapshot: vi.fn(async () => currentSnap),
+      engineVersion: vi.fn(async () => '0.7.0-test'),
+    };
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    let editorView: {
+      state: { doc: { toString(): string } };
+      contentDOM: HTMLElement;
+      focus: () => void;
+    } | null = null;
+
+    const app = mount(MathSlotEditor, {
+      target,
+      props: {
+        client,
+        snapshot: currentSnap,
+        onViewReady: (view) => {
+          editorView = view;
+        },
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    editorView!.focus();
+    const keydownSemi = new KeyboardEvent('keydown', {
+      key: ';',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(keydownSemi);
+    expect(keydownSemi.defaultPrevented).toBe(true);
+
+    // Let client.dispatch({ KeyInput: ';' }) promise microtask resolve and syncViewWithSnapshot run
+    await Promise.resolve();
+    await Promise.resolve();
+    await tick();
+
+    expect(editorView!.state.doc.toString()).toBe('\\frac{1}{2}');
+
+    // Simulate delayed browser beforeinput(';') arriving after async snapshot sync
+    const delayedBeforeInput = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: ';',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(delayedBeforeInput);
+    await tick();
+
+    expect(delayedBeforeInput.defaultPrevented).toBe(true);
+    expect(editorView!.state.doc.toString()).toBe('\\frac{1}{2}');
+    expect(editorView!.state.doc.toString()).not.toContain(';');
+    expect(events).toEqual([{ KeyInput: ';' }]);
+  });
+
+  it('D-127: pure Unicode beforeinput works after keyup while Ctrl/Alt/Meta and Escape/Tab remain untrapped', async () => {
+    const { client, events } = createMockClient();
+    const onFocusEscape = vi.fn();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    let editorView: {
+      contentDOM: HTMLElement;
+      focus: () => void;
+    } | null = null;
+
+    const app = mount(MathSlotEditor, {
+      target,
+      props: {
+        client,
+        onFocusEscape,
+        onViewReady: (view) => {
+          editorView = view;
+        },
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    editorView!.focus();
+
+    // Keydown 'a' + keyup 'a', then standalone beforeinput 'a' must still be dispatched
+    const kdA = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true });
+    editorView!.contentDOM.dispatchEvent(kdA);
+    editorView!.contentDOM.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+
+    const biA = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: 'a',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(biA);
+    expect(biA.defaultPrevented).toBe(true);
+
+    // Standalone Unicode beforeinput '▸' (e.g. Playwright insertText) dispatches KeyInput and prevents native insertion
+    const biTrigger = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: '▸',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(biTrigger);
+    expect(biTrigger.defaultPrevented).toBe(true);
+
+    // Ctrl / Alt / Meta single-char keys and Escape are not intercepted as KeyInput
+    const ctrlA = new KeyboardEvent('keydown', {
+      key: 'a',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const ctrlG = new KeyboardEvent('keydown', {
+      key: 'g',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const altX = new KeyboardEvent('keydown', {
+      key: 'x',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const metaK = new KeyboardEvent('keydown', {
+      key: 'k',
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const esc = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(ctrlA);
+    editorView!.contentDOM.dispatchEvent(ctrlG);
+    editorView!.contentDOM.dispatchEvent(altX);
+    editorView!.contentDOM.dispatchEvent(metaK);
+    editorView!.contentDOM.dispatchEvent(esc);
+
+    // Ctrl+A passes through to CM6 defaultKeymap (selectAll), while unmapped Ctrl/Alt/Meta/Escape remain untrapped
+    expect(ctrlG.defaultPrevented).toBe(false);
+    expect(altX.defaultPrevented).toBe(false);
+    expect(metaK.defaultPrevented).toBe(false);
+    expect(esc.defaultPrevented).toBe(false);
+    expect(events).toEqual([{ KeyInput: 'a' }, { KeyInput: 'a' }, { KeyInput: '▸' }]);
+  });
 });
