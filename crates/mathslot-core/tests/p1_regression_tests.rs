@@ -159,7 +159,6 @@ fn test_p1_d006_formula_upsert_same_millisecond_no_collision() {
 /// 缺少诊断报告机制；遇到不支持的复杂宏（如 `\tensor{A}{^i_j}`）时暴力剥离 `{...}` 外层括号，
 /// 导致输出破坏性退化为 `\tensorA^i_j`。
 #[test]
-#[ignore = "P1 regression: D-007 (fails until fixed in G1/G2/G4)"]
 fn test_p1_d007_latex_import_reports_lossy_and_blocks_degradation() {
     let input = r"\tensor{A}{^i_j} + \unsupportedEnvironment{x}";
 

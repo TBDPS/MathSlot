@@ -54,11 +54,92 @@ pub enum PaletteCategory {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DelimiterStyle {
+pub(crate) enum DelimiterStyle {
     None,
     Inline,
     Display,
     MarkdownCode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CopyLatexDiagnostic {
+    kind: &'static str,
+    token: String,
+    char_start: usize,
+    char_end: usize,
+}
+
+fn collect_unresolved_cmd_diagnostics(
+    seq: &mathslot_core::ast::MathSeq,
+    out: &mut Vec<CopyLatexDiagnostic>,
+) {
+    for item in &seq.items {
+        match item {
+            mathslot_core::ast::Expr::PendingCmd { partial, span } => {
+                out.push(CopyLatexDiagnostic {
+                    kind: "未完成命令",
+                    token: partial.clone(),
+                    char_start: span.start.char_idx,
+                    char_end: span.end.char_idx,
+                });
+            }
+            mathslot_core::ast::Expr::UnknownCmd { code, span } => {
+                out.push(CopyLatexDiagnostic {
+                    kind: "未知命令",
+                    token: code.clone(),
+                    char_start: span.start.char_idx,
+                    char_end: span.end.char_idx,
+                });
+            }
+            mathslot_core::ast::Expr::Struct { slots, .. }
+            | mathslot_core::ast::Expr::CustomStruct { slots, .. } => {
+                for slot in slots {
+                    collect_unresolved_cmd_diagnostics(&slot.seq, out);
+                }
+            }
+            mathslot_core::ast::Expr::Text { .. } | mathslot_core::ast::Expr::Symbol { .. } => {}
+        }
+    }
+}
+
+fn format_latex_with_delimiter(raw: String, delimiter_style: DelimiterStyle) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+    match delimiter_style {
+        DelimiterStyle::None => raw,
+        DelimiterStyle::Inline => format!("${raw}$"),
+        DelimiterStyle::Display => format!("$$\n{raw}\n$$"),
+        DelimiterStyle::MarkdownCode => format!("```latex\n{raw}\n```"),
+    }
+}
+
+pub(crate) fn prepare_copy_latex(
+    doc: &mathslot_core::ast::ParsedDoc,
+    delimiter_style: DelimiterStyle,
+) -> Result<String, String> {
+    let mut diagnostics = Vec::new();
+    collect_unresolved_cmd_diagnostics(&doc.root, &mut diagnostics);
+    if let Some(first) = diagnostics.first() {
+        return Err(format!(
+            "⛔ 存在{} `{}`（位置 {}..{}，共 {} 处），已阻止复制以避免静默破坏。",
+            first.kind,
+            first.token,
+            first.char_start,
+            first.char_end,
+            diagnostics.len()
+        ));
+    }
+
+    let raw = latex::to_latex(doc);
+    let formatted = format_latex_with_delimiter(raw, delimiter_style);
+    if formatted.is_empty() {
+        if !doc.root.items.is_empty() {
+            return Err("⛔ LaTeX 导出结果为空但源码非空，已阻止静默丢弃复制。".to_owned());
+        }
+        return Err("无内容可复制。".to_owned());
+    }
+    Ok(formatted)
 }
 
 use mathslot_core::presets::PRESET_LIBRARY;
@@ -412,26 +493,21 @@ impl MathSlotApp {
 
     fn formatted_latex(&self) -> String {
         let raw = latex::to_latex(&self.editor.parsed);
-        if raw.is_empty() {
-            return String::new();
-        }
-        match self.delimiter_style {
-            DelimiterStyle::None => raw,
-            DelimiterStyle::Inline => format!("${raw}$"),
-            DelimiterStyle::Display => format!("$$\n{raw}\n$$"),
-            DelimiterStyle::MarkdownCode => format!("```latex\n{raw}\n```"),
-        }
+        format_latex_with_delimiter(raw, self.delimiter_style)
     }
 
     fn copy_latex(&mut self, ctx: &egui::Context) {
-        let text = self.formatted_latex();
-        if text.is_empty() {
-            self.status = "无内容可复制。".to_owned();
-            return;
+        match prepare_copy_latex(&self.editor.parsed, self.delimiter_style) {
+            Ok(text) => {
+                ctx.copy_text(text);
+                self.copy_feedback_until = Some(Instant::now() + Duration::from_millis(1600));
+                self.status = "✓ 已复制 LaTeX 到系统剪贴板。".to_owned();
+            }
+            Err(err_msg) => {
+                self.copy_feedback_until = None;
+                self.status = err_msg;
+            }
         }
-        ctx.copy_text(text);
-        self.copy_feedback_until = Some(Instant::now() + Duration::from_millis(1600));
-        self.status = "✓ 已复制 LaTeX 到系统剪贴板。".to_owned();
     }
 
     fn copy_scheme_a(&mut self, ctx: &egui::Context) {

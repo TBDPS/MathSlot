@@ -39,6 +39,7 @@ eframe = { version = "0.37", default-features = false, features = [
 ] }
 latex-rust = { version = "3.0.1", features = ["png"] }
 mathslot-core = { path = "crates/mathslot-core" }
+mathslot-latex = { path = "crates/mathslot-latex" }
 mathslot-render = { path = "crates/mathslot-render" }
 mathslot-store = { path = "crates/mathslot-store" }
 tiny-skia = "0.11"

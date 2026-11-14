@@ -560,3 +560,308 @@ fn test_p2_d009_singleline_layouter_does_not_wrap_long_formula() {
         galley.rows.len()
     );
 }
+
+/// D-007 回归测试：原生端 LaTeX 导入必须接入 ImportReport 并在空结果/语法错误时阻断应用
+#[test]
+fn test_p1_d007_modals_uses_import_report_and_blocks_error_imports() {
+    let lib = UserLibrary::default();
+    let session = crate::modals::LibraryPersistenceSession::default();
+    let mut modal = crate::modals::LibraryModalState::new(&lib, String::new(), session);
+
+    // 1. 合法无损 LaTeX 导入：应产生 lossless ImportReport 并允许应用
+    modal.latex_input = r"\frac{a+b}{c-d} + \sqrt{x^2 + y^2}".to_owned();
+    modal.update_latex_conversion();
+    let ok_report = modal
+        .latex_import_report
+        .as_ref()
+        .expect("update_latex_conversion must populate ImportReport");
+    assert!(
+        ok_report.is_lossless(),
+        "Valid formula should produce lossless ImportReport, got {ok_report:?}"
+    );
+    assert!(
+        crate::modals::can_apply_latex_import(&modal.latex_converted_mathslot, Some(ok_report))
+            .is_ok(),
+        "Lossless import must be allowed to apply"
+    );
+
+    // 2. 未知复杂宏：必须产生非无损诊断（raw_nodes > 0 / has_warnings），且不得剥离大括号
+    modal.latex_input = r"\tensor{A}{^i_j} + \unsupportedEnvironment{x}".to_owned();
+    modal.update_latex_conversion();
+    let warn_report = modal
+        .latex_import_report
+        .as_ref()
+        .expect("ImportReport must be present for unknown macros");
+    assert!(
+        !warn_report.is_lossless() && warn_report.raw_nodes > 0 && warn_report.has_warnings(),
+        "Unknown macro import must report lossy/warning diagnostics: {warn_report:?}"
+    );
+    assert!(
+        modal.latex_converted_mathslot.contains(r"\tensor{A}"),
+        "Converted MathSlot stream must preserve unknown macro braces: {}",
+        modal.latex_converted_mathslot
+    );
+
+    // 3. 语法错误输入（如未闭合括号/环境）：has_errors() 必须显式阻断替换/插入
+    modal.latex_input = r"\begin{pmatrix} a & b".to_owned();
+    modal.update_latex_conversion();
+    let err_report = modal
+        .latex_import_report
+        .as_ref()
+        .expect("ImportReport must be present on syntax error");
+    assert!(
+        err_report.has_errors(),
+        "Unclosed environment must report syntax errors: {err_report:?}"
+    );
+    let err_gate =
+        crate::modals::can_apply_latex_import(&modal.latex_converted_mathslot, Some(err_report));
+    assert!(
+        err_gate.is_err(),
+        "Syntax error import must be blocked from applying, got {err_gate:?}"
+    );
+
+    // 4. 空输入必须阻断应用
+    modal.latex_input.clear();
+    modal.update_latex_conversion();
+    let empty_gate = crate::modals::can_apply_latex_import(
+        &modal.latex_converted_mathslot,
+        modal.latex_import_report.as_ref(),
+    );
+    assert!(
+        empty_gate.is_err(),
+        "Empty import must be blocked from applying, got {empty_gate:?}"
+    );
+}
+
+/// D-016 回归测试：公式库、自定义格式、片段三类删除必须支持二次确认与撤销恢复
+#[test]
+fn test_p2_d016_modal_deletes_require_confirmation_and_support_undo() {
+    use mathslot_core::editor::StreamEditor;
+    use mathslot_core::library::{CustomFormat, FormulaEntry, FormulaSnippet, LayoutKind};
+
+    let temp_root = std::env::temp_dir().join(format!(
+        "mathslot_d016_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("System time after epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_root).expect("create isolated temp dir");
+    let config_path = temp_root.join("library.json");
+
+    let mut editor = StreamEditor::new();
+    let formula_id = editor
+        .library
+        .formulas
+        .upsert(FormulaEntry {
+            id: "user-d016-test".to_owned(),
+            name: "测试公式 D016".to_owned(),
+            category: "自定义公式".to_owned(),
+            source: "x^2 + y^2".to_owned(),
+            desc: "delete safety test".to_owned(),
+            tags: vec!["test".to_owned()],
+            is_builtin: false,
+            created_at: 1_700_000_001,
+        })
+        .expect("insert formula");
+    let custom_key = editor
+        .library
+        .upsert_custom(CustomFormat {
+            item_key: 'z',
+            label: "测试格式".to_owned(),
+            glyph_hint: "Z".to_owned(),
+            slot_roles: vec!["参数".to_owned()],
+            latex_template: "\\mathrm{Z}($1)".to_owned(),
+            scheme_a_name: "k_z".to_owned(),
+            layout: LayoutKind::Linear,
+            auto_join: None,
+        })
+        .expect("insert custom format");
+    let snippet_key = editor
+        .library
+        .upsert_snippet(FormulaSnippet {
+            item_key: 'y',
+            label: "测试片段".to_owned(),
+            stream_source: "a + b".to_owned(),
+        })
+        .expect("insert snippet");
+    editor.set_library(editor.library.clone());
+
+    let mut session = crate::modals::LibraryPersistenceSession {
+        path: Some(config_path.clone()),
+        ..Default::default()
+    };
+    crate::modals::save_library_to_path(&editor.library, &config_path, &mut session)
+        .expect("seed initial library file");
+
+    let mut modal = crate::modals::LibraryModalState::new(
+        &editor.library,
+        config_path.display().to_string(),
+        session,
+    );
+
+    // 1. 公式删除：请求后必须处于待确认态且未删库；取消后保持原样
+    modal.request_delete(crate::modals::PendingDeleteTarget::Formula(
+        formula_id.clone(),
+    ));
+    assert!(
+        editor.library.formulas.get(&formula_id).is_some(),
+        "Requesting formula delete must not immediately remove entry before confirmation"
+    );
+    modal.cancel_pending_delete();
+    assert!(modal.pending_delete.is_none());
+    assert!(editor.library.formulas.get(&formula_id).is_some());
+
+    // 确认删除后移除，并支持窗口内 Undo 恢复
+    modal.request_delete(crate::modals::PendingDeleteTarget::Formula(
+        formula_id.clone(),
+    ));
+    assert!(modal.confirm_pending_delete(&mut editor).is_ok());
+    assert!(editor.library.formulas.get(&formula_id).is_none());
+    assert!(modal.undo_delete_buffer.is_some());
+    assert!(
+        modal
+            .undo_last_delete(&mut editor, std::time::Instant::now())
+            .is_ok(),
+        "Formula delete must be restorable via undo within window"
+    );
+    assert!(editor.library.formulas.get(&formula_id).is_some());
+
+    // 2. 自定义格式删除：请求 -> 取消保留 -> 确认删除 -> Undo 恢复
+    modal.request_delete(crate::modals::PendingDeleteTarget::CustomFormat(custom_key));
+    assert!(editor.library.lookup_custom(custom_key).is_some());
+    modal.cancel_pending_delete();
+    assert!(editor.library.lookup_custom(custom_key).is_some());
+
+    modal.request_delete(crate::modals::PendingDeleteTarget::CustomFormat(custom_key));
+    assert!(modal.confirm_pending_delete(&mut editor).is_ok());
+    assert!(editor.library.lookup_custom(custom_key).is_none());
+    assert!(
+        modal
+            .undo_last_delete(&mut editor, std::time::Instant::now())
+            .is_ok(),
+        "Custom format delete must be restorable via undo within window"
+    );
+    assert!(editor.library.lookup_custom(custom_key).is_some());
+
+    // 3. 片段删除：请求 -> 取消保留 -> 确认删除 -> Undo 恢复；超时后不可恢复
+    modal.request_delete(crate::modals::PendingDeleteTarget::Snippet(snippet_key));
+    assert!(editor.library.lookup_snippet(snippet_key).is_some());
+    modal.cancel_pending_delete();
+    assert!(editor.library.lookup_snippet(snippet_key).is_some());
+
+    modal.request_delete(crate::modals::PendingDeleteTarget::Snippet(snippet_key));
+    assert!(modal.confirm_pending_delete(&mut editor).is_ok());
+    assert!(editor.library.lookup_snippet(snippet_key).is_none());
+
+    let expired_at = std::time::Instant::now() + std::time::Duration::from_secs(11);
+    assert!(
+        modal.undo_last_delete(&mut editor, expired_at).is_err(),
+        "Expired undo window must not silently restore stale delete"
+    );
+
+    // 重新插入后验证窗口内恢复正常
+    editor
+        .library
+        .upsert_snippet(FormulaSnippet {
+            item_key: snippet_key,
+            label: "测试片段".to_owned(),
+            stream_source: "a + b".to_owned(),
+        })
+        .expect("re-insert snippet");
+    modal.request_delete(crate::modals::PendingDeleteTarget::Snippet(snippet_key));
+    assert!(modal.confirm_pending_delete(&mut editor).is_ok());
+    assert!(
+        modal
+            .undo_last_delete(&mut editor, std::time::Instant::now())
+            .is_ok(),
+        "Snippet delete must be restorable via undo within window"
+    );
+    assert!(editor.library.lookup_snippet(snippet_key).is_some());
+
+    if temp_root.exists()
+        && let Err(e) = std::fs::remove_dir_all(&temp_root)
+    {
+        eprintln!("Warning: failed to clean temp root: {e}");
+    }
+}
+
+/// D-004 原生运行时回归测试：copy_latex 面对 PendingCmd / UnknownCmd 严禁静默复制或误报“无内容可复制”
+#[test]
+fn test_p1_d004_native_copy_latex_does_not_silently_drop_pending_or_unknown() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    let mut app = crate::app::MathSlotApp::new(&cc);
+    let mut frame = eframe::Frame::_new_kittest();
+
+    step_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+
+    // 注入包含未完成命令 `▸m` 的混合表达式，并触发 Ctrl+Shift+C
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![egui::Event::Paste("1 + ▸m".to_owned())],
+    );
+    let out_pending = run_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![
+            key_event(
+                egui::Key::C,
+                true,
+                false,
+                egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+            ),
+            key_event(
+                egui::Key::C,
+                false,
+                false,
+                egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+            ),
+        ],
+    );
+    let copied_pending = out_pending
+        .platform_output
+        .commands
+        .iter()
+        .any(|cmd| matches!(cmd, egui::OutputCommand::CopyText(_)));
+    assert!(
+        !copied_pending,
+        "copy_latex must block copying when AST contains PendingCmd ('1 + ▸m')"
+    );
+    assert!(
+        find_galley_containing(&out_pending, "无内容可复制").is_none(),
+        "copy_latex must not mislead user with '无内容可复制' when PendingCmd exists"
+    );
+    assert!(
+        find_galley_containing(&out_pending, "未完成").is_some()
+            || find_galley_containing(&out_pending, "▸m").is_some(),
+        "copy_latex must surface visible diagnostic feedback for PendingCmd"
+    );
+
+    // 直接验证未知命令 `▸zz` 在纯准备函数下也显式报错阻断
+    let mut editor = mathslot_core::editor::StreamEditor::new();
+    editor.insert_str("▸zz");
+    let unknown_res =
+        crate::app::prepare_copy_latex(&editor.parsed, crate::app::DelimiterStyle::None);
+    assert!(
+        unknown_res.is_err(),
+        "prepare_copy_latex must return diagnostic error for UnknownCmd '▸zz', got {unknown_res:?}"
+    );
+    let err_msg = unknown_res.err().unwrap_or_default();
+    assert!(
+        !err_msg.contains("无内容可复制") && (err_msg.contains("未知") || err_msg.contains("▸zz")),
+        "Error message must explain UnknownCmd diagnostic rather than claiming empty: {err_msg}"
+    );
+
+    // 正常公式应允许导出与复制
+    editor.clear();
+    editor.insert_str("▸f1;2;");
+    let ok_res = crate::app::prepare_copy_latex(&editor.parsed, crate::app::DelimiterStyle::None);
+    assert_eq!(ok_res.as_deref(), Ok(r"\frac{1}{2}"));
+}

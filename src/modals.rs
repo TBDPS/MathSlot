@@ -1,9 +1,11 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, CornerRadius, FontId, Layout, Margin, RichText, Stroke, Vec2};
 use mathslot_core::command::CMD_PREFIX;
 use mathslot_core::editor::StreamEditor;
-use mathslot_core::library::{CustomFormat, FormulaSnippet, UserLibrary};
+use mathslot_core::library::{CustomFormat, FormulaEntry, FormulaSnippet, UserLibrary};
+use mathslot_latex::{ImportReport, convert_latex_with_report};
 
 use crate::theme::{
     ACCENT, AMBER, BORDER_SOFT, CARD, CYAN, FIELD, GREEN, GREEN_BG, MUTED, RED, TEXT, TEXT_DIM,
@@ -20,6 +22,60 @@ pub enum LibraryTab {
     LatexConverter,
     CustomFormats,
     Snippets,
+}
+
+pub const UNDO_DELETE_WINDOW: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PendingDeleteTarget {
+    Formula(String),
+    CustomFormat(char),
+    Snippet(char),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeletedItemSnapshot {
+    Formula(FormulaEntry),
+    CustomFormat(CustomFormat),
+    Snippet(FormulaSnippet),
+}
+
+#[derive(Clone, Debug)]
+pub struct UndoDeleteEntry {
+    pub item: DeletedItemSnapshot,
+    pub deleted_at: Instant,
+}
+
+enum DeleteRowAction {
+    None,
+    Request(PendingDeleteTarget),
+    Confirm,
+    Cancel,
+}
+
+pub fn can_apply_latex_import(
+    converted: &str,
+    report: Option<&ImportReport>,
+) -> Result<(), String> {
+    if converted.trim().is_empty() {
+        return Err("导入结果为空，无法应用到编辑器。".to_owned());
+    }
+    let Some(report) = report else {
+        return Err("缺少 LaTeX 导入诊断报告，已阻止应用。".to_owned());
+    };
+    if report.has_errors() {
+        let first_err = report
+            .diagnostics
+            .iter()
+            .find(|d| d.is_error())
+            .map(|d| d.kind.to_string())
+            .unwrap_or_else(|| "LaTeX 语法错误".to_owned());
+        let err_count = report.diagnostics.iter().filter(|d| d.is_error()).count();
+        return Err(format!(
+            "检测到 {err_count} 处 LaTeX 语法错误（{first_err}），已阻止应用。"
+        ));
+    }
+    Ok(())
 }
 
 pub enum ModalAction {
@@ -53,6 +109,11 @@ pub struct LibraryModalState {
     // LaTeX 逆向反编译器 / 转换器
     pub latex_input: String,
     pub latex_converted_mathslot: String,
+    pub latex_import_report: Option<ImportReport>,
+
+    // 删除二次确认与撤销恢复缓冲 (D-016)
+    pub pending_delete: Option<PendingDeleteTarget>,
+    pub undo_delete_buffer: Option<UndoDeleteEntry>,
 
     // 权威公式库 (Formula Corpus)
     pub preset_search: String,
@@ -95,6 +156,9 @@ impl LibraryModalState {
             show_snippet_form: false,
             latex_input: r"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}".to_owned(),
             latex_converted_mathslot: String::new(),
+            latex_import_report: None,
+            pending_delete: None,
+            undo_delete_buffer: None,
             preset_search: String::new(),
             preset_category: "全部".to_owned(),
             formula_editing_id: None,
@@ -209,6 +273,7 @@ impl LibraryModalState {
 
     pub fn open_custom_tab(&mut self, lib: &UserLibrary) {
         self.tab = LibraryTab::CustomFormats;
+        self.pending_delete = None;
         if self.custom_label.is_empty()
             && let Some(k) = lib.next_free_custom_key()
         {
@@ -219,6 +284,7 @@ impl LibraryModalState {
 
     pub fn open_snippets_tab(&mut self, lib: &UserLibrary) {
         self.tab = LibraryTab::Snippets;
+        self.pending_delete = None;
         if self.snip_label.is_empty()
             && let Some(k) = lib.next_free_snippet_key()
         {
@@ -233,7 +299,228 @@ impl LibraryModalState {
     }
 
     pub fn update_latex_conversion(&mut self) {
+        let (_ast, report) = convert_latex_with_report(&self.latex_input);
+        self.latex_import_report = Some(report);
         self.latex_converted_mathslot = mathslot_core::latex::latex_to_mathslot(&self.latex_input);
+    }
+
+    pub fn request_delete(&mut self, target: PendingDeleteTarget) {
+        self.pending_delete = Some(target);
+    }
+
+    pub fn cancel_pending_delete(&mut self) {
+        self.pending_delete = None;
+    }
+
+    pub fn confirm_pending_delete(&mut self, editor: &mut StreamEditor) -> Result<String, String> {
+        let Some(target) = self.pending_delete.take() else {
+            return Err("没有待确认的删除项。".to_owned());
+        };
+
+        let (snapshot, label, sync_library) = match target {
+            PendingDeleteTarget::Formula(id) => {
+                let Some(entry) = editor.library.formulas.get(&id).cloned() else {
+                    return Err("要删除的公式不存在。".to_owned());
+                };
+                if entry.is_builtin {
+                    return Err("内置公式不允许删除。".to_owned());
+                }
+                if !editor.library.formulas.remove(&id) {
+                    return Err("删除公式失败。".to_owned());
+                }
+                let name = entry.name.clone();
+                (
+                    DeletedItemSnapshot::Formula(entry),
+                    format!("公式「{name}」"),
+                    false,
+                )
+            }
+            PendingDeleteTarget::CustomFormat(key) => {
+                let Some(fmt) = editor.library.lookup_custom(key).cloned() else {
+                    return Err(format!("自定义格式 `k{key}` 不存在。"));
+                };
+                if !editor.library.remove_custom(key) {
+                    return Err(format!("删除自定义格式 `k{key}` 失败。"));
+                }
+                (
+                    DeletedItemSnapshot::CustomFormat(fmt),
+                    format!("自定义格式 `k{key}`"),
+                    true,
+                )
+            }
+            PendingDeleteTarget::Snippet(key) => {
+                let Some(snip) = editor.library.lookup_snippet(key).cloned() else {
+                    return Err(format!("片段 `t{key}` 不存在。"));
+                };
+                if !editor.library.remove_snippet(key) {
+                    return Err(format!("删除片段 `t{key}` 失败。"));
+                }
+                (
+                    DeletedItemSnapshot::Snippet(snip),
+                    format!("片段 `t{key}`"),
+                    false,
+                )
+            }
+        };
+
+        if sync_library {
+            editor.set_library(editor.library.clone());
+        }
+
+        self.undo_delete_buffer = Some(UndoDeleteEntry {
+            item: snapshot,
+            deleted_at: Instant::now(),
+        });
+
+        let (msg, is_err) = match self.save_library(&editor.library) {
+            Ok(_) => (format!("✓ 已删除{label}（10 秒内可撤销）。"), false),
+            Err(e) => (
+                format!("✓ 已删除{label}（本次会话生效，10 秒内可撤销），但写入磁盘失败: {e}"),
+                true,
+            ),
+        };
+        self.feedback = Some((msg.clone(), is_err));
+        Ok(msg)
+    }
+
+    pub fn active_undo_entry(&self, now: Instant) -> Option<&UndoDeleteEntry> {
+        self.undo_delete_buffer
+            .as_ref()
+            .filter(|entry| now.saturating_duration_since(entry.deleted_at) <= UNDO_DELETE_WINDOW)
+    }
+
+    pub fn undo_last_delete(
+        &mut self,
+        editor: &mut StreamEditor,
+        now: Instant,
+    ) -> Result<String, String> {
+        let Some(entry) = self.undo_delete_buffer.take() else {
+            return Err("当前没有可撤销的删除记录。".to_owned());
+        };
+        if now.saturating_duration_since(entry.deleted_at) > UNDO_DELETE_WINDOW {
+            return Err("撤销时间窗口已过期，无法恢复。".to_owned());
+        }
+
+        let (label, sync_library) = match entry.item {
+            DeletedItemSnapshot::Formula(formula) => {
+                let name = formula.name.clone();
+                editor.library.formulas.upsert(formula)?;
+                (format!("公式「{name}」"), false)
+            }
+            DeletedItemSnapshot::CustomFormat(fmt) => {
+                let key = editor.library.upsert_custom(fmt)?;
+                (format!("自定义格式 `k{key}`"), true)
+            }
+            DeletedItemSnapshot::Snippet(snip) => {
+                let key = editor.library.upsert_snippet(snip)?;
+                (format!("片段 `t{key}`"), false)
+            }
+        };
+
+        if sync_library {
+            editor.set_library(editor.library.clone());
+        }
+
+        let (msg, is_err) = match self.save_library(&editor.library) {
+            Ok(_) => (format!("↩ 已撤销删除并恢复{label}。"), false),
+            Err(e) => (
+                format!("↩ 已恢复{label}（本次会话生效），但写入磁盘失败: {e}"),
+                true,
+            ),
+        };
+        self.feedback = Some((msg.clone(), is_err));
+        Ok(msg)
+    }
+
+    fn apply_delete_row_action(
+        &mut self,
+        editor: &mut StreamEditor,
+        row_action: DeleteRowAction,
+    ) -> Option<ModalAction> {
+        match row_action {
+            DeleteRowAction::None => None,
+            DeleteRowAction::Request(target) => {
+                self.request_delete(target);
+                None
+            }
+            DeleteRowAction::Cancel => {
+                self.cancel_pending_delete();
+                None
+            }
+            DeleteRowAction::Confirm => match self.confirm_pending_delete(editor) {
+                Ok(msg) => Some(ModalAction::LibraryChanged(msg)),
+                Err(err) => {
+                    self.feedback = Some((err, true));
+                    None
+                }
+            },
+        }
+    }
+
+    fn render_undo_delete_banner(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor: &mut StreamEditor,
+    ) -> Option<ModalAction> {
+        let now = Instant::now();
+        let Some(entry) = self.active_undo_entry(now) else {
+            self.undo_delete_buffer = None;
+            return None;
+        };
+        let remaining = UNDO_DELETE_WINDOW
+            .saturating_sub(now.saturating_duration_since(entry.deleted_at))
+            .as_secs()
+            .max(1);
+        let item_desc = match &entry.item {
+            DeletedItemSnapshot::Formula(f) => format!("公式「{}」", f.name),
+            DeletedItemSnapshot::CustomFormat(c) => format!("自定义格式 `k{}`", c.item_key),
+            DeletedItemSnapshot::Snippet(s) => format!("片段 `t{}`", s.item_key),
+        };
+
+        let mut undo_clicked = false;
+        let mut dismiss_clicked = false;
+        egui::Frame::NONE
+            .fill(AMBER.gamma_multiply(0.12))
+            .stroke(Stroke::new(1.0, AMBER.gamma_multiply(0.45)))
+            .corner_radius(CornerRadius::same(7))
+            .inner_margin(Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("已删除{item_desc}（{remaining}s 内可恢复）"))
+                            .size(12.0)
+                            .color(AMBER),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.small_button("关闭").clicked() {
+                            dismiss_clicked = true;
+                        }
+                        if ui
+                            .small_button(RichText::new("↩ 撤销删除").strong().color(GREEN))
+                            .clicked()
+                        {
+                            undo_clicked = true;
+                        }
+                    });
+                });
+            });
+        ui.add_space(6.0);
+
+        if dismiss_clicked {
+            self.undo_delete_buffer = None;
+            return None;
+        }
+        if undo_clicked {
+            return match self.undo_last_delete(editor, Instant::now()) {
+                Ok(msg) => Some(ModalAction::LibraryChanged(msg)),
+                Err(err) => {
+                    self.feedback = Some((err, true));
+                    None
+                }
+            };
+        }
+        None
     }
 
     pub fn render_help_workspace(&mut self, ui: &mut egui::Ui) {
@@ -246,6 +533,9 @@ impl LibraryModalState {
         editor: &mut StreamEditor,
     ) -> Option<ModalAction> {
         let mut action = self.render_recovery_banner(ui, editor);
+        if let Some(undo_act) = self.render_undo_delete_banner(ui, editor) {
+            action = Some(undo_act);
+        }
 
         // 1. 顶部工具栏 Row 1: 弹性搜索框 + ✕ 清空 + [+ 新建公式] 主按钮
         ui.horizontal(|ui| {
@@ -356,8 +646,8 @@ impl LibraryModalState {
         ui.separator();
         ui.add_space(4.0);
 
-        // 待删除 ID
-        let mut delete_id: Option<String> = None;
+        // 待确认删除操作
+        let mut delete_row_action = DeleteRowAction::None;
 
         // 3. 滚动展示区域（表单与卡片随滚轮自然流动）
         let filtered: Vec<_> = editor
@@ -739,9 +1029,17 @@ impl LibraryModalState {
                             ui.add_space(4.0);
 
                             // 底层：流式简码预览（自适应截断）与次级动作（复制 LaTeX、编辑、删除）
+                            let is_pending_delete = self.pending_delete.as_ref()
+                                == Some(&PendingDeleteTarget::Formula(formula.id.clone()));
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new("简码:").size(11.0).color(AMBER));
-                                let btns_w = if formula.is_builtin { 100.0 } else { 145.0 };
+                                let btns_w = if formula.is_builtin {
+                                    100.0
+                                } else if is_pending_delete {
+                                    200.0
+                                } else {
+                                    145.0
+                                };
                                 let code_w = (ui.available_width() - btns_w).max(40.0);
                                 ui.add_sized(
                                     Vec2::new(code_w, 18.0),
@@ -757,12 +1055,15 @@ impl LibraryModalState {
 
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     ui.spacing_mut().item_spacing.x = 4.0;
-                                    if !formula.is_builtin
-                                        && ui
-                                            .small_button(RichText::new("删除").color(RED))
-                                            .clicked()
-                                    {
-                                        delete_id = Some(formula.id.clone());
+                                    if !formula.is_builtin {
+                                        let row_act = render_delete_row_buttons(
+                                            ui,
+                                            is_pending_delete,
+                                            PendingDeleteTarget::Formula(formula.id.clone()),
+                                        );
+                                        if !matches!(row_act, DeleteRowAction::None) {
+                                            delete_row_action = row_act;
+                                        }
                                     }
 
                                     if ui.small_button(RichText::new("编辑").color(CYAN)).clicked()
@@ -802,17 +1103,8 @@ impl LibraryModalState {
                 }
             });
 
-        if let Some(did) = delete_id
-            && editor.library.formulas.remove(&did)
-        {
-            let (msg, is_err) = match self.save_library(&editor.library) {
-                Ok(_) => ("✓ 已删除公式。".to_owned(), false),
-                Err(e) => (
-                    format!("✓ 已删除公式（本次会话生效），但写入磁盘失败: {e}"),
-                    true,
-                ),
-            };
-            self.feedback = Some((msg, is_err));
+        if let Some(del_act) = self.apply_delete_row_action(editor, delete_row_action) {
+            action = Some(del_act);
         }
 
         action
@@ -824,6 +1116,9 @@ impl LibraryModalState {
         editor: &mut StreamEditor,
     ) -> Option<ModalAction> {
         let mut action = self.render_recovery_banner(ui, editor);
+        if let Some(undo_act) = self.render_undo_delete_banner(ui, editor) {
+            action = Some(undo_act);
+        }
         let mut reset_defaults = false;
 
         let tab_titles = [
@@ -1039,13 +1334,32 @@ impl LibraryModalState {
                     .on_hover_text(&verified_latex);
                 });
 
+                ui.add_space(6.0);
+                if let Some(report) = &self.latex_import_report {
+                    render_import_report_panel(ui, &self.latex_input, report);
+                }
+
+                let apply_gate = can_apply_latex_import(
+                    &self.latex_converted_mathslot,
+                    self.latex_import_report.as_ref(),
+                );
+
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
+                    let replace_hover = match &apply_gate {
+                        Ok(()) => "用反编译简码流覆盖当前编辑器",
+                        Err(reason) => reason.as_str(),
+                    };
                     if ui
-                        .button(RichText::new("✓ 替换当前编辑器内容").strong().color(GREEN))
-                        .on_hover_text("用反编译简码流覆盖当前编辑器")
+                        .add_enabled(
+                            apply_gate.is_ok(),
+                            egui::Button::new(
+                                RichText::new("✓ 替换当前编辑器内容").strong().color(GREEN),
+                            ),
+                        )
+                        .on_hover_text(replace_hover)
                         .clicked()
-                        && !self.latex_converted_mathslot.is_empty()
+                        && apply_gate.is_ok()
                     {
                         action = Some(ModalAction::ReplaceCode(
                             self.latex_converted_mathslot.clone(),
@@ -1054,11 +1368,18 @@ impl LibraryModalState {
                             Some(("✓ 已替换当前编辑器内容为反编译简码流！".to_owned(), false));
                     }
 
+                    let insert_hover = match &apply_gate {
+                        Ok(()) => "追加到当前光标位置",
+                        Err(reason) => reason.as_str(),
+                    };
                     if ui
-                        .button(RichText::new("+ 插入到当前光标处").color(ACCENT))
-                        .on_hover_text("追加到当前光标位置")
+                        .add_enabled(
+                            apply_gate.is_ok(),
+                            egui::Button::new(RichText::new("+ 插入到当前光标处").color(ACCENT)),
+                        )
+                        .on_hover_text(insert_hover)
                         .clicked()
-                        && !self.latex_converted_mathslot.is_empty()
+                        && apply_gate.is_ok()
                     {
                         action = Some(ModalAction::InsertCode(
                             self.latex_converted_mathslot.clone(),
@@ -1067,6 +1388,10 @@ impl LibraryModalState {
                             Some(("✓ 已将反编译简码流插入到当前光标处！".to_owned(), false));
                     }
                 });
+                if let Err(reason) = &apply_gate {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(format!("⛔ {reason}")).size(11.5).color(RED));
+                }
             });
 
         action
@@ -1079,7 +1404,7 @@ impl LibraryModalState {
     ) -> Option<ModalAction> {
         let mut action = None;
         let mut edit_item: Option<CustomFormat> = None;
-        let mut delete_key: Option<char> = None;
+        let mut delete_row_action = DeleteRowAction::None;
         let mut insert_code: Option<String> = None;
 
         // 顶栏操作：新建展开与快捷微文案
@@ -1278,6 +1603,8 @@ impl LibraryModalState {
                 ui.add_space(4.0);
 
                 for fmt in &editor.library.custom_formats {
+                    let is_pending_delete = self.pending_delete.as_ref()
+                        == Some(&PendingDeleteTarget::CustomFormat(fmt.item_key));
                     egui::Frame::NONE
                         .fill(BG)
                         .stroke(Stroke::new(1.0, CARD_BORDER))
@@ -1327,8 +1654,20 @@ impl LibraryModalState {
                                     Layout::right_to_left(Align::Center),
                                     |ui| {
                                         ui.set_width(136.0);
-                                        if ui.small_button("删除").clicked() {
-                                            delete_key = Some(fmt.item_key);
+                                        if !is_pending_delete
+                                            && ui
+                                                .small_button(RichText::new("删除").color(RED))
+                                                .clicked()
+                                        {
+                                            delete_row_action = DeleteRowAction::Request(
+                                                PendingDeleteTarget::CustomFormat(fmt.item_key),
+                                            );
+                                        } else if is_pending_delete
+                                            && ui
+                                                .small_button(RichText::new("取消").color(TEXT_DIM))
+                                                .clicked()
+                                        {
+                                            delete_row_action = DeleteRowAction::Cancel;
                                         }
                                         if ui.small_button("编辑").clicked() {
                                             edit_item = Some(fmt.clone());
@@ -1342,6 +1681,15 @@ impl LibraryModalState {
                                     },
                                 );
                             });
+                            if is_pending_delete {
+                                let confirm_act = render_pending_delete_confirm_bar(
+                                    ui,
+                                    &format!("自定义格式 `k{}` ({})", fmt.item_key, fmt.label),
+                                );
+                                if !matches!(confirm_act, DeleteRowAction::None) {
+                                    delete_row_action = confirm_act;
+                                }
+                            }
                         });
                     ui.add_space(3.0);
                 }
@@ -1361,16 +1709,8 @@ impl LibraryModalState {
             ));
         }
 
-        if let Some(k) = delete_key
-            && editor.library.remove_custom(k)
-        {
-            editor.set_library(editor.library.clone());
-            let (msg, is_err) = match self.save_library(&editor.library) {
-                Ok(_) => (format!("已删除自定义格式 `k{k}`。"), false),
-                Err(e) => (format!("已删除（本次会话生效），但写入磁盘失败: {e}"), true),
-            };
-            self.feedback = Some((msg.clone(), is_err));
-            action = Some(ModalAction::LibraryChanged(msg));
+        if let Some(del_act) = self.apply_delete_row_action(editor, delete_row_action) {
+            action = Some(del_act);
         }
 
         if let Some(code) = insert_code {
@@ -1387,7 +1727,7 @@ impl LibraryModalState {
     ) -> Option<ModalAction> {
         let mut action = None;
         let mut edit_snip: Option<FormulaSnippet> = None;
-        let mut delete_key: Option<char> = None;
+        let mut delete_row_action = DeleteRowAction::None;
         let mut insert_code: Option<String> = None;
 
         // 顶部操作栏
@@ -1564,6 +1904,8 @@ impl LibraryModalState {
                 ui.add_space(4.0);
 
                 for snip in &editor.library.snippets {
+                    let is_pending_delete = self.pending_delete.as_ref()
+                        == Some(&PendingDeleteTarget::Snippet(snip.item_key));
                     egui::Frame::NONE
                         .fill(BG)
                         .stroke(Stroke::new(1.0, CARD_BORDER))
@@ -1605,8 +1947,20 @@ impl LibraryModalState {
                                     Layout::right_to_left(Align::Center),
                                     |ui| {
                                         ui.set_width(136.0);
-                                        if ui.small_button("删除").clicked() {
-                                            delete_key = Some(snip.item_key);
+                                        if !is_pending_delete
+                                            && ui
+                                                .small_button(RichText::new("删除").color(RED))
+                                                .clicked()
+                                        {
+                                            delete_row_action = DeleteRowAction::Request(
+                                                PendingDeleteTarget::Snippet(snip.item_key),
+                                            );
+                                        } else if is_pending_delete
+                                            && ui
+                                                .small_button(RichText::new("取消").color(TEXT_DIM))
+                                                .clicked()
+                                        {
+                                            delete_row_action = DeleteRowAction::Cancel;
                                         }
                                         if ui.small_button("编辑").clicked() {
                                             edit_snip = Some(snip.clone());
@@ -1620,6 +1974,15 @@ impl LibraryModalState {
                                     },
                                 );
                             });
+                            if is_pending_delete {
+                                let confirm_act = render_pending_delete_confirm_bar(
+                                    ui,
+                                    &format!("片段 `t{}` ({})", snip.item_key, snip.label),
+                                );
+                                if !matches!(confirm_act, DeleteRowAction::None) {
+                                    delete_row_action = confirm_act;
+                                }
+                            }
                         });
                     ui.add_space(3.0);
                 }
@@ -1636,15 +1999,8 @@ impl LibraryModalState {
             ));
         }
 
-        if let Some(k) = delete_key
-            && editor.library.remove_snippet(k)
-        {
-            let (msg, is_err) = match self.save_library(&editor.library) {
-                Ok(_) => (format!("已删除片段 `t{k}`。"), false),
-                Err(e) => (format!("已删除（本次会话生效），但写入磁盘失败: {e}"), true),
-            };
-            self.feedback = Some((msg.clone(), is_err));
-            action = Some(ModalAction::LibraryChanged(msg));
+        if let Some(del_act) = self.apply_delete_row_action(editor, delete_row_action) {
+            action = Some(del_act);
         }
 
         if let Some(code) = insert_code {
@@ -1653,6 +2009,138 @@ impl LibraryModalState {
 
         action
     }
+}
+
+fn render_pending_delete_confirm_bar(ui: &mut egui::Ui, label: &str) -> DeleteRowAction {
+    let mut act = DeleteRowAction::None;
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format!("⚠ 确认删除 {label}？"))
+                .size(11.5)
+                .color(RED),
+        );
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if ui
+                .small_button(RichText::new("取消").color(TEXT_DIM))
+                .clicked()
+            {
+                act = DeleteRowAction::Cancel;
+            }
+            if ui
+                .small_button(RichText::new("确认删除").strong().color(RED))
+                .clicked()
+            {
+                act = DeleteRowAction::Confirm;
+            }
+        });
+    });
+    act
+}
+
+fn render_delete_row_buttons(
+    ui: &mut egui::Ui,
+    is_pending: bool,
+    target: PendingDeleteTarget,
+) -> DeleteRowAction {
+    if is_pending {
+        if ui
+            .small_button(RichText::new("确认删除").strong().color(RED))
+            .clicked()
+        {
+            return DeleteRowAction::Confirm;
+        }
+        if ui
+            .small_button(RichText::new("取消").color(TEXT_DIM))
+            .clicked()
+        {
+            return DeleteRowAction::Cancel;
+        }
+    } else if ui.small_button(RichText::new("删除").color(RED)).clicked() {
+        return DeleteRowAction::Request(target);
+    }
+    DeleteRowAction::None
+}
+
+fn render_import_report_panel(ui: &mut egui::Ui, input: &str, report: &ImportReport) {
+    let is_err = report.has_errors();
+    let is_warn = !is_err
+        && (!report.is_lossless()
+            || report.raw_nodes > 0
+            || !report.normalized_match
+            || report.has_warnings());
+    let (bg, border, title_color, title) = if is_err {
+        (
+            RED.gamma_multiply(0.12),
+            RED.gamma_multiply(0.45),
+            RED,
+            "⛔ LaTeX 导入诊断：发现语法错误",
+        )
+    } else if is_warn {
+        (
+            AMBER.gamma_multiply(0.12),
+            AMBER.gamma_multiply(0.45),
+            AMBER,
+            "⚠ LaTeX 导入诊断：存在有损降级或结构差异",
+        )
+    } else {
+        (
+            GREEN_BG,
+            GREEN.gamma_multiply(0.4),
+            GREEN,
+            "✓ LaTeX 导入诊断：100% 无损解析",
+        )
+    };
+
+    egui::Frame::NONE
+        .fill(bg)
+        .stroke(Stroke::new(1.0, border))
+        .corner_radius(CornerRadius::same(7))
+        .inner_margin(Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(title).size(11.5).strong().color(title_color));
+                ui.label(
+                    RichText::new(format!(
+                        "lossless={} · raw_nodes={} · empty_slots={} · normalized_match={}",
+                        report.lossless,
+                        report.raw_nodes,
+                        report.empty_slots,
+                        report.normalized_match
+                    ))
+                    .size(11.0)
+                    .color(TEXT_DIM),
+                );
+            });
+            for diag in report.diagnostics.iter().take(4) {
+                let kind_label = if diag.is_error() { "错误" } else { "警告" };
+                let color = if diag.is_error() { RED } else { AMBER };
+                ui.label(
+                    RichText::new(format!(
+                        "• [{kind_label} {}..{}] {}",
+                        diag.span.start, diag.span.end, diag.kind
+                    ))
+                    .size(11.0)
+                    .color(color),
+                );
+            }
+            if is_warn && (!report.normalized_match || report.raw_nodes > 0) {
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(format!("输入原文: {}", input.trim()))
+                        .monospace()
+                        .size(10.5)
+                        .color(MUTED),
+                );
+                ui.label(
+                    RichText::new(format!("规范回环 (roundtrip): {}", report.roundtrip_latex))
+                        .monospace()
+                        .size(10.5)
+                        .color(TEXT_DIM),
+                );
+            }
+        });
 }
 
 fn render_help_body(ui: &mut egui::Ui) {

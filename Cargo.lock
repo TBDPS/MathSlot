@@ -1346,6 +1346,7 @@ dependencies = [
  "eframe",
  "latex-rust",
  "mathslot-core",
+ "mathslot-latex",
  "mathslot-render",
  "mathslot-store",
  "tiny-skia",

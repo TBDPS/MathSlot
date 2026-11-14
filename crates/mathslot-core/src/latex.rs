@@ -277,8 +277,20 @@ fn latex_range(chars: &[char], start: usize, end: usize) -> String {
                         i += 1;
                     }
                     let word: String = chars[word_start..i].iter().collect();
-                    let piece = format!("\\{}", canonical_macro(&word));
-                    push_piece(&mut out, &piece, chars.get(i).copied());
+                    if let Some(canonical) = lookup_canonical_macro(&word) {
+                        let piece = format!("\\{canonical}");
+                        push_piece(&mut out, &piece, chars.get(i).copied());
+                    } else {
+                        let piece = format!("\\{word}");
+                        let (args, next_i) = consume_verbatim_macro_args(chars, i, end);
+                        if args.is_empty() {
+                            push_piece(&mut out, &piece, chars.get(i).copied());
+                        } else {
+                            out.push_str(&piece);
+                            out.push_str(&args);
+                            i = next_i;
+                        }
+                    }
                 } else if i < end {
                     out.push('\\');
                     out.push(chars[i]);
@@ -562,7 +574,11 @@ pub(crate) fn multi_symbol(chars: &[char]) -> Option<(&'static str, usize)> {
 }
 
 pub(crate) fn canonical_macro(word: &str) -> &str {
-    match word {
+    lookup_canonical_macro(word).unwrap_or(word)
+}
+
+fn lookup_canonical_macro(word: &str) -> Option<&'static str> {
+    Some(match word {
         "le" | "leq" => "le",
         "ge" | "geq" => "ge",
         "ne" | "neq" => "neq",
@@ -755,8 +771,32 @@ pub(crate) fn canonical_macro(word: &str) -> &str {
         "mathtt" => "mathtt",
         "mathfrak" => "mathfrak",
         "text" => "text",
-        _ => word,
+        _ => return None,
+    })
+}
+
+fn consume_verbatim_macro_args(chars: &[char], mut i: usize, end: usize) -> (String, usize) {
+    let mut out = String::new();
+    while i < end {
+        let mut scan = i;
+        while scan < end && chars[scan].is_whitespace() {
+            scan += 1;
+        }
+        if scan >= end {
+            break;
+        }
+        let close = match chars[scan] {
+            '{' => matching_delim(chars, scan, end, '{', '}'),
+            '[' => matching_delim(chars, scan, end, '[', ']'),
+            _ => None,
+        };
+        let Some(close_idx) = close else {
+            break;
+        };
+        out.extend(&chars[i..=close_idx]);
+        i = close_idx + 1;
     }
+    (out, i)
 }
 
 pub(crate) fn word_to_latex(word: &str) -> String {
@@ -1277,7 +1317,12 @@ fn convert_latex_chars(chars: &[char], start: usize, end: usize) -> String {
                                 out.push(' ');
                             }
                         } else {
-                            out.push_str(&chars[bs_idx..i].iter().collect::<String>());
+                            out.extend(&chars[bs_idx..i]);
+                            let (args, next_i) = consume_verbatim_macro_args(chars, i, end);
+                            if !args.is_empty() {
+                                out.push_str(&args);
+                                i = next_i;
+                            }
                         }
                     }
                 }
