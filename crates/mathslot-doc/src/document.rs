@@ -646,12 +646,9 @@ impl Document {
                         },
                         spanned.span,
                     );
-                } else if new_nodes.len() == 1 {
-                    // 单节点直接就地解包替换
-                    *spanned = new_nodes.into_iter().next().unwrap();
                 } else {
-                    // 多节点安全包裹为 Group，杜绝丢弃后续表达式节点（如 "x + y"）
-                    *spanned = Spanned::new(Expr::Group(new_nodes), spanned.span);
+                    // 单节点直接就地解包替换；多节点安全包裹为 Group，杜绝丢弃后续表达式节点（如 "x + y"）
+                    *spanned = collapse_replacement_nodes(new_nodes, spanned.span);
                 }
                 return Ok(old);
             }
@@ -820,12 +817,7 @@ impl Document {
                             Expr::Group(items) => std::mem::replace(items, new_nodes),
                             _ => {
                                 let old = vec![*sub_box.clone()];
-                                if new_nodes.len() == 1 {
-                                    **sub_box = new_nodes.into_iter().next().unwrap();
-                                } else {
-                                    **sub_box =
-                                        Spanned::new(Expr::Group(new_nodes), Span::point(0));
-                                }
+                                **sub_box = collapse_replacement_nodes(new_nodes, Span::point(0));
                                 old
                             }
                         };
@@ -843,12 +835,7 @@ impl Document {
                             Expr::Group(items) => std::mem::replace(items, new_nodes),
                             _ => {
                                 let old = vec![*sup_box.clone()];
-                                if new_nodes.len() == 1 {
-                                    **sup_box = new_nodes.into_iter().next().unwrap();
-                                } else {
-                                    **sup_box =
-                                        Spanned::new(Expr::Group(new_nodes), Span::point(0));
-                                }
+                                **sup_box = collapse_replacement_nodes(new_nodes, Span::point(0));
                                 old
                             }
                         };
@@ -869,6 +856,13 @@ impl Document {
     /// 清空槽位内容
     pub fn clear_slot(&mut self, slot_id: SlotId) -> Result<Vec<Spanned<Expr>>, DocError> {
         self.replace_slot(slot_id, Vec::new())
+    }
+}
+
+fn collapse_replacement_nodes(new_nodes: Vec<Spanned<Expr>>, span: Span) -> Spanned<Expr> {
+    match <[Spanned<Expr>; 1]>::try_from(new_nodes) {
+        Ok([single]) => single,
+        Err(rest) => Spanned::new(Expr::Group(rest), span),
     }
 }
 

@@ -1,5 +1,5 @@
 use mathslot_doc::{Cursor, Document, Edit, Editor, SlotRole};
-use mathslot_syntax::parse;
+use mathslot_syntax::{Expr, SlotId, Span, Spanned, parse};
 
 #[test]
 fn test_slot_table_extraction() {
@@ -171,4 +171,197 @@ fn test_input_coalescing() {
     // 一次撤销即可完全回滚
     assert!(editor.undo());
     assert!(editor.doc().nodes.is_empty() || editor.doc().to_latex().is_empty());
+}
+
+#[test]
+fn test_nested_placeholder_slot_collapse_boundaries() {
+    let make_doc = || {
+        Document::from_nodes(vec![Spanned::new(
+            Expr::Group(vec![Spanned::new(
+                Expr::Placeholder {
+                    slot_id: SlotId(0),
+                    label: None,
+                },
+                Span::point(0),
+            )]),
+            Span::point(0),
+        )])
+    };
+
+    // 1. 空替换保留占位符不塌陷
+    let mut doc_empty = make_doc();
+    let ph_id = doc_empty.slots.slots()[0].id;
+    doc_empty
+        .replace_slot(ph_id, Vec::new())
+        .expect("empty replacement on nested placeholder must succeed");
+    match &doc_empty.nodes[0].node {
+        Expr::Group(items) => assert!(
+            matches!(
+                items.as_slice(),
+                [Spanned {
+                    node: Expr::Placeholder { .. },
+                    ..
+                }]
+            ),
+            "Empty replacement must keep placeholder, got: {items:?}"
+        ),
+        other => panic!("Expected Group root, got: {other:?}"),
+    }
+    assert_eq!(doc_empty.slots.slots().len(), 1);
+    assert_eq!(doc_empty.slots.slots()[0].role, SlotRole::Placeholder);
+
+    // 2. 单节点替换直接就地解包，不额外包裹 Group
+    let mut doc_single = make_doc();
+    let ph_id = doc_single.slots.slots()[0].id;
+    let (single_nodes, _) = parse("z");
+    assert_eq!(single_nodes.len(), 1);
+    doc_single
+        .replace_slot(ph_id, single_nodes)
+        .expect("single-node replacement on nested placeholder must succeed");
+    match &doc_single.nodes[0].node {
+        Expr::Group(items) => {
+            assert_eq!(items.len(), 1);
+            assert!(
+                !matches!(items[0].node, Expr::Group(_)),
+                "Single-node replacement must unwrap directly instead of wrapping in Group: {:?}",
+                items[0]
+            );
+        }
+        other => panic!("Expected Group root, got: {other:?}"),
+    }
+    assert_eq!(doc_single.to_latex(), "{z}");
+
+    // 3. 多节点替换安全包裹为 Group，不丢失后续节点
+    let mut doc_multi = make_doc();
+    let ph_id = doc_multi.slots.slots()[0].id;
+    let (multi_nodes, _) = parse("c+d");
+    assert!(multi_nodes.len() > 1);
+    doc_multi
+        .replace_slot(ph_id, multi_nodes)
+        .expect("multi-node replacement on nested placeholder must succeed");
+    match &doc_multi.nodes[0].node {
+        Expr::Group(items) => assert!(
+            matches!(items.as_slice(), [Spanned { node: Expr::Group(inner), .. }] if inner.len() > 1),
+            "Multi-node replacement must wrap in Group, got: {items:?}"
+        ),
+        other => panic!("Expected Group root, got: {other:?}"),
+    }
+    let latex = doc_multi.to_latex();
+    assert!(
+        latex.contains('c') && latex.contains('+') && latex.contains('d'),
+        "got: {latex}"
+    );
+}
+
+#[test]
+fn test_script_sub_and_sup_slot_collapse_boundaries() {
+    let find_slot = |doc: &Document, role: SlotRole| {
+        doc.slots
+            .slots()
+            .iter()
+            .find(|s| s.role == role)
+            .map(|s| s.id)
+            .expect("Must find script slot")
+    };
+
+    // 1. 单节点替换下标与上标：直接解包，不额外包裹 Group
+    let (mut doc, _) = Document::from_latex("x_a^b");
+    let sub_id = find_slot(&doc, SlotRole::Subscript);
+    let (single_sub, _) = parse("m");
+    assert_eq!(single_sub.len(), 1);
+    doc.replace_slot(sub_id, single_sub)
+        .expect("single-node subscript replacement must succeed");
+
+    let sup_id = find_slot(&doc, SlotRole::Superscript);
+    let (single_sup, _) = parse("n");
+    assert_eq!(single_sup.len(), 1);
+    doc.replace_slot(sup_id, single_sup)
+        .expect("single-node superscript replacement must succeed");
+
+    match &doc.nodes[0].node {
+        Expr::Script {
+            sub: Some(sub_box),
+            sup: Some(sup_box),
+            ..
+        } => {
+            assert!(
+                !matches!(sub_box.node, Expr::Group(_)),
+                "Single-node subscript must unwrap directly, got: {:?}",
+                sub_box.node
+            );
+            assert!(
+                !matches!(sup_box.node, Expr::Group(_)),
+                "Single-node superscript must unwrap directly, got: {:?}",
+                sup_box.node
+            );
+        }
+        other => panic!("Expected Script node, got: {other:?}"),
+    }
+    assert_eq!(doc.to_latex(), "x_{m}^{n}");
+
+    // 2. 多节点替换下标与上标：安全包裹为 Group
+    let sub_id = find_slot(&doc, SlotRole::Subscript);
+    let (multi_sub, _) = parse("p+q");
+    assert!(multi_sub.len() > 1);
+    doc.replace_slot(sub_id, multi_sub)
+        .expect("multi-node subscript replacement must succeed");
+
+    let sup_id = find_slot(&doc, SlotRole::Superscript);
+    let (multi_sup, _) = parse("u+v");
+    assert!(multi_sup.len() > 1);
+    doc.replace_slot(sup_id, multi_sup)
+        .expect("multi-node superscript replacement must succeed");
+
+    match &doc.nodes[0].node {
+        Expr::Script {
+            sub: Some(sub_box),
+            sup: Some(sup_box),
+            ..
+        } => {
+            assert!(
+                matches!(&sub_box.node, Expr::Group(items) if items.len() > 1),
+                "Multi-node subscript must wrap in Group, got: {:?}",
+                sub_box.node
+            );
+            assert!(
+                matches!(&sup_box.node, Expr::Group(items) if items.len() > 1),
+                "Multi-node superscript must wrap in Group, got: {:?}",
+                sup_box.node
+            );
+        }
+        other => panic!("Expected Script node, got: {other:?}"),
+    }
+
+    // 3. 空替换回退边界：非 Group 的单节点下标/上标清空后回退为空 Group
+    let (mut doc_empty, _) = Document::from_latex("x_a^b");
+    let sub_id = find_slot(&doc_empty, SlotRole::Subscript);
+    doc_empty
+        .replace_slot(sub_id, Vec::new())
+        .expect("empty subscript replacement must succeed");
+
+    let sup_id = find_slot(&doc_empty, SlotRole::Superscript);
+    doc_empty
+        .replace_slot(sup_id, Vec::new())
+        .expect("empty superscript replacement must succeed");
+
+    match &doc_empty.nodes[0].node {
+        Expr::Script {
+            sub: Some(sub_box),
+            sup: Some(sup_box),
+            ..
+        } => {
+            assert!(
+                matches!(&sub_box.node, Expr::Group(items) if items.is_empty()),
+                "Empty subscript replacement must fall back to empty Group, got: {:?}",
+                sub_box.node
+            );
+            assert!(
+                matches!(&sup_box.node, Expr::Group(items) if items.is_empty()),
+                "Empty superscript replacement must fall back to empty Group, got: {:?}",
+                sup_box.node
+            );
+        }
+        other => panic!("Expected Script node, got: {other:?}"),
+    }
+    assert_eq!(doc_empty.to_latex(), "x_{}^{}");
 }
