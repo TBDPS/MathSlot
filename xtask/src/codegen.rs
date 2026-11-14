@@ -125,21 +125,27 @@ fn format_rust(code: &str) -> String {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    if let Ok(mut child) = Command::new("rustfmt")
+    let Ok(mut child) = Command::new("rustfmt")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
+    else {
+        return code.to_string();
+    };
+
+    let wrote = child
+        .stdin
+        .take()
+        .is_some_and(|mut stdin| stdin.write_all(code.as_bytes()).is_ok());
+
+    if let Ok(output) = child.wait_with_output()
+        && wrote
+        && output.status.success()
+        && let Ok(formatted) = String::from_utf8(output.stdout)
     {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(code.as_bytes());
-        }
-        if let Ok(output) = child.wait_with_output()
-            && output.status.success()
-            && let Ok(formatted) = String::from_utf8(output.stdout)
-        {
-            return formatted;
-        }
+        return formatted;
     }
+
     code.to_string()
 }
 
@@ -255,20 +261,20 @@ pub fn generate_typescript(catalog: &CommandCatalog) -> String {
         out.push_str("  {\n");
         out.push_str(&format!("    id: {:?},\n", cmd.id));
 
-        let keys_json = serde_json::to_string(&cmd.keys).unwrap();
+        let keys_json = serde_json::to_string(&cmd.keys).expect("serialize command keys");
         out.push_str(&format!("    keys: {},\n", keys_json));
 
         out.push_str(&format!("    label: {:?},\n", cmd.label));
         out.push_str(&format!("    category: {:?},\n", cmd.category));
         out.push_str(&format!("    glyph: {:?},\n", cmd.glyph));
 
-        let slots_json = serde_json::to_string(&cmd.slots).unwrap();
+        let slots_json = serde_json::to_string(&cmd.slots).expect("serialize command slots");
         out.push_str(&format!("    slots: {},\n", slots_json));
 
         out.push_str(&format!("    latex: {:?},\n", cmd.latex));
         out.push_str(&format!("    doc: {:?},\n", cmd.doc));
 
-        let ex_json = serde_json::to_string(&cmd.examples).unwrap();
+        let ex_json = serde_json::to_string(&cmd.examples).expect("serialize command examples");
         out.push_str(&format!("    examples: {},\n", ex_json));
 
         if cmd.is_default {
