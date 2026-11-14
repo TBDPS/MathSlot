@@ -9,11 +9,11 @@ use mathslot_core::library::{
 };
 use mathslot_core::presets::PRESET_LIBRARY;
 use mathslot_store::{
-    CURRENT_LIBRARY_SCHEMA_VERSION, Catalog, LibraryFile, LoadOutcome, StoreError, SyncableWrite,
-    UserFormula, WriteCondition, default_library_path, dry_run_migrate, import_formulas_json,
-    is_valid_uuid_v7, library_path_for_linux, library_path_for_macos, library_path_for_windows,
-    list_backups, load_or_recover, next_uuid_v7, save_atomic, save_atomic_with_retention,
-    save_with_writer_hook,
+    CURRENT_LIBRARY_SCHEMA_VERSION, Catalog, LibraryFile, LoadOutcome, Store, StoreError,
+    SyncableWrite, ThemePreference, UserFormula, WriteCondition, default_library_path,
+    dry_run_migrate, import_formulas_json, is_valid_uuid_v7, library_path_for_linux,
+    library_path_for_macos, library_path_for_windows, list_backups, load_or_recover, next_uuid_v7,
+    save_atomic, save_atomic_with_retention, save_with_writer_hook,
 };
 
 struct TempSandbox {
@@ -490,7 +490,7 @@ fn t_data_004_corrupt_quarantine_backup_candidate_and_rotation_bounds() {
                 );
                 let fname = corrupt_path
                     .file_name()
-                    .unwrap()
+                    .expect("quarantined file name")
                     .to_string_lossy()
                     .to_string();
                 assert!(
@@ -751,4 +751,356 @@ fn t_data_007_strict_json_rejects_malformed_literals_and_trailing_garbage() {
         is_valid_uuid_v7(&lib.entries[0].id),
         "Empty imported ID must use UUIDv7"
     );
+}
+
+/// T-DATA-008 (D-150 / D-151, §10.5):
+/// Files exceeding MAX_LIBRARY_FILE_BYTES (16 MiB) are rejected on load/import without OOM or quarantining;
+/// oversized backup files are skipped when searching for backup candidates.
+#[test]
+fn t_data_008_oversized_file_rejected_and_oversized_backup_skipped() {
+    let sb = TempSandbox::new("t_data_008");
+    let lib_path = sb.path("library.json");
+    let catalog = Catalog::builtin();
+
+    let oversized_len = 16 * 1024 * 1024 + 1024;
+    let oversized_file = std::fs::File::create(&lib_path).expect("create oversized file");
+    oversized_file
+        .set_len(oversized_len as u64)
+        .expect("set_len > 16 MiB");
+
+    let err = load_or_recover(&lib_path).expect_err("oversized library.json must return Err");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("16") || msg.contains("上限") || msg.contains("too large"),
+        "Expected size limit error, got: {msg}"
+    );
+    assert!(
+        lib_path.exists(),
+        "Oversized file must not be silently deleted or quarantined"
+    );
+
+    // Oversized import JSON rejected cleanly
+    let huge_json = format!(
+        "{{\"schema_version\": 3, \"padding\": \"{}\"}}",
+        "a".repeat(oversized_len)
+    );
+    let mut store = Store::new(sb.path("store_import.json"));
+    let import_err = store
+        .import_library_json(&huge_json, catalog)
+        .expect_err("oversized import JSON must fail");
+    assert!(!import_err.to_string().is_empty());
+
+    // Oversized newest .bak-* is skipped in favor of older valid .bak-*
+    let lib2 = sb.path("library2.json");
+    let mut valid_f = LibraryFile::empty_v3();
+    valid_f.user_formulas.push(UserFormula {
+        id: next_uuid_v7(),
+        name: "Older Valid Backup".to_owned(),
+        category: "测试".to_owned(),
+        source: "x + 1".to_owned(),
+        desc: String::new(),
+        tags: Vec::new(),
+        created_at: 1_700_000_000,
+    });
+    save_atomic(&lib2, &valid_f, WriteCondition::Unconditional).expect("save gen1");
+    let mut gen2 = valid_f.clone();
+    gen2.user_formulas[0].name = "Gen 2".to_owned();
+    save_atomic(&lib2, &gen2, WriteCondition::Unconditional).expect("save gen2");
+
+    // Inject an oversized newer .bak-* file
+    let huge_bak = sb.path("library2.bak-9999999999999999-999999.json");
+    let huge_bak_file = std::fs::File::create(&huge_bak).expect("create huge bak");
+    huge_bak_file
+        .set_len(oversized_len as u64)
+        .expect("set_len huge bak");
+
+    std::fs::write(&lib2, "{broken").expect("corrupt lib2");
+    match load_or_recover(&lib2).expect("recover skips huge bak") {
+        LoadOutcome::CorruptQuarantined {
+            backup_candidate, ..
+        } => {
+            let cand = backup_candidate.expect("must fall back to older valid backup");
+            assert_eq!(cand.file.user_formulas[0].name, "Older Valid Backup");
+        }
+        other => panic!("Expected CorruptQuarantined, got {other:?}"),
+    }
+}
+
+/// T-DATA-009 (D-150 / D-151):
+/// Covers:
+/// - corrupt with no backup (`backup_candidate: None`);
+/// - corrupt newest `.bak-*` skipping to older valid `.bak-*`;
+/// - all `.bak-*` corrupt returning `backup_candidate: None`;
+/// - directory occupying `library.json` (`EISDIR`) returning Err without destroying dir;
+/// - malformed field types / missing required fields boundary in `dry_run_migrate`.
+#[test]
+fn t_data_009_no_backup_corrupt_backup_fallback_eisdir_and_field_boundaries() {
+    let sb = TempSandbox::new("t_data_009");
+    let catalog = Catalog::builtin();
+
+    // 1. Corrupt with NO backup
+    let no_bak_path = sb.path("no_bak.json");
+    std::fs::write(&no_bak_path, "{invalid json").expect("write corrupt");
+    match load_or_recover(&no_bak_path).expect("quarantine without backup") {
+        LoadOutcome::CorruptQuarantined {
+            corrupt_path,
+            backup_candidate,
+            ..
+        } => {
+            assert!(corrupt_path.exists());
+            assert!(backup_candidate.is_none());
+        }
+        other => panic!("Expected CorruptQuarantined, got {other:?}"),
+    }
+
+    // 2. Corrupt newest .bak-* falls back to older valid .bak-*
+    let lib_path = sb.path("fallback.json");
+    for gen_idx in 1..=3 {
+        let mut f = LibraryFile::empty_v3();
+        f.user_formulas.push(UserFormula {
+            id: next_uuid_v7(),
+            name: format!("Backup Gen {gen_idx}"),
+            category: "备份".to_owned(),
+            source: format!("x^{gen_idx}"),
+            desc: String::new(),
+            tags: Vec::new(),
+            created_at: 1_700_000_000 + gen_idx,
+        });
+        save_atomic(&lib_path, &f, WriteCondition::Unconditional).expect("save gen");
+    }
+    let backups = list_backups(&lib_path);
+    assert!(backups.len() >= 2);
+    // Corrupt newest backup
+    std::fs::write(&backups[0], "{corrupted newest backup").expect("corrupt newest bak");
+    std::fs::write(&lib_path, "{corrupted primary").expect("corrupt primary");
+    match load_or_recover(&lib_path).expect("fallback to older bak") {
+        LoadOutcome::CorruptQuarantined {
+            backup_candidate, ..
+        } => {
+            let cand = backup_candidate.expect("older valid backup must be found");
+            assert_eq!(cand.path, backups[1]);
+            assert_eq!(cand.file.user_formulas[0].name, "Backup Gen 1");
+        }
+        other => panic!("Expected CorruptQuarantined, got {other:?}"),
+    }
+
+    // 3. All backups corrupt -> backup_candidate: None
+    for b in &backups {
+        std::fs::write(b, "{broken backup").expect("corrupt all backups");
+    }
+    std::fs::write(&lib_path, "{corrupted primary again").expect("corrupt primary again");
+    match load_or_recover(&lib_path).expect("all backups corrupt") {
+        LoadOutcome::CorruptQuarantined {
+            backup_candidate, ..
+        } => {
+            assert!(backup_candidate.is_none());
+        }
+        other => panic!("Expected CorruptQuarantined, got {other:?}"),
+    }
+
+    // 4. EISDIR: directory occupying library.json
+    let dir_as_file = sb.path("dir_occupied.json");
+    std::fs::create_dir(&dir_as_file).expect("create dir at file path");
+    let eisdir_err = load_or_recover(&dir_as_file).expect_err("EISDIR must return Err");
+    assert!(matches!(eisdir_err, StoreError::Io { .. }));
+    assert!(dir_as_file.is_dir(), "EISDIR directory must remain intact");
+
+    // 5. Missing/malformed fields boundary in dry_run_migrate
+    assert!(dry_run_migrate(r#"{"schema_version": 3, "custom_formats": "bad"}"#, catalog).is_err());
+    assert!(
+        dry_run_migrate(
+            r#"{"schema_version": 3, "user_formulas": [{"id": "a", "name": 42}]}"#,
+            catalog
+        )
+        .is_err()
+    );
+    assert!(dry_run_migrate(r#"{"schema_version": 3, "settings": "bad"}"#, catalog).is_err());
+    let (minimal, mig) = dry_run_migrate(r#"{"schema_version": 3}"#, catalog).expect("minimal v3");
+    assert!(mig.is_none());
+    assert!(minimal.user_formulas.is_empty());
+}
+
+/// Helper test invoked as a child process by `t_data_010` to simulate mid-write SIGKILL (`kill -9`).
+#[test]
+fn sigkill_mid_write_child_helper() {
+    let Ok(dir_str) = std::env::var("MATHSLOT_SIGKILL_TEST_DIR") else {
+        return;
+    };
+    let dir = PathBuf::from(dir_str);
+    let orphan_tmp = dir.join(".tmpSIGKILL_ORPHAN");
+    let mut f = std::fs::File::create(&orphan_tmp).expect("create temp file");
+    f.write_all(b"{\"schema_version\": 3, \"user_formulas\": [{\"incomplete")
+        .expect("write partial tmp");
+    f.flush().expect("flush tmp");
+    println!("READY");
+    std::io::stdout().flush().expect("flush child READY");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
+}
+
+/// T-DATA-010 (A-DATA-004, D-151):
+/// Spawns a real child process writing a `.tmp*` file, sends `SIGKILL` (`kill -9`) mid-write,
+/// verifies the primary `library.json` and backups remain valid, and verifies orphan `.tmp*` files
+/// are cleaned up upon restart (`load_or_recover`).
+#[test]
+fn t_data_010_real_sigkill_mid_write_and_orphan_tmp_cleanup_on_restart() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    let sb = TempSandbox::new("t_data_010");
+    let lib_path = sb.path("library.json");
+
+    let mut f1 = LibraryFile::empty_v3();
+    f1.user_formulas.push(UserFormula {
+        id: next_uuid_v7(),
+        name: "Gen 1 Safe".to_owned(),
+        category: "安全".to_owned(),
+        source: "a + b".to_owned(),
+        desc: String::new(),
+        tags: Vec::new(),
+        created_at: 1_700_000_000,
+    });
+    save_atomic(&lib_path, &f1, WriteCondition::Unconditional).expect("save gen1");
+
+    let mut f2 = f1.clone();
+    f2.user_formulas[0].name = "Gen 2 Safe".to_owned();
+    save_atomic(&lib_path, &f2, WriteCondition::Unconditional).expect("save gen2");
+
+    let exe = std::env::current_exe().expect("current test exe");
+    let mut child = Command::new(exe)
+        .args(["--exact", "sigkill_mid_write_child_helper", "--nocapture"])
+        .env("MATHSLOT_SIGKILL_TEST_DIR", &sb.root)
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn child writer");
+
+    let stdout = child.stdout.take().expect("child stdout");
+    let mut reader = BufReader::new(stdout);
+    let mut ready_line = String::new();
+    loop {
+        ready_line.clear();
+        let n = reader
+            .read_line(&mut ready_line)
+            .expect("read child stdout");
+        assert!(n > 0, "Child exited before signaling READY");
+        if ready_line.trim() == "READY" {
+            break;
+        }
+    }
+
+    // Send real kill -9 (SIGKILL) on Unix or terminate on other platforms
+    #[cfg(unix)]
+    {
+        let status = Command::new("kill")
+            .args(["-9", &child.id().to_string()])
+            .status()
+            .expect("invoke kill -9");
+        assert!(status.success(), "kill -9 must succeed");
+    }
+    #[cfg(not(unix))]
+    {
+        child.kill().expect("kill child");
+    }
+    let exit_status = child.wait().expect("wait killed child");
+    assert!(
+        !exit_status.success(),
+        "SIGKILL child must not exit cleanly"
+    );
+
+    assert!(
+        sb.path(".tmpSIGKILL_ORPHAN").exists(),
+        "Orphan .tmp file must exist immediately after SIGKILL"
+    );
+
+    // Restart: load_or_recover must load Gen 2 cleanly and clean up orphan .tmp* files
+    match load_or_recover(&lib_path).expect("restart load_or_recover") {
+        LoadOutcome::Loaded { file, .. } => {
+            assert_eq!(file.user_formulas.len(), 1);
+            assert_eq!(file.user_formulas[0].name, "Gen 2 Safe");
+        }
+        other => panic!("Expected Loaded after SIGKILL restart, got {other:?}"),
+    }
+    assert_no_tmp_files(&sb.root);
+}
+
+/// T-DATA-011 (D-149, D-014):
+/// Bidirectional compatibility: Desktop `Store::import_library_json` losslessly imports
+/// Obsidian-exported camelCase JSON (`customFormats`, `snippets: UserFormulaEntry[]`, `settings`)
+/// while assigning valid UUIDv7 IDs and rejecting `is_builtin: true`.
+#[test]
+fn t_data_011_import_obsidian_exported_json_and_reject_builtin() {
+    let sb = TempSandbox::new("t_data_011");
+    let lib_path = sb.path("library.json");
+    let catalog = Catalog::builtin();
+    let mut store = Store::new(lib_path);
+
+    let obsidian_exported = serde_json::json!({
+        "schema_version": 3,
+        "settings": {
+            "theme": "dark",
+            "delimiter_style": "inline_dollar",
+            "render_backend": "mathjax",
+            "preview_scale_pct": 125
+        },
+        "customFormats": [
+            {
+                "key": "q",
+                "label": "自定义向量",
+                "glyph": "v",
+                "roles": ["x"],
+                "latex": "\\vec{$1}",
+                "schemeA": "vec"
+            }
+        ],
+        "snippets": [
+            {
+                "id": "snippet-obs-1",
+                "name": "二次公式片段",
+                "category": "自定义",
+                "source": "x^2 + bx + c = 0",
+                "desc": "从 Obsidian 导出",
+                "tags": ["obsidian"],
+                "is_builtin": false,
+                "created_at": 1_700_000_100
+            }
+        ]
+    })
+    .to_string();
+
+    let (imported, _report) = store
+        .import_library_json(&obsidian_exported, catalog)
+        .expect("Desktop Store must import Obsidian exported JSON losslessly");
+    assert_eq!(imported.custom_formats.len(), 1);
+    assert_eq!(imported.custom_formats[0].key, 'q');
+    assert_eq!(imported.user_formulas.len(), 1);
+    assert_eq!(imported.user_formulas[0].name, "二次公式片段");
+    assert_eq!(imported.user_formulas[0].source, "x^2 + bx + c = 0");
+    assert!(
+        is_valid_uuid_v7(&imported.user_formulas[0].id),
+        "Non-UUIDv7 Obsidian snippet id must be migrated to valid UUIDv7, got {}",
+        imported.user_formulas[0].id
+    );
+    assert_eq!(imported.settings.theme, ThemePreference::Dark);
+    assert_eq!(imported.settings.preview_scale_pct, Some(125));
+
+    // Reject is_builtin: true inside Obsidian-style snippets
+    let malicious_obs = serde_json::json!({
+        "schema_version": 3,
+        "customFormats": [],
+        "snippets": [
+            {
+                "id": "preset-inject",
+                "name": "Malicious Builtin",
+                "category": "自定义",
+                "source": "x + 1",
+                "is_builtin": true
+            }
+        ]
+    })
+    .to_string();
+    let err = store
+        .import_library_json(&malicious_obs, catalog)
+        .expect_err("Obsidian snippets with is_builtin: true must be rejected");
+    assert!(matches!(err, StoreError::BuiltinImportRejected(_)));
 }

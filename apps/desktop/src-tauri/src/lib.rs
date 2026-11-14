@@ -15,8 +15,9 @@ use mathslot_render::{
 };
 use mathslot_store::{
     Catalog, LoadOutcome, RenderBackendPreference as StoreRenderBackend, Settings as StoreSettings,
-    ShortcutSettings as StoreShortcutSettings, Store, ThemePreference as StoreThemePreference,
-    UserLibrary, default_library_path, next_uuid_v7,
+    ShortcutSettings as StoreShortcutSettings, Store, StoreError,
+    ThemePreference as StoreThemePreference, UserLibrary, default_library_path,
+    find_newest_valid_backup, next_uuid_v7,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -220,31 +221,29 @@ impl DesktopBackend {
         let catalog = Catalog::builtin();
         let config_path_str = library_path.display().to_string();
         let mut store = Store::new(library_path);
-        let outcome = store
-            .load(catalog)
-            .map_err(|e| DesktopError::Store(e.to_string()))?;
+        let load_result = store.load(catalog);
 
         let mut app = App::new();
         let mut library = UserLibrary::default();
 
-        match outcome {
-            LoadOutcome::NotFound { file } => {
+        match load_result {
+            Ok(LoadOutcome::NotFound { file }) => {
                 library = file.to_user_library(catalog);
                 let app_settings =
                     store_settings_to_app_settings(&file.settings, Some(config_path_str));
                 app.dispatch(AppEvent::UpdateSettings(app_settings));
             }
-            LoadOutcome::Loaded { file, .. } => {
+            Ok(LoadOutcome::Loaded { file, .. }) => {
                 library = file.to_user_library(catalog);
                 let app_settings =
                     store_settings_to_app_settings(&file.settings, Some(config_path_str));
                 app.dispatch(AppEvent::UpdateSettings(app_settings));
             }
-            LoadOutcome::CorruptQuarantined {
+            Ok(LoadOutcome::CorruptQuarantined {
                 corrupt_path,
                 backup_candidate,
                 error,
-            } => {
+            }) => {
                 let app_settings = AppSettings {
                     config_path: Some(config_path_str),
                     ..Default::default()
@@ -256,6 +255,37 @@ impl DesktopBackend {
                     error,
                 })));
             }
+            Err(
+                err @ (StoreError::UnsupportedSchemaVersion(_) | StoreError::FileTooLarge { .. }),
+            ) => {
+                let backup_candidate = find_newest_valid_backup(store.path(), catalog)
+                    .map(|b| b.path.display().to_string());
+                let app_settings = AppSettings {
+                    config_path: Some(config_path_str.clone()),
+                    ..Default::default()
+                };
+                app.dispatch(AppEvent::UpdateSettings(app_settings));
+                app.dispatch(AppEvent::SetRecoveryState(Some(RecoveryStateSnapshot {
+                    corrupt_path: config_path_str,
+                    backup_candidate,
+                    error: err.to_string(),
+                })));
+            }
+            Err(err @ StoreError::Io { .. }) if store.path().is_dir() => {
+                let backup_candidate = find_newest_valid_backup(store.path(), catalog)
+                    .map(|b| b.path.display().to_string());
+                let app_settings = AppSettings {
+                    config_path: Some(config_path_str.clone()),
+                    ..Default::default()
+                };
+                app.dispatch(AppEvent::UpdateSettings(app_settings));
+                app.dispatch(AppEvent::SetRecoveryState(Some(RecoveryStateSnapshot {
+                    corrupt_path: config_path_str,
+                    backup_candidate,
+                    error: err.to_string(),
+                })));
+            }
+            Err(err) => return Err(DesktopError::Store(err.to_string())),
         }
 
         let tracker = Arc::new(GenerationTracker::new());
@@ -287,13 +317,25 @@ impl DesktopBackend {
 
     pub fn dispatch_event(&self, event: AppEvent) -> Result<DispatchResponse, String> {
         let catalog = Catalog::builtin();
-        let mut response = {
-            let mut app = self
+        let mut candidate_app = {
+            let app = self
                 .app
                 .lock()
                 .map_err(|e| format!("app lock poisoned: {e}"))?;
-            app.dispatch_snapshot(event)
+            if app.recovery().is_some()
+                && matches!(
+                    event,
+                    AppEvent::UpdateSettings(_)
+                        | AppEvent::ResetSettingsConfirmed
+                        | AppEvent::RequestSaveSnippet
+                )
+            {
+                return Err("存在未解决的配置损坏恢复状态，请先从备份恢复或重置为空配置".to_owned());
+            }
+            app.clone()
         };
+
+        let mut response = candidate_app.dispatch_snapshot(event);
 
         let mut needs_snapshot_refresh = false;
         for effect in &response.effects {
@@ -312,16 +354,16 @@ impl DesktopBackend {
                             .library
                             .lock()
                             .map_err(|e| format!("library lock poisoned: {e}"))?;
+                        let prev_settings = store.settings().clone();
                         store.set_settings(store_settings);
-                        store
-                            .save_user_library(&library, catalog)
-                            .map_err(|e| format!("保存配置失败: {e}"))?;
+                        if let Err(err) = store.save_user_library(&library, catalog) {
+                            store.set_settings(prev_settings);
+                            return Err(format!("保存配置失败: {err}"));
+                        }
                     }
                     HostAction::RestoreBackup { backup_path } => {
-                        if let Some(path_str) = backup_path {
-                            let _snap = self.restore_backup_internal(Path::new(path_str))?;
-                            needs_snapshot_refresh = true;
-                        }
+                        let _snap = self.restore_backup(backup_path.clone())?;
+                        needs_snapshot_refresh = true;
                     }
                     HostAction::ResetEmptyConfig => {
                         let _snap = self.reset_empty_internal()?;
@@ -352,12 +394,14 @@ impl DesktopBackend {
             }
         }
 
+        let mut app = self
+            .app
+            .lock()
+            .map_err(|e| format!("app lock poisoned: {e}"))?;
         if needs_snapshot_refresh {
-            let app = self
-                .app
-                .lock()
-                .map_err(|e| format!("app lock poisoned: {e}"))?;
             response.snapshot = app.snapshot();
+        } else {
+            *app = candidate_app;
         }
 
         Ok(response)
@@ -526,6 +570,15 @@ impl DesktopBackend {
         source: String,
         desc: String,
     ) -> Result<FormulaEntry, String> {
+        {
+            let app = self
+                .app
+                .lock()
+                .map_err(|e| format!("app lock poisoned: {e}"))?;
+            if app.recovery().is_some() {
+                return Err("存在未解决的配置损坏恢复状态，请先从备份恢复或重置为空配置".to_owned());
+            }
+        }
         let catalog = Catalog::builtin();
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -558,9 +611,10 @@ impl DesktopBackend {
             .lock()
             .map_err(|e| format!("library lock poisoned: {e}"))?;
         library.formulas.entries.push(entry.clone());
-        store
-            .save_user_library(&library, catalog)
-            .map_err(|e| format!("保存公式库失败: {e}"))?;
+        if let Err(err) = store.save_user_library(&library, catalog) {
+            library.formulas.entries.pop();
+            return Err(format!("保存公式库失败: {err}"));
+        }
         Ok(entry)
     }
 

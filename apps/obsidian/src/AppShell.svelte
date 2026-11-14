@@ -34,8 +34,10 @@
     initialUserFormulas?: UserFormulaEntry[];
     onInsert?: (formattedLatex: string, rawLatex: string) => void;
     onCopy?: (formattedLatex: string, rawLatex: string) => void;
-    onRestoreBackup?: (backupPath: string | null) => void | Promise<void>;
-    onResetEmptyConfig?: () => void | Promise<void>;
+    onRestoreBackup?: (
+      backupPath: string | null,
+    ) => void | UserFormulaEntry[] | Promise<void | UserFormulaEntry[]>;
+    onResetEmptyConfig?: () => void | UserFormulaEntry[] | Promise<void | UserFormulaEntry[]>;
     onPersistSettings?: (settings: AppSettings) => void | Promise<void>;
     onSaveSnippet?: (source: string, latex: string) => UserFormulaEntry[] | Promise<UserFormulaEntry[]>;
     onImportConfigData?: (
@@ -142,6 +144,9 @@
     });
     try {
       snapshot = await client.snapshot();
+      if (snapshot.recovery) {
+        settingsOpen = true;
+      }
     } catch (err) {
       statusNotice = err instanceof Error ? err.message : String(err);
     }
@@ -233,63 +238,108 @@
     });
   }
 
+  let fallbackSnippetSeq = 0;
+
+  function nextFallbackSnippetId(): string {
+    fallbackSnippetSeq += 1;
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `snippet-${Date.now().toString(16)}-${fallbackSnippetSeq.toString(16)}`;
+  }
+
   async function handleSaveSnippet(): Promise<void> {
+    if (snapshot.recovery) {
+      statusNotice = '保存片段失败: 存在未解决的配置损坏恢复状态，请先从备份恢复或重置为空配置';
+      return;
+    }
     const snippetSource = snapshot.source?.trim() ? snapshot.source : snapshot.latex;
     if (!snippetSource.trim()) {
       statusNotice = '当前公式为空，无法保存片段';
       return;
     }
-    const res = await client.dispatch('RequestSaveSnippet');
-    snapshot = res.snapshot;
+    try {
+      const res = await client.dispatch('RequestSaveSnippet');
+      snapshot = res.snapshot;
 
-    let savedSource = snippetSource;
-    let savedLatex = snapshot.latex;
-    for (const effect of res.effects) {
-      if (
-        typeof effect === 'object' &&
-        effect !== null &&
-        'Host' in effect &&
-        typeof effect.Host === 'object' &&
-        effect.Host !== null &&
-        'SaveSnippet' in effect.Host
-      ) {
-        savedSource = effect.Host.SaveSnippet.source || snippetSource;
-        savedLatex = effect.Host.SaveSnippet.latex || snapshot.latex;
+      let savedSource = snippetSource;
+      let savedLatex = snapshot.latex;
+      for (const effect of res.effects) {
+        if (
+          typeof effect === 'object' &&
+          effect !== null &&
+          'Host' in effect &&
+          typeof effect.Host === 'object' &&
+          effect.Host !== null &&
+          'SaveSnippet' in effect.Host
+        ) {
+          savedSource = effect.Host.SaveSnippet.source || snippetSource;
+          savedLatex = effect.Host.SaveSnippet.latex || snapshot.latex;
+        }
       }
-    }
 
-    if (onSaveSnippet) {
-      userFormulas = await onSaveSnippet(savedSource, savedLatex);
-    } else {
-      const nextEntry: UserFormulaEntry = {
-        id: `snippet-${Date.now()}-${userFormulas.length + 1}`,
-        name: `片段 ${savedSource.slice(0, 18)}`,
-        category: '自定义',
-        source: savedSource,
-        desc: '从编辑器保存',
-        tags: ['snippet'],
-        is_builtin: false,
-        created_at: Math.floor(Date.now() / 1000),
-      };
-      userFormulas = [...userFormulas, nextEntry];
+      if (onSaveSnippet) {
+        userFormulas = await onSaveSnippet(savedSource, savedLatex);
+      } else {
+        const nextEntry: UserFormulaEntry = {
+          id: nextFallbackSnippetId(),
+          name: `片段 ${savedSource.slice(0, 18)}`,
+          category: '自定义',
+          source: savedSource,
+          desc: '从编辑器保存',
+          tags: ['snippet'],
+          is_builtin: false,
+          created_at: Math.floor(Date.now() / 1000),
+        };
+        userFormulas = [...userFormulas, nextEntry];
+      }
+      statusNotice = '已保存为自定义片段';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      statusNotice = `保存片段失败: ${msg}`;
     }
-    statusNotice = '已保存为自定义片段';
   }
 
   async function handleSaveSettings(next: AppSettings): Promise<void> {
-    const res = await client.dispatch({ UpdateSettings: next });
-    snapshot = res.snapshot;
-    renderGen += 1;
-    await onPersistSettings?.(res.snapshot.settings ?? next);
-    statusNotice = '设置已保存';
+    if (snapshot.recovery) {
+      const msg = '存在未解决的配置损坏恢复状态，请先从备份恢复或重置为空配置';
+      statusNotice = `保存设置失败: ${msg}`;
+      throw new Error(msg);
+    }
+    try {
+      await onPersistSettings?.(next);
+      const res = await client.dispatch({ UpdateSettings: next });
+      snapshot = res.snapshot;
+      renderGen += 1;
+      statusNotice = '设置已保存';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      statusNotice = `保存设置失败: ${msg}`;
+      throw err;
+    }
   }
 
   async function handleResetDefaults(defaults: AppSettings): Promise<void> {
-    const res = await client.dispatch('ResetSettingsConfirmed');
-    snapshot = res.snapshot;
-    renderGen += 1;
-    await onPersistSettings?.(res.snapshot.settings ?? defaults);
-    statusNotice = '设置已恢复默认';
+    if (snapshot.recovery) {
+      const msg = '存在未解决的配置损坏恢复状态，请先从备份恢复或重置为空配置';
+      statusNotice = `恢复默认设置失败: ${msg}`;
+      throw new Error(msg);
+    }
+    const nextDefaults: AppSettings = {
+      ...createDefaultAppSettings(),
+      config_path: snapshot.settings?.config_path ?? defaults.config_path ?? null,
+    };
+    try {
+      await onPersistSettings?.(nextDefaults);
+      const res = await client.dispatch('ResetSettingsConfirmed');
+      snapshot = res.snapshot;
+      renderGen += 1;
+      statusNotice = '设置已恢复默认';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      statusNotice = `恢复默认设置失败: ${msg}`;
+      throw err;
+    }
   }
 
   async function handleExportConfig(): Promise<void> {
@@ -524,15 +574,35 @@
       onImportConfig={triggerImportConfig}
       onExportConfig={handleExportConfig}
       onRestoreBackup={async (backupPath) => {
-        await onRestoreBackup?.(backupPath);
-        if (!client.isDisposed()) {
-          snapshot = await client.snapshot();
+        try {
+          const restored = await onRestoreBackup?.(backupPath);
+          if (Array.isArray(restored)) {
+            userFormulas = restored;
+          }
+          if (!client.isDisposed()) {
+            snapshot = await client.snapshot();
+          }
+          statusNotice = '已从备份恢复配置';
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          statusNotice = `恢复备份失败: ${msg}`;
+          throw err;
         }
       }}
       onConfirmResetEmpty={async () => {
-        await onResetEmptyConfig?.();
-        if (!client.isDisposed()) {
-          snapshot = await client.snapshot();
+        try {
+          const resetEntries = await onResetEmptyConfig?.();
+          if (Array.isArray(resetEntries)) {
+            userFormulas = resetEntries;
+          }
+          if (!client.isDisposed()) {
+            snapshot = await client.snapshot();
+          }
+          statusNotice = '已重置为空配置';
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          statusNotice = `重置空配置失败: ${msg}`;
+          throw err;
         }
       }}
       onClose={() => {

@@ -230,3 +230,235 @@ fn test_d129_settings_roundtrip_persistence_corrupt_recovery_and_save_snippet() 
 
     fs::remove_dir_all(&dir).expect("cleanup temp dir");
 }
+
+#[cfg(unix)]
+#[test]
+fn test_d147_desktop_backend_disk_before_memory_on_save_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir("d147_disk_before_memory");
+    let lib_path = dir.join("library.json");
+    let clipboard = Arc::new(RecordingClipboard::default());
+
+    let backend =
+        DesktopBackend::initialize_with_path(lib_path.clone(), clipboard).expect("init backend");
+    let initial_settings = AppSettings {
+        theme: ThemePreference::Light,
+        delimiter_style: DelimiterStyle::None,
+        preview_scale_pct: Some(100),
+        config_path: Some(lib_path.display().to_string()),
+        ..Default::default()
+    };
+    backend
+        .dispatch_event(AppEvent::UpdateSettings(initial_settings.clone()))
+        .expect("initial save succeeds");
+    backend
+        .save_user_formula(
+            "Saved Formula".to_owned(),
+            "自定义".to_owned(),
+            "x + 1".to_owned(),
+            String::new(),
+        )
+        .expect("initial formula save succeeds");
+
+    // Lock directory read-only so disk writes fail with PermissionDenied
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).expect("chmod 0555");
+
+    let next_settings = AppSettings {
+        theme: ThemePreference::Dark,
+        delimiter_style: DelimiterStyle::BlockDollar,
+        preview_scale_pct: Some(150),
+        config_path: Some(lib_path.display().to_string()),
+        ..Default::default()
+    };
+    let settings_err = backend.dispatch_event(AppEvent::UpdateSettings(next_settings));
+    let formula_err = backend.save_user_formula(
+        "Phantom Formula".to_owned(),
+        "自定义".to_owned(),
+        "y + 2".to_owned(),
+        String::new(),
+    );
+    let reset_err = backend.dispatch_event(AppEvent::ResetSettingsConfirmed);
+
+    // Restore permissions before assertions/cleanup
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).expect("chmod 0755");
+
+    assert!(
+        settings_err.is_err(),
+        "UpdateSettings must fail on readonly dir"
+    );
+    assert!(
+        formula_err.is_err(),
+        "save_user_formula must fail on readonly dir"
+    );
+    assert!(
+        reset_err.is_err(),
+        "ResetSettingsConfirmed must fail on readonly dir"
+    );
+
+    // In-memory state must remain untouched on disk failure
+    let snap = backend.snapshot().expect("snapshot");
+    assert_eq!(
+        snap.settings.theme,
+        ThemePreference::Light,
+        "In-memory theme must not mutate when disk write fails"
+    );
+    assert_eq!(
+        snap.settings.preview_scale_pct,
+        Some(100),
+        "In-memory preview_scale_pct must not mutate when disk write fails"
+    );
+    let formulas = backend.user_formulas().expect("user formulas");
+    assert_eq!(
+        formulas.len(),
+        1,
+        "In-memory user_formulas must not keep phantom entry when disk write fails"
+    );
+    assert_eq!(formulas[0].name, "Saved Formula");
+
+    fs::remove_dir_all(&dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn test_d148_and_d150_recovery_write_lock_and_request_restore_backup_none() {
+    let dir = temp_dir("d148_recovery_lock");
+    let lib_path = dir.join("library.json");
+    let clipboard = Arc::new(RecordingClipboard::default());
+
+    {
+        let backend = DesktopBackend::initialize_with_path(lib_path.clone(), clipboard.clone())
+            .expect("init");
+        backend
+            .save_user_formula(
+                "Backed Up Formula".to_owned(),
+                "自定义".to_owned(),
+                "\\frac{1}{2}".to_owned(),
+                String::new(),
+            )
+            .expect("save formula");
+        let mut dark = AppSettings {
+            theme: ThemePreference::Dark,
+            config_path: Some(lib_path.display().to_string()),
+            ..Default::default()
+        };
+        dark.preview_scale_pct = Some(130);
+        backend
+            .dispatch_event(AppEvent::UpdateSettings(dark.clone()))
+            .expect("save settings creates backup");
+        dark.preview_scale_pct = Some(140);
+        backend
+            .dispatch_event(AppEvent::UpdateSettings(dark))
+            .expect("second save rotates Dark + formula into backup");
+    }
+
+    // Inject corrupt primary library.json
+    fs::write(&lib_path, "{corrupt json").expect("corrupt file");
+    let backend2 =
+        DesktopBackend::initialize_with_path(lib_path.clone(), clipboard).expect("reopen corrupt");
+    let snap2 = backend2.snapshot().expect("snap2");
+    assert!(snap2.recovery.is_some(), "recovery state must be active");
+    assert!(
+        !lib_path.exists(),
+        "quarantined primary file must not be recreated yet"
+    );
+
+    // All overwrite actions must be blocked while recovery is unresolved
+    let update_err = backend2.dispatch_event(AppEvent::UpdateSettings(AppSettings::default()));
+    assert!(
+        update_err.is_err(),
+        "UpdateSettings must be blocked during unresolved recovery"
+    );
+    let formula_err = backend2.save_user_formula(
+        "Blocked".to_owned(),
+        "自定义".to_owned(),
+        "x+1".to_owned(),
+        String::new(),
+    );
+    assert!(
+        formula_err.is_err(),
+        "save_user_formula must be blocked during unresolved recovery"
+    );
+    backend2
+        .dispatch_event(AppEvent::KeyInput('x'))
+        .expect("type x");
+    let snippet_err = backend2.dispatch_event(AppEvent::RequestSaveSnippet);
+    assert!(
+        snippet_err.is_err(),
+        "RequestSaveSnippet must be blocked during unresolved recovery"
+    );
+    assert!(
+        !lib_path.exists(),
+        "library.json must NOT be written while recovery is unresolved"
+    );
+    assert!(
+        backend2
+            .snapshot()
+            .expect("snap still recovery")
+            .recovery
+            .is_some(),
+        "recovery state must remain active"
+    );
+
+    // D-150: AppEvent::RequestRestoreBackup (which emits HostAction::RestoreBackup { backup_path })
+    // must restore cleanly and clear recovery
+    let restored_resp = backend2
+        .dispatch_event(AppEvent::RequestRestoreBackup)
+        .expect("RequestRestoreBackup must restore backup and clear recovery");
+    assert!(restored_resp.snapshot.recovery.is_none());
+    assert_eq!(restored_resp.snapshot.settings.theme, ThemePreference::Dark);
+    assert_eq!(
+        backend2.user_formulas().expect("restored formulas").len(),
+        1
+    );
+
+    fs::remove_dir_all(&dir).expect("cleanup temp dir");
+}
+
+#[test]
+fn test_d150_nonfatal_startup_on_unsupported_schema_oversized_and_eisdir() {
+    let clipboard = Arc::new(RecordingClipboard::default());
+
+    // 1. Unsupported schema_version: 99 -> non-fatal startup with recovery surfaced, file untouched
+    {
+        let dir = temp_dir("d150_schema99");
+        let lib_path = dir.join("library.json");
+        let payload = r#"{"schema_version": 99, "future": true}"#;
+        fs::write(&lib_path, payload).expect("write v99");
+        let backend = DesktopBackend::initialize_with_path(lib_path.clone(), clipboard.clone())
+            .expect("UnsupportedSchemaVersion must not exit(1) / fail startup");
+        let snap = backend.snapshot().expect("snap");
+        let rec = snap.recovery.expect("recovery must be surfaced for v99");
+        assert!(rec.error.contains("99"));
+        assert_eq!(
+            fs::read_to_string(&lib_path).expect("read untouched v99"),
+            payload,
+            "Unknown schema file must not be overwritten"
+        );
+        assert!(
+            backend.restore_backup(None).is_err(),
+            "restore_backup(None) without candidate must return Err"
+        );
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    // 2. EISDIR: directory at library.json -> non-fatal startup with recovery surfaced, writes blocked
+    {
+        let dir = temp_dir("d150_eisdir");
+        let lib_path = dir.join("library.json");
+        fs::create_dir(&lib_path).expect("create dir at library.json");
+        let backend = DesktopBackend::initialize_with_path(lib_path.clone(), clipboard)
+            .expect("EISDIR must not fail startup");
+        let snap = backend.snapshot().expect("snap");
+        assert!(
+            snap.recovery.is_some(),
+            "EISDIR must surface recovery error"
+        );
+        assert!(lib_path.is_dir());
+        assert!(
+            backend
+                .dispatch_event(AppEvent::UpdateSettings(AppSettings::default()))
+                .is_err()
+        );
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+}

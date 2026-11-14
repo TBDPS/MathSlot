@@ -61,9 +61,13 @@ import AppShell from '../src/AppShell.svelte';
 import { createObsidianHostRenderAdapter } from '../src/hostRenderAdapter';
 import MathSlotPlugin from '../src/plugin';
 import {
+  exportPluginConfigJson,
+  importPluginConfigJson,
   loadAndValidateLibrary,
+  readUserFormulas,
   resetEmptyLibrary,
   restoreFromBackup,
+  saveUserSnippet,
   type PluginPersistedData,
 } from '../src/storage';
 import { EXPECTED_ENGINE_VERSION, WasmEngineClient } from '../src/wasmClient';
@@ -727,6 +731,293 @@ describe('apps/obsidian WASM & shared UI integration (T3.6)', () => {
     await tick();
 
     expect(target.querySelector('[data-testid="zoom-percent"]')?.textContent).toContain('135%');
+
+    client.dispose();
+  });
+
+  it('D-148 / D-013 / D-014: Obsidian storage quarantines non-string/bad-version/corrupt payloads without destroying lastValidLibraryJson, blocks writes during recovery, generates collision-free IDs, and rejects is_builtin: true / malformed types on import', async () => {
+    const validBackup = JSON.stringify({
+      schema_version: 3,
+      customFormats: [],
+      snippets: [
+        {
+          id: '01933b4a-1111-7000-8000-000000000001',
+          name: 'Saved Backup Formula',
+          category: '自定义',
+          source: 'a^2 + b^2 = c^2',
+          desc: 'must never be destroyed',
+          tags: ['safe'],
+          is_builtin: false,
+          created_at: 1700000000,
+        },
+      ],
+    });
+
+    // 1. Corrupt libraryJson -> quarantined + write-locked until restored/reset; saveUserSnippet MUST throw and MUST NOT overwrite lastValidLibraryJson
+    const data: PluginPersistedData = {
+      libraryJson: '{broken json',
+      lastValidLibraryJson: validBackup,
+    };
+    const saveData = vi.fn(async (_next: PluginPersistedData) => {});
+
+    const res1 = await loadAndValidateLibrary(data, saveData);
+    expect(res1.ok).toBe(false);
+    expect(res1.recovery?.backup_candidate).toBe('obsidian://plugin-data/lastValidLibraryJson');
+    expect(data.lastValidLibraryJson).toBe(validBackup);
+
+    // Repeating loadAndValidateLibrary with the same corrupt state must NOT spam duplicate entries into backupJson
+    const backupCountAfterFirst = data.backupJson?.length ?? 0;
+    const res2 = await loadAndValidateLibrary(data, saveData);
+    expect(res2.ok).toBe(false);
+    expect(data.backupJson?.length).toBe(backupCountAfterFirst);
+
+    // Attempting saveUserSnippet while quarantined/corrupt MUST reject and preserve lastValidLibraryJson
+    await expect(
+      saveUserSnippet(data, saveData, '▸f1;2;', '\\frac{1}{2}'),
+    ).rejects.toThrow(/恢复|损坏|quarantine|recovery/i);
+    expect(data.lastValidLibraryJson).toBe(validBackup);
+
+    // Non-string libraryJson must quarantine cleanly without throwing TypeError
+    const nonStringData: PluginPersistedData = {
+      libraryJson: 12345 as unknown as string,
+      lastValidLibraryJson: validBackup,
+    };
+    const nonStrRes = await loadAndValidateLibrary(nonStringData, saveData);
+    expect(nonStrRes.ok).toBe(false);
+    expect(nonStrRes.recovery).not.toBeNull();
+    expect(nonStringData.lastValidLibraryJson).toBe(validBackup);
+
+    // Unknown schema_version (0, 99, -1, 1.5) must be quarantined on load
+    for (const badVer of [0, 99, -1, 1.5]) {
+      const verData: PluginPersistedData = {
+        libraryJson: JSON.stringify({ schema_version: badVer, customFormats: [], snippets: [] }),
+        lastValidLibraryJson: validBackup,
+      };
+      const verRes = await loadAndValidateLibrary(verData, saveData);
+      expect(verRes.ok, `schema_version=${badVer} must fail validation`).toBe(false);
+      expect(verRes.recovery).not.toBeNull();
+    }
+
+    // 2. importPluginConfigJson strict rejections (D-013, D-014, D-148)
+    const cleanData: PluginPersistedData = {
+      libraryJson: validBackup,
+      lastValidLibraryJson: validBackup,
+    };
+    const rejectPayloads = [
+      JSON.stringify({ customFormats: [], snippets: [] }), // missing schema_version
+      JSON.stringify({ schema_version: 99, customFormats: [], snippets: [] }), // unknown schema_version
+      JSON.stringify({ schema_version: 3, customFormats: 'bad', snippets: [] }), // non-array customFormats
+      JSON.stringify({ schema_version: 3, customFormats: [], snippets: 'bad' }), // non-array snippets
+      JSON.stringify({ schema_version: 3, libraryJson: '{broken embedded json' }), // corrupt embedded libraryJson
+      JSON.stringify({
+        schema_version: 3,
+        customFormats: [],
+        snippets: [{ id: 'x', name: 'Evil', source: 'x+1', is_builtin: true }],
+      }), // is_builtin: true in snippets
+      JSON.stringify({
+        schema_version: 3,
+        user_formulas: [{ id: 'x', name: 'Evil', source: 'x+1', is_builtin: true }],
+      }), // is_builtin: true in user_formulas
+    ];
+    for (const payload of rejectPayloads) {
+      await expect(
+        importPluginConfigJson(payload, cleanData, saveData),
+        `importPluginConfigJson must reject: ${payload}`,
+      ).rejects.toThrow();
+    }
+    expect(cleanData.libraryJson).toBe(validBackup);
+
+    // 3. Non-Date.now() collision-free IDs in saveUserSnippet (100 calls in tight loop)
+    const burstData: PluginPersistedData = {
+      libraryJson: JSON.stringify({ schema_version: 3, customFormats: [], snippets: [] }),
+      lastValidLibraryJson: JSON.stringify({ schema_version: 3, customFormats: [], snippets: [] }),
+    };
+    for (let i = 0; i < 50; i += 1) {
+      await saveUserSnippet(burstData, saveData, `x_${i}`, `x_${i}`);
+    }
+    const burstEntries = readUserFormulas(burstData);
+    expect(burstEntries).toHaveLength(50);
+    const uniqueIds = new Set(burstEntries.map((e) => e.id));
+    expect(uniqueIds.size).toBe(50);
+    for (const entry of burstEntries) {
+      expect(entry.id).not.toMatch(/^snippet-\d+-\d+$/);
+    }
+  });
+
+  it('D-147: AppShell & storage reject-before-mutate keeps persisted data intact and displays error without fake saved feedback', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+
+    const initialBackup = JSON.stringify({
+      schema_version: 3,
+      customFormats: [],
+      snippets: [
+        {
+          id: '01933b4a-1111-7000-8000-000000000001',
+          name: 'Original Formula',
+          category: '自定义',
+          source: 'a+b',
+          desc: '',
+          tags: [],
+          is_builtin: false,
+        },
+      ],
+    });
+    const data: PluginPersistedData = {
+      libraryJson: initialBackup,
+      lastValidLibraryJson: initialBackup,
+    };
+    const failingSaveData = vi.fn(async (_next: PluginPersistedData) => {
+      throw new Error('EACCES: permission denied');
+    });
+
+    // storage.saveUserSnippet must NOT mutate `data` when saveData rejects
+    await expect(
+      saveUserSnippet(data, failingSaveData, '▸f1;2;', '\\frac{1}{2}'),
+    ).rejects.toThrow(/EACCES/);
+    expect(data.libraryJson).toBe(initialBackup);
+    expect(data.lastValidLibraryJson).toBe(initialBackup);
+    expect(readUserFormulas(data)).toHaveLength(1);
+
+    // AppShell must catch save/snippet/restore/reset failures, show error banner/status, and NOT show "设置已应用"
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: {
+        client,
+        initialSettingsOpen: true,
+        initialUserFormulas: readUserFormulas(data),
+        onPersistSettings: async () => {
+          throw new Error('Disk full (ENOSPC)');
+        },
+        onSaveSnippet: async () => {
+          throw new Error('Recovery lock active');
+        },
+      },
+    });
+    await tick();
+    await tick();
+
+    // Mutate theme and click Save -> must NOT show "设置已应用" and must surface error
+    (target.querySelector('[data-testid="theme-option-dark"]') as HTMLButtonElement).click();
+    await tick();
+    (target.querySelector('[data-testid="settings-save-btn"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+
+    expect(target.textContent).not.toContain('设置已应用');
+    expect(target.querySelector('[data-testid="settings-save-error"]')?.textContent).toContain(
+      'ENOSPC',
+    );
+    expect(target.querySelector('.ms-obsidian-status')?.textContent).toContain('ENOSPC');
+
+    // Click Save Snippet -> must show error in status without mutating userFormulas
+    await client.dispatch({ LoadStreamSource: '▸f9;9;' });
+    await tick();
+    (target.querySelector('[data-testid="obsidian-save-snippet-btn"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+    expect(target.querySelector('.ms-obsidian-status')?.textContent).toContain('Recovery lock');
+    expect(target.querySelector('[data-palette-mode="snippets"]')?.textContent).toContain('片段 (1)');
+
+    client.dispose();
+  });
+
+  it('D-149 / D-148: Obsidian importPluginConfigJson losslessly imports Desktop LibraryFile JSON and AppShell auto-opens/refreshes recovery', async () => {
+    const desktopExported = JSON.stringify({
+      schema_version: 3,
+      custom_formats: [
+        {
+          key: 'q',
+          label: '向量格式',
+          glyph: 'v',
+          roles: ['arg'],
+          latex: '\\vec{$1}',
+          schemeA: 'vec',
+        },
+      ],
+      snippets: [],
+      user_formulas: [
+        {
+          id: '01933b4a-2222-7000-8000-000000000002',
+          name: 'Desktop 导出的公式',
+          category: '物理',
+          source: 'E = m c^2',
+          desc: '来自桌面端',
+          tags: ['physics'],
+          created_at: 1700000200,
+        },
+      ],
+      overrides: [{ preset_id: 'preset-euler-identity', hidden: false, name: '我的欧拉' }],
+      settings: {
+        theme: 'dark',
+        delimiter_style: 'block_dollar',
+        render_backend: 'latex-rust',
+        preview_scale_pct: 140,
+      },
+    });
+
+    const data: PluginPersistedData = {};
+    const saveData = vi.fn(async (_next: PluginPersistedData) => {});
+    const imported = await importPluginConfigJson(desktopExported, data, saveData);
+    expect(imported.userFormulas).toHaveLength(1);
+    expect(imported.userFormulas[0]?.name).toBe('Desktop 导出的公式');
+    expect(imported.userFormulas[0]?.source).toBe('E = m c^2');
+    expect(imported.settings?.theme).toBe('dark');
+    expect(imported.settings?.preview_scale_pct).toBe(140);
+
+    const parsedLib = JSON.parse(imported.libraryJson) as Record<string, unknown>;
+    expect(Array.isArray(parsedLib.customFormats)).toBe(true);
+    expect((parsedLib.customFormats as unknown[]).length).toBe(1);
+    expect(Array.isArray(parsedLib.overrides)).toBe(true);
+    expect((parsedLib.overrides as unknown[]).length).toBe(1);
+
+    // Exported JSON also exposes Desktop-compatible fields
+    const reExported = JSON.parse(exportPluginConfigJson(data, imported.settings)) as Record<
+      string,
+      unknown
+    >;
+    expect(Array.isArray(reExported.user_formulas)).toBe(true);
+    expect((reExported.user_formulas as unknown[]).length).toBe(1);
+    expect(Array.isArray(reExported.custom_formats)).toBe(true);
+    expect((reExported.custom_formats as unknown[]).length).toBe(1);
+
+    // AppShell auto-opens settings when client has active recovery & refreshes userFormulas on restore
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+    await client.dispatch({
+      SetRecoveryState: {
+        corrupt_path: 'obsidian://plugin-data/backupJson/corrupt-1',
+        backup_candidate: 'obsidian://plugin-data/lastValidLibraryJson',
+        error: 'unexpected token',
+      },
+    });
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: {
+        client,
+        initialUserFormulas: [],
+        onRestoreBackup: async () => {
+          await client.dispatch({ SetRecoveryState: null });
+          return imported.userFormulas;
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+
+    // Recovery wizard should auto-open without clicking settings button
+    expect(target.querySelector('[data-testid="recovery-wizard"]')).not.toBeNull();
+    (target.querySelector('[data-testid="recovery-restore-btn"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+
+    expect(target.querySelector('[data-testid="recovery-wizard"]')).toBeNull();
+    expect(target.querySelector('[data-palette-mode="snippets"]')?.textContent).toContain('片段 (1)');
 
     client.dispose();
   });

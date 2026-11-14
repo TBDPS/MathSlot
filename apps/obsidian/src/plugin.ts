@@ -24,6 +24,7 @@ import { MathSlotModal } from './MathSlotModal';
 import {
   exportPluginConfigJson,
   importPluginConfigJson,
+  isLibraryValidForWrites,
   loadAndValidateLibrary,
   readUserFormulas,
   resetEmptyLibrary,
@@ -90,8 +91,8 @@ export default class MathSlotPlugin extends Plugin {
   }
 
   private async savePersisted(next: PluginPersistedData): Promise<void> {
-    this.persisted = next;
     await this.saveData(next);
+    this.persisted = next;
   }
 
   private async ensureClient(): Promise<WasmEngineClient> {
@@ -144,6 +145,7 @@ export default class MathSlotPlugin extends Plugin {
         client,
         delimiterStyle,
         initialLatex: selection.length > 0 ? selection : undefined,
+        initialSettingsOpen: Boolean(this.persisted.recoveryActive),
         initialImportOpen: options.initialImportOpen,
         initialUserFormulas: readUserFormulas(this.persisted),
         onInsert: (formattedLatex) => {
@@ -158,15 +160,25 @@ export default class MathSlotPlugin extends Plugin {
           await restoreFromBackup(this.persisted, (next) => this.savePersisted(next));
           await client.dispatch({ SetRecoveryState: null });
           new Notice('MathSlot 已从备份恢复配置。');
+          return readUserFormulas(this.persisted);
         },
         onResetEmptyConfig: async () => {
           await resetEmptyLibrary(this.persisted, (next) => this.savePersisted(next));
           await client.dispatch({ SetRecoveryState: null });
           new Notice('MathSlot 已重置为空配置（损坏备份保留在隔离区）。');
+          return readUserFormulas(this.persisted);
         },
         onPersistSettings: async (settings: AppSettings) => {
-          this.persisted.settings = settings;
-          await this.savePersisted(this.persisted);
+          if (!isLibraryValidForWrites(this.persisted)) {
+            throw new Error(
+              '存在未解决的配置损坏恢复状态（recovery lock），请先从备份恢复或重置为空配置',
+            );
+          }
+          const nextPersisted: PluginPersistedData = {
+            ...this.persisted,
+            settings,
+          };
+          await this.savePersisted(nextPersisted);
         },
         onSaveSnippet: async (source: string, latex: string) => {
           return saveUserSnippet(
@@ -198,7 +210,8 @@ export default class MathSlotPlugin extends Plugin {
 
   override async onload(): Promise<void> {
     const loaded = (await this.loadData()) as PluginPersistedData | null;
-    this.persisted = loaded && typeof loaded === 'object' ? loaded : {};
+    this.persisted =
+      loaded && typeof loaded === 'object' && !Array.isArray(loaded) ? loaded : {};
 
     addIcon('mathslot-sigma', MATHSLOT_RIBBON_ICON);
     this.addRibbonIcon('mathslot-sigma', '打开 MathSlot 公式编辑器', () => {

@@ -6,7 +6,7 @@ use serde_json::Value;
 use crate::{
     AutoJoinRecord, CURRENT_LIBRARY_SCHEMA_VERSION, Catalog, CustomFormatRecord, LibraryFile,
     MigrationReport, PresetOverride, Settings, SnippetRecord, StoreError, UserFormula,
-    next_uuid_v7,
+    is_valid_uuid_v7, next_uuid_v7,
 };
 
 fn is_legacy_auto_id(id: &str) -> bool {
@@ -178,6 +178,147 @@ fn parse_snippet_value(item: &Value) -> Result<SnippetRecord, StoreError> {
     Ok(SnippetRecord { key, label, source })
 }
 
+fn check_not_builtin(
+    obj: &serde_json::Map<String, Value>,
+    fallback_name: &str,
+) -> Result<(), StoreError> {
+    if obj
+        .get("is_builtin")
+        .or_else(|| obj.get("isBuiltin"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        let label = obj
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(fallback_name);
+        return Err(StoreError::BuiltinImportRejected(label.to_owned()));
+    }
+    Ok(())
+}
+
+fn parse_obsidian_formula_entry(
+    obj: &serde_json::Map<String, Value>,
+    id_migration_map: &mut HashMap<String, String>,
+) -> Result<Option<UserFormula>, StoreError> {
+    check_not_builtin(obj, "builtin-formula")?;
+    let name = obj
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    let source = obj
+        .get("source")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    if name.is_empty() || source.is_empty() {
+        return Ok(None);
+    }
+    let raw_id = obj
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    let category_raw = obj
+        .get("category")
+        .and_then(Value::as_str)
+        .unwrap_or("自定义公式")
+        .trim()
+        .to_owned();
+    let category = if category_raw.is_empty() {
+        default_custom_category()
+    } else {
+        category_raw
+    };
+    let desc = obj
+        .get("desc")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_owned();
+    let mut tags = Vec::new();
+    if let Some(t_val) = obj.get("tags") {
+        let t_arr = t_val
+            .as_array()
+            .ok_or_else(|| StoreError::Serialize("tags must be array".to_owned()))?;
+        for t in t_arr {
+            let s = t
+                .as_str()
+                .ok_or_else(|| StoreError::Serialize("tag must be string".to_owned()))?;
+            tags.push(s.to_owned());
+        }
+    }
+    let created_at =
+        parse_u64_field(obj.get("created_at").or_else(|| obj.get("createdAt")))?.unwrap_or(0);
+    let final_id = if is_valid_uuid_v7(&raw_id) {
+        raw_id
+    } else if !raw_id.is_empty() {
+        if let Some(existing) = id_migration_map.get(&raw_id) {
+            existing.clone()
+        } else {
+            let generated = next_uuid_v7();
+            id_migration_map.insert(raw_id, generated.clone());
+            generated
+        }
+    } else {
+        next_uuid_v7()
+    };
+
+    Ok(Some(UserFormula {
+        id: final_id,
+        name,
+        category,
+        source,
+        desc,
+        tags,
+        created_at,
+    }))
+}
+
+fn parse_snippets_field(
+    obj: &serde_json::Map<String, Value>,
+    id_migration_map: &mut HashMap<String, String>,
+) -> Result<(Vec<SnippetRecord>, Vec<UserFormula>), StoreError> {
+    let mut snippets = Vec::new();
+    let mut obsidian_formulas = Vec::new();
+    if let Some(sn_val) = obj.get("snippets") {
+        let arr = sn_val
+            .as_array()
+            .ok_or_else(|| StoreError::Serialize("snippets must be an array".to_owned()))?;
+        for item in arr {
+            let entry_obj = item
+                .as_object()
+                .ok_or_else(|| StoreError::Serialize("snippets entry must be object".to_owned()))?;
+            check_not_builtin(entry_obj, "builtin-snippet")?;
+            if entry_obj.contains_key("key") || entry_obj.contains_key("item_key") {
+                snippets.push(parse_snippet_value(item)?);
+            } else {
+                if !entry_obj.contains_key("name") && !entry_obj.contains_key("source") {
+                    return Err(StoreError::Serialize(
+                        "snippet missing string key".to_owned(),
+                    ));
+                }
+                if let Some(formula) = parse_obsidian_formula_entry(entry_obj, id_migration_map)? {
+                    obsidian_formulas.push(formula);
+                }
+            }
+        }
+    }
+    snippets.sort_by_key(|s| s.key);
+    Ok((snippets, obsidian_formulas))
+}
+
+fn push_unique_formula(target: &mut Vec<UserFormula>, formula: UserFormula) {
+    if !target.iter().any(|existing| existing.id == formula.id) {
+        target.push(formula);
+    }
+}
+
 /// Strictly parse and dry-run migrate v1/v2/v3 JSON into a `LibraryFile` (schema v3).
 pub fn dry_run_migrate(
     raw_json: &str,
@@ -200,22 +341,93 @@ pub fn dry_run_migrate(
 
     match schema_version {
         3 => {
-            if let Some(arr) = obj.get("user_formulas").and_then(Value::as_array) {
+            let mut custom_formats = Vec::new();
+            if let Some(cf_val) = obj
+                .get("custom_formats")
+                .or_else(|| obj.get("customFormats"))
+            {
+                let arr = cf_val.as_array().ok_or_else(|| {
+                    StoreError::Serialize("custom_formats must be an array".to_owned())
+                })?;
                 for item in arr {
-                    if item
-                        .as_object()
-                        .and_then(|m| m.get("is_builtin").or_else(|| m.get("isBuiltin")))
-                        .and_then(Value::as_bool)
-                        == Some(true)
-                    {
-                        return Err(StoreError::BuiltinImportRejected(
-                            "v3 user_formulas cannot contain is_builtin: true".to_owned(),
-                        ));
-                    }
+                    custom_formats.push(parse_custom_format_value(item)?);
                 }
             }
-            let file: LibraryFile = serde_json::from_value(root_val)
-                .map_err(|e| StoreError::Serialize(e.to_string()))?;
+            custom_formats.sort_by_key(|f| f.key);
+
+            let mut id_migration_map = HashMap::new();
+            let (snippets, obsidian_formulas) = parse_snippets_field(obj, &mut id_migration_map)?;
+
+            let mut user_formulas = Vec::new();
+            if let Some(uf_val) = obj.get("user_formulas") {
+                let arr = uf_val.as_array().ok_or_else(|| {
+                    StoreError::Serialize("user_formulas must be an array".to_owned())
+                })?;
+                for item in arr {
+                    let entry_obj = item.as_object().ok_or_else(|| {
+                        StoreError::Serialize("user_formulas entry must be object".to_owned())
+                    })?;
+                    check_not_builtin(entry_obj, "builtin-user-formula")?;
+                    let mut formula: UserFormula = serde_json::from_value(item.clone())
+                        .map_err(|e| StoreError::Serialize(e.to_string()))?;
+                    if !formula.id.is_empty() && !is_valid_uuid_v7(&formula.id) {
+                        let mapped = if let Some(existing) = id_migration_map.get(&formula.id) {
+                            existing.clone()
+                        } else {
+                            let generated = next_uuid_v7();
+                            id_migration_map.insert(formula.id.clone(), generated.clone());
+                            generated
+                        };
+                        formula.id = mapped;
+                    } else if formula.id.is_empty() {
+                        formula.id = next_uuid_v7();
+                    }
+                    push_unique_formula(&mut user_formulas, formula);
+                }
+            }
+            for formula in obsidian_formulas {
+                push_unique_formula(&mut user_formulas, formula);
+            }
+
+            if let Some(f_val) = obj.get("formulas") {
+                let arr = f_val
+                    .as_array()
+                    .ok_or_else(|| StoreError::Serialize("formulas must be an array".to_owned()))?;
+                for item in arr {
+                    let entry_obj = item.as_object().ok_or_else(|| {
+                        StoreError::Serialize("formulas entry must be object".to_owned())
+                    })?;
+                    check_not_builtin(entry_obj, "builtin-formula")?;
+                }
+            }
+
+            let overrides: Vec<PresetOverride> = match obj.get("overrides") {
+                Some(ov_val) => {
+                    if !ov_val.is_array() {
+                        return Err(StoreError::Serialize(
+                            "overrides must be an array".to_owned(),
+                        ));
+                    }
+                    serde_json::from_value(ov_val.clone())
+                        .map_err(|e| StoreError::Serialize(e.to_string()))?
+                }
+                None => Vec::new(),
+            };
+
+            let settings: Settings = match obj.get("settings") {
+                Some(s_val) => serde_json::from_value(s_val.clone())
+                    .map_err(|e| StoreError::Serialize(e.to_string()))?,
+                None => Settings::default(),
+            };
+
+            let file = LibraryFile {
+                schema_version: CURRENT_LIBRARY_SCHEMA_VERSION,
+                custom_formats,
+                snippets,
+                user_formulas,
+                overrides,
+                settings,
+            };
             Ok((file, None))
         }
         1 | 2 => migrate_v1_v2(obj, schema_version as u32, catalog).map(|(f, r)| (f, Some(r))),
@@ -258,20 +470,13 @@ fn migrate_v1_v2(
     }
     custom_formats.sort_by_key(|f| f.key);
 
-    let mut snippets = Vec::new();
-    if let Some(sn_val) = obj.get("snippets") {
-        let arr = sn_val
-            .as_array()
-            .ok_or_else(|| StoreError::Serialize("snippets must be an array".to_owned()))?;
-        for item in arr {
-            snippets.push(parse_snippet_value(item)?);
-        }
-    }
-    snippets.sort_by_key(|s| s.key);
-
     let mut user_formulas = Vec::new();
     let mut overrides = Vec::new();
     let mut id_migration_map = HashMap::new();
+    let (snippets, obsidian_formulas) = parse_snippets_field(obj, &mut id_migration_map)?;
+    for formula in obsidian_formulas {
+        push_unique_formula(&mut user_formulas, formula);
+    }
     let mut stripped_builtin_count = 0usize;
     let mut converted_override_count = 0usize;
 

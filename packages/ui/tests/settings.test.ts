@@ -448,4 +448,58 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     expect(onSaveSettings).toHaveBeenCalledTimes(1);
     expect(onSaveSettings.mock.calls[0]?.[0]?.preview_scale_pct).toBe(150);
   });
+
+  it('D-147 / INV-003 / A-DATA-002..003: never shows "设置已应用" or clears dirty state when onSaveSettings or onResetDefaults rejects', async () => {
+    const onSaveSettings = vi.fn(async () => {
+      throw new Error('PermissionDenied: read-only directory');
+    });
+    const onResetDefaults = vi.fn(async () => {
+      throw new Error('ENOSPC: disk full');
+    });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(SettingsPanel, {
+      target,
+      props: {
+        settings: createDefaultAppSettings(),
+        onSaveSettings,
+        onResetDefaults,
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    // Mutate theme -> dirty state
+    target.querySelector<HTMLButtonElement>('[data-testid="theme-option-dark"]')?.click();
+    await tick();
+    expect(target.textContent).toContain('有未保存更改');
+
+    // Click Save -> onSaveSettings rejects
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-save-btn"]')?.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(onSaveSettings).toHaveBeenCalledTimes(1);
+    expect(target.textContent).not.toContain('设置已应用');
+    expect(target.textContent).toContain('有未保存更改');
+    const errorEl = target.querySelector('[data-testid="settings-save-error"]');
+    expect(errorEl).not.toBeNull();
+    expect(errorEl?.textContent).toContain('PermissionDenied');
+
+    // Click Reset Defaults -> confirm -> onResetDefaults rejects
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-reset-trigger"]')?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-reset-confirm"]')?.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(onResetDefaults).toHaveBeenCalledTimes(1);
+    expect(target.textContent).not.toContain('设置已应用');
+    const resetErrEl = target.querySelector('[data-testid="settings-save-error"]');
+    expect(resetErrEl).not.toBeNull();
+    expect(resetErrEl?.textContent).toContain('ENOSPC');
+  });
 });

@@ -8,11 +8,12 @@ export interface MathSlotModalOptions {
   client: WasmEngineClient;
   delimiterStyle?: DelimiterStyle;
   initialLatex?: string;
+  initialSettingsOpen?: boolean;
   initialImportOpen?: boolean;
   initialUserFormulas?: UserFormulaEntry[];
   onInsert: (formattedLatex: string, rawLatex: string) => void;
-  onRestoreBackup?: (backupPath: string | null) => Promise<void>;
-  onResetEmptyConfig?: () => Promise<void>;
+  onRestoreBackup?: (backupPath: string | null) => Promise<UserFormulaEntry[] | void>;
+  onResetEmptyConfig?: () => Promise<UserFormulaEntry[] | void>;
   onPersistSettings?: (settings: AppSettings) => Promise<void>;
   onSaveSnippet?: (source: string, latex: string) => Promise<UserFormulaEntry[]>;
   onImportConfigData?: (
@@ -65,6 +66,7 @@ export class MathSlotModal extends Modal {
         theme: this.detectTheme(),
         isMobile: Platform.isMobile,
         delimiterStyle: this.options.delimiterStyle,
+        initialSettingsOpen: this.options.initialSettingsOpen,
         initialImportOpen: openImport,
         initialImportLatex: trimmedInitial,
         initialUserFormulas: this.options.initialUserFormulas ?? [],

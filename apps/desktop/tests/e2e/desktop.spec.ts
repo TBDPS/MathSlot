@@ -323,4 +323,191 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
       fullPage: false,
     });
   });
+
+  test('T4.2 / D-147 / D-148 / D-149 / D-150 / D-151: real click recovery restore, two-step reset, save failure banner, and Obsidian config import', async ({
+    page,
+  }) => {
+    // 1. Corrupt startup wizard -> real click Restore Backup + Two-Step Empty Reset
+    await page.addInitScript(() => {
+      const mode = new URLSearchParams(window.location.search).get('t42mode');
+      if (mode === 'recovery') {
+        let recoveryState: { corrupt_path: string; backup_candidate: string | null; error: string } | null = {
+          corrupt_path: '/tmp/library.corrupt-e2e.json',
+          backup_candidate: '/tmp/library.bak-e2e.json',
+          error: 'EOF while parsing object at line 1 column 14',
+        };
+        let formulas: Array<{
+          id: string;
+          name: string;
+          category: string;
+          source: string;
+          desc: string;
+          tags: string[];
+          is_builtin: boolean;
+          created_at: number;
+        }> = [];
+        const defaultSettings = {
+          theme: 'light' as const,
+          delimiter_style: 'inline_dollar' as const,
+          render_backend: 'mathjax' as const,
+          shortcuts: {
+            nav_next_slot: 'j',
+            nav_prev_slot: 'k',
+            nav_parent: 'h',
+            nav_first_child: 'l',
+            copy_latex: 'Mod+Shift+C',
+            save_snippet: 'Mod+Shift+S',
+            focus_editor: 'Mod+E',
+            toggle_nav: 'Mod+J',
+            open_settings: 'Mod+,',
+          },
+          config_path: '/tmp/library.json',
+          preview_scale_pct: 100,
+        };
+        const mkSnap = () => ({
+          state: 'Idle' as const,
+          latex: 'x',
+          preview_latex: 'x',
+          copy_text: 'x',
+          source: 'x',
+          cursor_char: 1,
+          has_pending_command: false,
+          is_composing: false,
+          is_nav_mode: false,
+          can_undo: false,
+          can_redo: false,
+          slots: [],
+          diagnostics: [],
+          active_slot_id: null,
+          settings: defaultSettings,
+          recovery: recoveryState,
+          last_import: null,
+        });
+        window.__MATHSLOT_DESKTOP_BRIDGE__ = {
+          snapshot: async () => mkSnap(),
+          dispatch: async (event: unknown) => {
+            if (
+              recoveryState &&
+              (event === 'RequestSaveSnippet' ||
+                event === 'ResetSettingsConfirmed' ||
+                (typeof event === 'object' && event !== null && 'UpdateSettings' in event))
+            ) {
+              throw new Error('存在未解决的配置损坏恢复状态，请先从备份恢复或重置为空配置');
+            }
+            return { snapshot: mkSnap(), effects: [] };
+          },
+          getUserFormulas: async () => formulas,
+          restoreBackup: async () => {
+            recoveryState = null;
+            formulas = [
+              {
+                id: '01933b4a-8888-7000-8000-000000000008',
+                name: 'Restored Backup Formula',
+                category: '自定义',
+                source: '\\alpha + \\beta',
+                desc: 'from backup',
+                tags: ['backup'],
+                is_builtin: false,
+                created_at: 1700000100,
+              },
+            ];
+            return mkSnap();
+          },
+          resetEmptyConfig: async () => {
+            recoveryState = null;
+            formulas = [];
+            return mkSnap();
+          },
+        };
+      } else if (mode === 'failsave') {
+        window.__MATHSLOT_DESKTOP_BRIDGE__ = {
+          dispatch: async (event: unknown) => {
+            if (typeof event === 'object' && event !== null && 'UpdateSettings' in event) {
+              throw new Error('PermissionDenied: read-only config directory');
+            }
+            if (event === 'ResetSettingsConfirmed') {
+              throw new Error('ENOSPC: no space left on device');
+            }
+            throw new Error('Unexpected write during failsave harness');
+          },
+        };
+      }
+    });
+
+    await page.goto('/?t42mode=recovery');
+    await expect(page.getByTestId('recovery-wizard')).toBeVisible();
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'desktop-recovery-wizard.png'),
+      fullPage: false,
+    });
+
+    // Click Restore Backup -> wizard disappears and backup formula appears
+    await page.getByTestId('recovery-restore-btn').click();
+    await expect(page.getByTestId('recovery-wizard')).toHaveCount(0);
+    await page.getByTestId('desktop-close-settings-btn').click();
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (1)');
+
+    // Reload recovery mode and test two-step Reset Empty Config
+    await page.goto('/?t42mode=recovery');
+    await expect(page.getByTestId('recovery-wizard')).toBeVisible();
+    await page.getByTestId('recovery-reset-trigger').click();
+    await expect(page.getByTestId('recovery-reset-confirm-box')).toBeVisible();
+    await page.getByTestId('recovery-reset-confirm').click();
+    await expect(page.getByTestId('recovery-wizard')).toHaveCount(0);
+    await page.getByTestId('desktop-close-settings-btn').click();
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (0)');
+
+    // 2. Save failure keeps dirty badge, shows settings-save-error, never shows "设置已应用"
+    await page.goto('/?t42mode=failsave');
+    await page.getByTestId('desktop-settings-btn').click();
+    await page.getByTestId('theme-option-dark').click();
+    await expect(page.getByTestId('settings-panel')).toContainText('有未保存更改');
+    await page.getByTestId('settings-save-btn').click();
+    await expect(page.getByTestId('settings-save-error')).toBeVisible();
+    await expect(page.getByTestId('settings-save-error')).toContainText('PermissionDenied');
+    await expect(page.getByTestId('settings-panel')).not.toContainText('设置已应用');
+    await expect(page.getByTestId('settings-panel')).toContainText('有未保存更改');
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'desktop-settings-save-error.png'),
+      fullPage: false,
+    });
+
+    // 3. Real browser harness bidirectional Obsidian v2 config import via file chooser
+    await page.goto('/');
+    await page.getByTestId('desktop-settings-btn').click();
+    const obsidianExportedV2 = JSON.stringify({
+      schema_version: 2,
+      customFormats: [],
+      snippets: [
+        {
+          id: 'obs-export-1',
+          name: 'Obsidian 导出片段',
+          category: '自定义',
+          source: 'E = h\\nu',
+          desc: 'from obsidian',
+          tags: ['obsidian'],
+          is_builtin: false,
+          created_at: 1700000250,
+        },
+      ],
+      settings: {
+        theme: 'dark',
+        delimiter_style: 'inline_dollar',
+        render_backend: 'mathjax',
+        preview_scale_pct: 125,
+      },
+    });
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByTestId('settings-import-btn').click(),
+    ]);
+    await fileChooser.setFiles({
+      name: 'obsidian-export.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(obsidianExportedV2, 'utf-8'),
+    });
+    await expect(page.getByTestId('desktop-app')).toHaveAttribute('data-theme', 'dark');
+    await page.getByTestId('desktop-close-settings-btn').click();
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (1)');
+  });
 });

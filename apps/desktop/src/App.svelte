@@ -217,11 +217,23 @@
   }
 
   async function handleSaveSettings(next: AppSettings): Promise<void> {
-    await applyDispatch({ UpdateSettings: next });
+    try {
+      await dispatchThroughBridge({ UpdateSettings: next });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`操作失败: ${msg}`, 'Error');
+      throw err;
+    }
   }
 
   async function handleResetDefaults(): Promise<void> {
-    await applyDispatch('ResetSettingsConfirmed');
+    try {
+      await dispatchThroughBridge('ResetSettingsConfirmed');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`操作失败: ${msg}`, 'Error');
+      throw err;
+    }
   }
 
   async function handleRestoreBackup(backupPath: string | null): Promise<void> {
@@ -232,6 +244,7 @@
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast(`备份恢复失败: ${msg}`, 'Error');
+      throw err;
     }
   }
 
@@ -243,6 +256,7 @@
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast(`重置失败: ${msg}`, 'Error');
+      throw err;
     }
   }
 

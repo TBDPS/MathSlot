@@ -69,7 +69,8 @@
   let confirmingResetDefaults = $state(false);
   let confirmingResetEmpty = $state(false);
   let capturingAction = $state<ShortcutActionId | null>(null);
-  let saveFeedback = $state<'idle' | 'saved' | 'blocked'>('idle');
+  let saveFeedback = $state<'idle' | 'saving' | 'saved' | 'blocked' | 'error'>('idle');
+  let saveErrorMessage = $state<string | null>(null);
 
   $effect.pre(() => {
     const incomingJson = JSON.stringify(settings);
@@ -77,6 +78,7 @@
       lastSyncedPropSnapshot = incomingJson;
       draft = cloneSettings(settings);
       saveFeedback = 'idle';
+      saveErrorMessage = null;
     }
   });
 
@@ -203,19 +205,27 @@
   async function handleSave(): Promise<void> {
     if (!shortcutValidation.valid) {
       saveFeedback = 'blocked';
+      saveErrorMessage = null;
       return;
     }
     const normalizedPayload: AppSettings = {
       ...cloneSettings(draft),
       shortcuts: { ...shortcutValidation.normalized },
     };
-    draft = cloneSettings(normalizedPayload);
-    lastSyncedPropSnapshot = JSON.stringify(normalizedPayload);
-    saveFeedback = 'saved';
-    if (onSaveSettings) {
-      await onSaveSettings(normalizedPayload);
-    } else if (client) {
-      await client.dispatch({ UpdateSettings: normalizedPayload });
+    saveFeedback = 'saving';
+    saveErrorMessage = null;
+    try {
+      if (onSaveSettings) {
+        await onSaveSettings(normalizedPayload);
+      } else if (client) {
+        await client.dispatch({ UpdateSettings: normalizedPayload });
+      }
+      draft = cloneSettings(normalizedPayload);
+      lastSyncedPropSnapshot = JSON.stringify(normalizedPayload);
+      saveFeedback = 'saved';
+    } catch (err) {
+      saveFeedback = 'error';
+      saveErrorMessage = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -224,32 +234,53 @@
       ...createDefaultAppSettings(),
       config_path: draft.config_path ?? null,
     };
-    draft = cloneSettings(defaults);
-    lastSyncedPropSnapshot = JSON.stringify(defaults);
-    confirmingResetDefaults = false;
-    saveFeedback = 'saved';
-    if (onResetDefaults) {
-      await onResetDefaults(defaults);
-    } else if (client) {
-      await client.dispatch('ResetSettingsConfirmed');
+    saveFeedback = 'saving';
+    saveErrorMessage = null;
+    try {
+      if (onResetDefaults) {
+        await onResetDefaults(defaults);
+      } else if (client) {
+        await client.dispatch('ResetSettingsConfirmed');
+      }
+      draft = cloneSettings(defaults);
+      lastSyncedPropSnapshot = JSON.stringify(defaults);
+      confirmingResetDefaults = false;
+      saveFeedback = 'saved';
+    } catch (err) {
+      confirmingResetDefaults = false;
+      saveFeedback = 'error';
+      saveErrorMessage = err instanceof Error ? err.message : String(err);
     }
   }
 
   async function handleRestoreBackup(): Promise<void> {
     const candidate = recovery?.backup_candidate ?? null;
-    if (onRestoreBackup) {
-      await onRestoreBackup(candidate);
-    } else if (client) {
-      await client.dispatch('RequestRestoreBackup');
+    saveErrorMessage = null;
+    try {
+      if (onRestoreBackup) {
+        await onRestoreBackup(candidate);
+      } else if (client) {
+        await client.dispatch('RequestRestoreBackup');
+      }
+    } catch (err) {
+      saveFeedback = 'error';
+      saveErrorMessage = err instanceof Error ? err.message : String(err);
     }
   }
 
   async function handleConfirmResetEmpty(): Promise<void> {
-    confirmingResetEmpty = false;
-    if (onConfirmResetEmpty) {
-      await onConfirmResetEmpty();
-    } else if (client) {
-      await client.dispatch('ConfirmResetEmptyConfig');
+    saveErrorMessage = null;
+    try {
+      if (onConfirmResetEmpty) {
+        await onConfirmResetEmpty();
+      } else if (client) {
+        await client.dispatch('ConfirmResetEmptyConfig');
+      }
+      confirmingResetEmpty = false;
+    } catch (err) {
+      confirmingResetEmpty = false;
+      saveFeedback = 'error';
+      saveErrorMessage = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -635,6 +666,13 @@
     </section>
   </div>
 
+  {#if saveFeedback === 'error' && saveErrorMessage}
+    <div class="ms-save-error-banner" data-testid="settings-save-error" role="alert">
+      <strong>保存失败（未更改磁盘或内存状态）：</strong>
+      <span>{saveErrorMessage}</span>
+    </div>
+  {/if}
+
   <!-- Footer: 恢复默认（二次确认） + 保存 -->
   <footer class="ms-settings-footer">
     <div class="ms-footer-left">
@@ -687,10 +725,10 @@
         type="button"
         class="ms-btn ms-btn-primary"
         data-testid="settings-save-btn"
-        disabled={!shortcutValidation.valid}
+        disabled={!shortcutValidation.valid || saveFeedback === 'saving'}
         onclick={handleSave}
       >
-        保存设置
+        {saveFeedback === 'saving' ? '正在保存…' : '保存设置'}
       </button>
     </div>
   </footer>
@@ -773,6 +811,20 @@
     background: var(--ms-status-error-bg);
     border-color: var(--ms-status-error-border);
     color: var(--ms-status-error-fg);
+  }
+
+  .ms-save-error-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--ms-status-error-border);
+    border-radius: var(--ms-radius-sm);
+    background: var(--ms-status-error-bg);
+    color: var(--ms-status-error-fg);
+    font-size: 0.82rem;
+    line-height: 1.4;
   }
 
   /* Recovery Wizard */

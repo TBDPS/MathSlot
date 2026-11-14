@@ -235,4 +235,103 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
       fullPage: false,
     });
   });
+
+  test('T4.2 / D-147 / D-148 / D-149 / D-151: corrupt recovery wizard, save-snippet block, two-step reset, save-error banner, and Desktop config import', async ({
+    page,
+  }) => {
+    // 1. Corrupt recovery auto-opens wizard, blocks SaveSnippet, and restores backup cleanly
+    await page.goto('/harness.html?recovery=1');
+    const wizard = page.getByTestId('recovery-wizard');
+    await expect(wizard).toBeVisible();
+    await expect(wizard).toContainText('lastValidLibraryJson');
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'obsidian-recovery-wizard.png'),
+      fullPage: false,
+    });
+
+    // Close settings briefly and attempt SaveSnippet -> blocked by recovery lock without mutating snippets
+    await page.getByTestId('settings-close-btn').click();
+    await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+    await page.locator('.cm-content').click();
+    await page.keyboard.type('x+1', { delay: 15 });
+    await page.getByTestId('obsidian-save-snippet-btn').click();
+    await expect(page.locator('.ms-obsidian-status')).toContainText(/恢复|recovery/i);
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (0)');
+
+    // Re-open settings and click Restore Backup -> wizard closes and backed-up formula appears
+    await page.getByTestId('obsidian-settings-btn').click();
+    await expect(wizard).toBeVisible();
+    await page.getByTestId('recovery-restore-btn').click();
+    await expect(page.getByTestId('recovery-wizard')).toHaveCount(0);
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (1)');
+
+    // 2. Two-step empty reset on ?recovery=1
+    await page.goto('/harness.html?recovery=1');
+    await expect(page.getByTestId('recovery-wizard')).toBeVisible();
+    await page.getByTestId('recovery-reset-trigger').click();
+    await expect(page.getByTestId('recovery-reset-confirm-box')).toBeVisible();
+    await page.getByTestId('recovery-reset-confirm').click();
+    await expect(page.getByTestId('recovery-wizard')).toHaveCount(0);
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (0)');
+
+    // 3. Save failure in SettingsPanel never shows "设置已应用" and shows settings-save-error banner
+    await page.goto('/harness.html?failSave=1');
+    await page.getByTestId('obsidian-settings-btn').click();
+    await page.getByTestId('theme-option-dark').click();
+    await expect(page.getByTestId('settings-panel')).toContainText('有未保存更改');
+    await page.getByTestId('settings-save-btn').click();
+    await expect(page.getByTestId('settings-save-error')).toBeVisible();
+    await expect(page.getByTestId('settings-save-error')).toContainText('EACCES');
+    await expect(page.getByTestId('settings-panel')).not.toContainText('设置已应用');
+    await expect(page.getByTestId('settings-panel')).toContainText('有未保存更改');
+    await page.screenshot({
+      path: resolve(ARTIFACT_DIR, 'obsidian-settings-save-error.png'),
+      fullPage: false,
+    });
+
+    // 4. Bidirectional Desktop LibraryFile v3 config import via file chooser
+    await page.goto('/harness.html');
+    await page.getByTestId('obsidian-settings-btn').click();
+    const desktopConfig = JSON.stringify({
+      schema_version: 3,
+      custom_formats: [],
+      snippets: [],
+      user_formulas: [
+        {
+          id: '01933b4a-5555-7000-8000-000000000005',
+          name: 'Desktop 导入公式',
+          category: '自定义',
+          source: '\\int_0^1 x\\,dx',
+          desc: 'bidirectional import',
+          tags: ['desktop'],
+          created_at: 1700000300,
+        },
+      ],
+      overrides: [],
+      settings: {
+        theme: 'dark',
+        delimiter_style: 'block_dollar',
+        render_backend: 'mathjax',
+        preview_scale_pct: 140,
+      },
+    });
+    const fsMod = require('node:fs') as {
+      writeFileSync: (p: string, d: string, enc: string) => void;
+      unlinkSync: (p: string) => void;
+    };
+    const importTmpPath = resolve(ARTIFACT_DIR, `tmp-obs-import-${Date.now()}.json`);
+    fsMod.writeFileSync(importTmpPath, desktopConfig, 'utf-8');
+    try {
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent('filechooser'),
+        page.getByTestId('settings-import-btn').click(),
+      ]);
+      await fileChooser.setFiles(importTmpPath);
+    } finally {
+      fsMod.unlinkSync(importTmpPath);
+    }
+    await expect(page.locator('.ms-obsidian-status')).toContainText('已验证并导入');
+    await expect(page.locator('[data-host="obsidian"]')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (1)');
+  });
 });

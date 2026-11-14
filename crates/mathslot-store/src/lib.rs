@@ -30,6 +30,7 @@ pub const CURRENT_LIBRARY_SCHEMA_VERSION: u32 = 3;
 pub const DEFAULT_BACKUP_RETENTION: usize = 5;
 pub const MIN_BACKUP_RETENTION: usize = 3;
 pub const MAX_BACKUP_RETENTION: usize = 5;
+pub const MAX_LIBRARY_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 static OP_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -37,6 +38,12 @@ static OP_SEQ: AtomicU64 = AtomicU64::new(1);
 pub enum StoreError {
     #[error("配置路径不可用")]
     PathUnavailable,
+    #[error("配置文件过大 ({path}: {len} 字节，超过上限 {max_bytes} 字节 / 16 MiB)")]
+    FileTooLarge {
+        path: PathBuf,
+        len: u64,
+        max_bytes: u64,
+    },
     #[error("权限被拒绝 ({path}): {source}")]
     PermissionDenied {
         path: PathBuf,
@@ -227,13 +234,21 @@ impl Default for ShortcutSettings {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "delimiterStyle",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub delimiter_style: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "previewScalePct",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub preview_scale_pct: Option<u16>,
     #[serde(default)]
     pub theme: ThemePreference,
-    #[serde(default)]
+    #[serde(default, alias = "renderBackend")]
     pub render_backend: RenderBackendPreference,
     #[serde(default)]
     pub shortcuts: ShortcutSettings,
@@ -647,6 +662,19 @@ fn create_backup_from_bytes(
     bytes: &[u8],
     max_backups: usize,
 ) -> Result<PathBuf, StoreError> {
+    create_backup_from_bytes_with_hook(target_path, bytes, max_backups, |f| f)
+}
+
+fn create_backup_from_bytes_with_hook<W, F>(
+    target_path: &Path,
+    bytes: &[u8],
+    max_backups: usize,
+    wrap_writer: F,
+) -> Result<PathBuf, StoreError>
+where
+    W: SyncableWrite,
+    F: FnOnce(std::fs::File) -> W,
+{
     let dir = parent_dir(target_path);
     let stem = stem_prefix(target_path);
     let retention = max_backups.clamp(MIN_BACKUP_RETENTION, MAX_BACKUP_RETENTION);
@@ -654,14 +682,26 @@ fn create_backup_from_bytes(
     let bak_name = format!("{stem}.bak-{ts_ms:016}-{seq:06}.json");
     let bak_path = dir.join(bak_name);
 
-    let mut f = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&bak_path)
-        .map_err(|e| map_io_err(&bak_path, e))?;
-    f.write_all(bytes).map_err(|e| map_io_err(&bak_path, e))?;
-    f.flush().map_err(|e| map_io_err(&bak_path, e))?;
-    f.sync_all().map_err(|e| map_io_err(&bak_path, e))?;
+    // Write to a same-directory temp file first so ENOSPC/mid-write errors never leave partial `.bak-*` files.
+    let temp = NamedTempFile::new_in(dir).map_err(|e| map_io_err(dir, e))?;
+    let (file_handle, temp_path) = temp.into_parts();
+    {
+        let mut writer = wrap_writer(file_handle);
+        writer
+            .write_all(bytes)
+            .map_err(|e| map_io_err(temp_path.as_ref(), e))?;
+        writer
+            .flush()
+            .map_err(|e| map_io_err(temp_path.as_ref(), e))?;
+        writer
+            .sync_all_file()
+            .map_err(|e| map_io_err(temp_path.as_ref(), e))?;
+    }
+
+    temp_path
+        .persist_noclobber(&bak_path)
+        .map_err(|e| map_io_err(&bak_path, e.error))?;
+    sync_dir(dir)?;
 
     let existing = list_backups(target_path);
     for stale in existing.into_iter().skip(retention) {
@@ -711,11 +751,20 @@ fn quarantine_corrupt_file(path: &Path) -> Result<PathBuf, StoreError> {
     Ok(corrupt_path)
 }
 
-fn find_newest_valid_backup(path: &Path, catalog: &Catalog) -> Option<BackupCandidate> {
+pub fn find_newest_valid_backup(path: &Path, catalog: &Catalog) -> Option<BackupCandidate> {
     for bak_path in list_backups(path) {
+        let Ok(meta) = std::fs::metadata(&bak_path) else {
+            continue;
+        };
+        if !meta.is_file() || meta.len() > MAX_LIBRARY_FILE_BYTES {
+            continue;
+        }
         let Ok(bytes) = std::fs::read(&bak_path) else {
             continue;
         };
+        if bytes.len() as u64 > MAX_LIBRARY_FILE_BYTES {
+            continue;
+        }
         let Ok(raw) = std::str::from_utf8(&bytes) else {
             continue;
         };
@@ -729,6 +778,33 @@ fn find_newest_valid_backup(path: &Path, catalog: &Catalog) -> Option<BackupCand
         }
     }
     None
+}
+
+fn cleanup_orphan_temp_files(dir: &Path) -> Result<(), StoreError> {
+    let rd = match std::fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == ErrorKind::NotFound || e.kind() == ErrorKind::PermissionDenied => {
+            return Ok(());
+        }
+        Err(e) => return Err(map_io_err(dir, e)),
+    };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(".tmp") {
+            match std::fs::remove_file(&p) {
+                Ok(()) => {}
+                Err(e)
+                    if e.kind() == ErrorKind::NotFound
+                        || e.kind() == ErrorKind::PermissionDenied => {}
+                Err(e) => return Err(map_io_err(&p, e)),
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn load_or_recover(path: &Path) -> Result<LoadOutcome, StoreError> {
@@ -746,7 +822,15 @@ pub fn load_or_recover_with_catalog(
             });
         }
         Err(e) => return Err(map_io_err(path, e)),
-        Ok(_) => {}
+        Ok(meta) => {
+            if meta.is_file() && meta.len() > MAX_LIBRARY_FILE_BYTES {
+                return Err(StoreError::FileTooLarge {
+                    path: path.to_path_buf(),
+                    len: meta.len(),
+                    max_bytes: MAX_LIBRARY_FILE_BYTES,
+                });
+            }
+        }
     }
 
     let lock_path = lock_path_for(path);
@@ -758,6 +842,11 @@ pub fn load_or_recover_with_catalog(
         .open(&lock_path)
         .ok()
         .map(RwLock::new);
+    if let Some(rw) = lock_handle.as_mut()
+        && let Ok(_write_guard) = rw.try_write()
+    {
+        cleanup_orphan_temp_files(parent_dir(path))?;
+    }
     let _read_guard = match lock_handle.as_mut() {
         Some(rw) => rw.read().ok(),
         None => None,
@@ -772,6 +861,13 @@ pub fn load_or_recover_with_catalog(
         }
         Err(e) => return Err(map_io_err(path, e)),
     };
+    if bytes.len() as u64 > MAX_LIBRARY_FILE_BYTES {
+        return Err(StoreError::FileTooLarge {
+            path: path.to_path_buf(),
+            len: bytes.len() as u64,
+            max_bytes: MAX_LIBRARY_FILE_BYTES,
+        });
+    }
 
     let raw_str = match std::str::from_utf8(&bytes) {
         Ok(s) => s,
@@ -1052,6 +1148,14 @@ impl Store {
         backup_path: &Path,
         catalog: &Catalog,
     ) -> Result<LibraryFile, StoreError> {
+        let meta = std::fs::metadata(backup_path).map_err(|e| map_io_err(backup_path, e))?;
+        if meta.is_file() && meta.len() > MAX_LIBRARY_FILE_BYTES {
+            return Err(StoreError::FileTooLarge {
+                path: backup_path.to_path_buf(),
+                len: meta.len(),
+                max_bytes: MAX_LIBRARY_FILE_BYTES,
+            });
+        }
         let raw_str =
             std::fs::read_to_string(backup_path).map_err(|e| map_io_err(backup_path, e))?;
         let (file, _report) = dry_run_migrate(&raw_str, catalog)?;
@@ -1091,10 +1195,98 @@ impl Store {
         raw_json: &str,
         catalog: &Catalog,
     ) -> Result<(LibraryFile, Option<MigrationReport>), StoreError> {
+        if raw_json.len() as u64 > MAX_LIBRARY_FILE_BYTES {
+            return Err(StoreError::FileTooLarge {
+                path: PathBuf::from("<import>"),
+                len: raw_json.len() as u64,
+                max_bytes: MAX_LIBRARY_FILE_BYTES,
+            });
+        }
         let (file, report) = dry_run_migrate(raw_json, catalog)?;
         let rev = save_atomic(&self.path, &file, WriteCondition::Unconditional)?;
         self.settings = file.settings.clone();
         self.last_revision = Some(rev);
         Ok((file, report))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct PartialFailWriter {
+        inner: std::fs::File,
+        limit: usize,
+        written: usize,
+    }
+
+    impl Write for PartialFailWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.written >= self.limit {
+                return Err(std::io::Error::new(
+                    ErrorKind::WriteZero,
+                    "simulated ENOSPC in backup write",
+                ));
+            }
+            let n = self
+                .inner
+                .write(&buf[..buf.len().min(self.limit - self.written)])?;
+            self.written += n;
+            if n < buf.len() {
+                return Err(std::io::Error::new(
+                    ErrorKind::WriteZero,
+                    "simulated ENOSPC mid-backup write",
+                ));
+            }
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl SyncableWrite for PartialFailWriter {
+        fn sync_all_file(&self) -> std::io::Result<()> {
+            self.inner.sync_all()
+        }
+    }
+
+    #[test]
+    fn d150_failed_backup_creation_leaves_no_partial_bak_or_tmp_files() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "mathslot_backup_cleanup_{}_{}",
+            std::process::id(),
+            nanos
+        ));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let target = dir.join("library.json");
+        let payload = b"{\"schema_version\":3,\"user_formulas\":[{\"id\":\"x\"}]}";
+
+        let err = create_backup_from_bytes_with_hook(&target, payload, 5, |f| PartialFailWriter {
+            inner: f,
+            limit: 12,
+            written: 0,
+        })
+        .expect_err("mid-backup ENOSPC must fail");
+        assert!(matches!(err, StoreError::Io { .. }));
+        assert!(
+            list_backups(&target).is_empty(),
+            "Failed backup must not leave partial .bak-* files"
+        );
+        let entries: Vec<String> = std::fs::read_dir(&dir)
+            .expect("read_dir")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "Failed backup must leave zero temp or partial files, found {entries:?}"
+        );
+        std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 }

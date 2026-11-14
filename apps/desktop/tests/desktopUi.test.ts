@@ -178,4 +178,88 @@ describe('apps/desktop UI & DesktopHostBridge (T3.5)', () => {
     expect(deepRes.snapshot.last_import?.blocked).toBe(true);
     expect(deepRes.snapshot.latex).toBe('\\frac{1}{2}');
   });
+
+  it('D-147 / D-148 / D-149 / D-151: Desktop App rejects fake-saved on persistence failure, enforces recovery write lock, and supports v1/v2/v3 & user_formulas import/restore', async () => {
+    const base = createBrowserHarnessBridge();
+
+    // 1. Browser harness supports v2 + Obsidian camelCase import and populates userFormulas
+    const obsidianV2 = JSON.stringify({
+      schema_version: 2,
+      customFormats: [],
+      snippets: [
+        {
+          id: 'obs-1',
+          name: 'Obsidian Formula',
+          category: '自定义',
+          source: 'x^2 + y^2',
+          desc: 'from obsidian',
+          tags: ['obs'],
+          is_builtin: false,
+        },
+      ],
+      settings: {
+        theme: 'dark',
+        delimiter_style: 'inline_dollar',
+      },
+    });
+    const importedSnap = await base.importConfigJson(obsidianV2);
+    expect(importedSnap.settings?.theme).toBe('dark');
+    const importedFormulas = await base.getUserFormulas();
+    expect(importedFormulas).toHaveLength(1);
+    expect(importedFormulas[0]?.name).toBe('Obsidian Formula');
+
+    // Reset empty must clear userFormulas
+    await base.resetEmptyConfig();
+    expect(await base.getUserFormulas()).toHaveLength(0);
+
+    // 2. Recovery write lock in browser harness & save failure UI in App.svelte
+    await base.dispatch({
+      SetRecoveryState: {
+        corrupt_path: '/tmp/library.corrupt-42.json',
+        backup_candidate: '/tmp/library.bak-41.json',
+        error: 'corrupt JSON',
+      },
+    });
+    await expect(
+      base.saveUserFormula('Blocked', '自定义', 'x+1', ''),
+    ).rejects.toThrow(/恢复|recovery/i);
+
+    const failingBridge: DesktopHostBridge = {
+      ...base,
+      dispatch: async (event) => {
+        if (typeof event === 'object' && event !== null && 'UpdateSettings' in event) {
+          throw new Error('PermissionDenied: read-only config directory');
+        }
+        return base.dispatch(event);
+      },
+    };
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const app = mount(App, {
+      target,
+      props: { bridge: failingBridge },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+
+    // Recovery wizard opened; resolve recovery state via restoreBackup mock or close? No, keep settings open
+    target.querySelector<HTMLButtonElement>('[data-testid="theme-option-light"]')?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-save-btn"]')?.click();
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+
+    expect(target.textContent).not.toContain('设置已应用');
+    expect(target.querySelector('[data-testid="settings-save-error"]')?.textContent).toContain(
+      'PermissionDenied',
+    );
+    expect(target.querySelector('[data-testid="desktop-toast"]')?.textContent).toContain(
+      'PermissionDenied',
+    );
+  });
 });
