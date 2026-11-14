@@ -142,6 +142,24 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
     await expect(page.getByTestId('import-blocked-banner')).toBeVisible();
     await expect(page.getByTestId('import-apply-btn')).toBeDisabled();
     await expect(page.getByTestId('import-diagnostics-list')).toContainText('UNMATCHED_DELIMITER');
+    // D-144: blocked state must show blocked error pill, not yellow RawLatex 降级
+    await expect(page.getByTestId('import-diff-view')).not.toContainText('RawLatex 降级');
+    await expect(page.getByTestId('import-diff-pill')).toContainText('语法错误已阻断');
+    // D-145: Obsidian error banner border must resolve to a non-black semantic red theme color
+    const errorColors = await page.evaluate(() => {
+      const banner = document.querySelector('[data-testid="import-blocked-banner"]') as HTMLElement | null;
+      const modal = document.querySelector('[data-testid="import-modal"]') as HTMLElement | null;
+      const style = banner ? getComputedStyle(banner) : null;
+      const modalStyle = modal ? getComputedStyle(modal) : null;
+      return {
+        borderColor: style?.borderTopColor ?? '',
+        backgroundColor: style?.backgroundColor ?? '',
+        tokenErrorBorder: modalStyle?.getPropertyValue('--ms-status-error-border').trim() ?? '',
+      };
+    });
+    expect(errorColors.tokenErrorBorder).not.toBe('');
+    expect(errorColors.borderColor).not.toBe('rgb(0, 0, 0)');
+    expect(errorColors.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
     await page.screenshot({
       path: resolve(ARTIFACT_DIR, 'obsidian-import-error-blocking.png'),
       fullPage: false,
@@ -153,6 +171,21 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
     await expect(page.getByTestId('import-diff-view')).toBeVisible();
     await expect(page.getByTestId('import-degraded-badge')).toBeVisible();
     await expect(page.getByTestId('import-apply-btn')).toBeEnabled();
+    // D-145: warning badge and apply button must resolve to non-black semantic theme colors
+    const warnColors = await page.evaluate(() => {
+      const badge = document.querySelector('[data-testid="import-degraded-badge"]') as HTMLElement | null;
+      const applyBtn = document.querySelector('[data-testid="import-apply-btn"]') as HTMLElement | null;
+      return {
+        badgeBorder: badge ? getComputedStyle(badge).borderTopColor : '',
+        badgeBg: badge ? getComputedStyle(badge).backgroundColor : '',
+        applyBorder: applyBtn ? getComputedStyle(applyBtn).borderTopColor : '',
+        applyBg: applyBtn ? getComputedStyle(applyBtn).backgroundColor : '',
+      };
+    });
+    expect(warnColors.badgeBorder).not.toBe('rgb(0, 0, 0)');
+    expect(warnColors.badgeBg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(warnColors.applyBorder).not.toBe('rgb(0, 0, 0)');
+    expect(warnColors.applyBg).not.toBe('rgba(0, 0, 0, 0)');
     await page.screenshot({
       path: resolve(ARTIFACT_DIR, 'obsidian-import-diff-warning.png'),
       fullPage: false,

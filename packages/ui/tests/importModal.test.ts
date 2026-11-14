@@ -326,4 +326,56 @@ describe('ImportModal.svelte (D-123 / A-OBS-005)', () => {
     expect(applyAfterError).not.toBeNull();
     expect(applyAfterError?.disabled).toBe(true);
   });
+
+  it('D-144: raw_nodes === 0 && blocked does NOT render RawLatex 降级 badge and shows blocked error badge', async () => {
+    const { client } = createMockImportClient((latex) => ({
+      latex,
+      report: {
+        lossless: false,
+        empty_slots: 1,
+        raw_nodes: 0,
+        roundtrip_latex: '\\frac{1}{}',
+        normalized_match: false,
+        blocked: true,
+        diagnostics: [
+          {
+            code: 'UNCLOSED_DELIMITER',
+            severity: 'Error',
+            message: 'Unclosed delimiter: }',
+            summary: 'UNCLOSED_DELIMITER: Unclosed delimiter: }',
+            source_excerpt: latex,
+            truncated: false,
+            detail: 'Unclosed delimiter: }',
+            hint: '请补全未闭合的定界符 `}`',
+          },
+        ],
+      },
+    }));
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(ImportModal, {
+      target,
+      props: {
+        open: true,
+        client,
+        initialLatex: '\\frac{1}{',
+        onClose: vi.fn(),
+      },
+    });
+    await tick();
+
+    const previewBtn = target.querySelector('[data-testid="import-submit-btn"]') as HTMLButtonElement;
+    previewBtn.click();
+    await tick();
+    await tick();
+
+    const diffView = target.querySelector('[data-testid="import-diff-view"]');
+    expect(diffView).not.toBeNull();
+    expect(diffView?.textContent ?? '').not.toContain('RawLatex 降级');
+    expect(target.querySelector('[data-testid="import-degraded-badge"]')).toBeNull();
+
+    const diffPill = target.querySelector('[data-testid="import-diff-pill"]');
+    expect(diffPill?.textContent ?? '').toContain('语法错误已阻断');
+  });
 });

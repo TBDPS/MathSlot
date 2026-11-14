@@ -332,6 +332,13 @@ body {
   background: color-mix(in srgb, var(--ms-fg) 42%, transparent);
 }
 
+.ms-modal-shell {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border-radius: var(--ms-radius-md);
+}
+
 .ms-modal-card {
   width: min(760px, 100%);
   max-height: 88vh;

@@ -261,90 +261,138 @@
   }
 }
 
-/* Obsidian Host CSS Variable Mapping (D-124 / A-OBS-001) */
+/* Obsidian Host CSS Variable Mapping (D-124 / D-145 / A-OBS-001) */
 [data-host='obsidian']:not([data-theme-override]),
 [data-host='obsidian']:not([data-theme-override]) [data-theme],
 .mathslot-obsidian-host:not([data-theme-override]),
 .mathslot-obsidian-host:not([data-theme-override]) [data-theme] {
+  --ms-obs-fallback-bg: #ffffff;
+  --ms-obs-fallback-surface: #f4f5f7;
+  --ms-obs-fallback-surface-alt: #eef2f7;
+  --ms-obs-fallback-border: #d0d7de;
+  --ms-obs-fallback-border-strong: #94a3b8;
+  --ms-obs-fallback-fg: #1f2328;
+  --ms-obs-fallback-fg-muted: #59636e;
+  --ms-obs-fallback-fg-faint: #64748b;
+  --ms-obs-fallback-accent: #1d4ed8;
+  --ms-obs-fallback-on-accent: #ffffff;
+  --ms-obs-fallback-error: #dc2626;
+  --ms-obs-fallback-warning: #d97706;
+  --ms-obs-fallback-success: #16a34a;
+
+  --ms-obs-bg: var(--background-primary, var(--ms-obs-fallback-bg));
+  --ms-obs-surface: var(--background-secondary, var(--ms-obs-fallback-surface));
+  --ms-obs-surface-alt: var(--background-secondary-alt, var(--ms-obs-surface));
+  --ms-obs-border: var(--background-modifier-border, var(--ms-obs-fallback-border));
+  --ms-obs-border-strong: var(--background-modifier-border-hover, var(--ms-obs-border));
+  --ms-obs-fg: var(--text-normal, var(--ms-obs-fallback-fg));
+  --ms-obs-fg-muted: var(--text-muted, var(--ms-obs-fallback-fg-muted));
+  --ms-obs-fg-faint: var(--text-faint, var(--ms-obs-fg-muted));
+  --ms-obs-accent: var(--interactive-accent, var(--ms-obs-fallback-accent));
+  --ms-obs-on-accent: var(--text-on-accent, var(--ms-obs-fallback-on-accent));
+  --ms-obs-error: var(--text-error, var(--ms-obs-fallback-error));
+  --ms-obs-warning: var(--text-warning, var(--ms-obs-fallback-warning));
+  --ms-obs-success: var(--text-success, var(--ms-obs-fallback-success));
+
   --ms-font-sans: var(--font-interface, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   --ms-font-mono: var(--font-monospace, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace);
 
-  --ms-bg: var(--background-primary);
-  --ms-surface: var(--background-secondary);
-  --ms-surface-elevated: var(--background-secondary-alt, var(--background-secondary));
-  --ms-surface-muted: var(--background-modifier-hover);
-  --ms-border: var(--background-modifier-border);
-  --ms-border-strong: var(--background-modifier-border-hover, var(--background-modifier-border));
+  --ms-bg: var(--ms-obs-bg);
+  --ms-surface: var(--ms-obs-surface);
+  --ms-surface-elevated: var(--ms-obs-surface-alt);
+  --ms-surface-muted: var(--background-modifier-hover, var(--ms-obs-fallback-surface-alt));
+  --ms-border: var(--ms-obs-border);
+  --ms-border-strong: var(--ms-obs-border-strong);
 
-  --ms-fg: var(--text-normal);
-  --ms-fg-muted: var(--text-muted);
-  --ms-fg-subtle: var(--text-faint, var(--text-muted));
+  --ms-fg: var(--ms-obs-fg);
+  --ms-fg-muted: var(--ms-obs-fg-muted);
+  --ms-fg-subtle: var(--ms-obs-fg-faint);
 
-  --ms-accent: var(--interactive-accent);
-  --ms-accent-hover: var(--interactive-accent-hover, var(--interactive-accent));
-  --ms-accent-contrast: var(--text-on-accent);
-  --ms-accent-soft: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-primary));
-  --ms-accent-fg: var(--text-accent, var(--interactive-accent));
-  --ms-focus-ring: var(--interactive-accent);
+  --ms-accent: var(--ms-obs-accent);
+  --ms-accent-hover: var(--interactive-accent-hover, var(--ms-obs-accent));
+  --ms-accent-contrast: var(--ms-obs-on-accent);
+  --ms-accent-soft: color-mix(in srgb, var(--ms-obs-accent) 16%, var(--ms-obs-bg));
+  --ms-accent-fg: var(--text-accent, var(--ms-obs-accent));
+  --ms-focus-ring: var(--ms-obs-accent);
 
-  --ms-danger-bg: var(--text-error);
-  --ms-danger-hover-bg: color-mix(in srgb, var(--text-error) 85%, var(--background-primary));
-  --ms-danger-fg: var(--text-on-accent);
+  --ms-danger-bg: var(--ms-obs-error);
+  --ms-danger-hover-bg: color-mix(in srgb, var(--ms-obs-error) 85%, var(--ms-obs-bg));
+  --ms-danger-fg: var(--ms-obs-on-accent);
 
-  --ms-cmd-bg: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary));
-  --ms-cmd-border: var(--interactive-accent);
-  --ms-cmd-fg: var(--text-accent, var(--interactive-accent));
+  --ms-cmd-bg: color-mix(in srgb, var(--ms-obs-accent) 14%, var(--ms-obs-bg));
+  --ms-cmd-border: var(--ms-obs-accent);
+  --ms-cmd-fg: var(--text-accent, var(--ms-obs-accent));
 
-  --ms-kbd-bg: var(--background-secondary-alt, var(--background-secondary));
-  --ms-kbd-border: var(--background-modifier-border);
-  --ms-kbd-fg: var(--text-normal);
-  --ms-card-hover-bg: var(--background-modifier-hover);
+  --ms-kbd-bg: var(--ms-obs-surface-alt);
+  --ms-kbd-border: var(--ms-obs-border);
+  --ms-kbd-fg: var(--ms-obs-fg);
+  --ms-card-hover-bg: var(--background-modifier-hover, var(--ms-obs-fallback-surface-alt));
 
-  --ms-slot-empty-bg: color-mix(in srgb, var(--text-warning) 16%, var(--background-primary));
-  --ms-slot-empty-border: var(--text-warning);
-  --ms-slot-empty-fg: var(--text-warning);
+  --ms-slot-empty-bg: color-mix(in srgb, var(--ms-obs-warning) 16%, var(--ms-obs-bg));
+  --ms-slot-empty-border: var(--ms-obs-warning);
+  --ms-slot-empty-fg: var(--ms-obs-warning);
 
-  --ms-slot-active-bg: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-primary));
-  --ms-slot-active-border: var(--interactive-accent);
-  --ms-slot-active-fg: var(--text-normal);
+  --ms-slot-active-bg: color-mix(in srgb, var(--ms-obs-accent) 20%, var(--ms-obs-bg));
+  --ms-slot-active-border: var(--ms-obs-accent);
+  --ms-slot-active-fg: var(--ms-obs-fg);
 
-  --ms-slot-filled-bg: var(--background-secondary);
-  --ms-slot-filled-border: var(--background-modifier-border);
-  --ms-slot-filled-fg: var(--text-normal);
+  --ms-slot-filled-bg: var(--ms-obs-surface);
+  --ms-slot-filled-border: var(--ms-obs-border);
+  --ms-slot-filled-fg: var(--ms-obs-fg);
 
-  --ms-status-info-bg: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary));
-  --ms-status-info-border: var(--interactive-accent);
-  --ms-status-info-fg: var(--text-accent, var(--interactive-accent));
+  --ms-status-info-bg: color-mix(in srgb, var(--ms-obs-accent) 14%, var(--ms-obs-bg));
+  --ms-status-info-border: var(--ms-obs-accent);
+  --ms-status-info-fg: var(--text-accent, var(--ms-obs-accent));
 
-  --ms-status-success-bg: color-mix(in srgb, var(--text-success) 14%, var(--background-primary));
-  --ms-status-success-border: var(--text-success);
-  --ms-status-success-fg: var(--text-success);
+  --ms-status-success-bg: color-mix(in srgb, var(--ms-obs-success) 14%, var(--ms-obs-bg));
+  --ms-status-success-border: var(--ms-obs-success);
+  --ms-status-success-fg: var(--ms-obs-success);
 
-  --ms-status-warn-bg: color-mix(in srgb, var(--text-warning) 14%, var(--background-primary));
-  --ms-status-warn-border: var(--text-warning);
-  --ms-status-warn-fg: var(--text-warning);
+  --ms-status-warn-bg: color-mix(in srgb, var(--ms-obs-warning) 14%, var(--ms-obs-bg));
+  --ms-status-warn-border: var(--ms-obs-warning);
+  --ms-status-warn-fg: var(--ms-obs-warning);
 
-  --ms-status-error-bg: color-mix(in srgb, var(--text-error) 14%, var(--background-primary));
-  --ms-status-error-border: var(--text-error);
-  --ms-status-error-fg: var(--text-error);
+  --ms-status-error-bg: color-mix(in srgb, var(--ms-obs-error) 14%, var(--ms-obs-bg));
+  --ms-status-error-border: var(--ms-obs-error);
+  --ms-status-error-fg: var(--ms-obs-error);
 
-  --ms-mode-idle-bg: var(--background-secondary);
-  --ms-mode-idle-fg: var(--text-normal);
-  --ms-mode-prefix-bg: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
-  --ms-mode-prefix-fg: var(--text-accent, var(--interactive-accent));
-  --ms-mode-nav-bg: color-mix(in srgb, var(--text-success) 18%, var(--background-primary));
-  --ms-mode-nav-fg: var(--text-success);
-  --ms-mode-ime-bg: color-mix(in srgb, var(--interactive-accent) 22%, var(--background-secondary));
-  --ms-mode-ime-fg: var(--text-normal);
+  --ms-mode-idle-bg: var(--ms-obs-surface);
+  --ms-mode-idle-fg: var(--ms-obs-fg);
+  --ms-mode-prefix-bg: color-mix(in srgb, var(--ms-obs-accent) 18%, var(--ms-obs-bg));
+  --ms-mode-prefix-fg: var(--text-accent, var(--ms-obs-accent));
+  --ms-mode-nav-bg: color-mix(in srgb, var(--ms-obs-success) 18%, var(--ms-obs-bg));
+  --ms-mode-nav-fg: var(--ms-obs-success);
+  --ms-mode-ime-bg: color-mix(in srgb, var(--ms-obs-accent) 22%, var(--ms-obs-surface));
+  --ms-mode-ime-fg: var(--ms-obs-fg);
 
-  --ms-preview-bg: var(--background-primary);
-  --ms-preview-fg: var(--text-normal);
-  --ms-preview-border: var(--background-modifier-border);
-  --ms-badge-degraded-bg: color-mix(in srgb, var(--text-warning) 16%, var(--background-primary));
-  --ms-badge-degraded-border: var(--text-warning);
-  --ms-badge-degraded-fg: var(--text-warning);
-  --ms-diag-code-bg: var(--background-secondary);
-  --ms-diag-code-fg: var(--text-normal);
+  --ms-preview-bg: var(--ms-obs-bg);
+  --ms-preview-fg: var(--ms-obs-fg);
+  --ms-preview-border: var(--ms-obs-border);
+  --ms-badge-degraded-bg: color-mix(in srgb, var(--ms-obs-warning) 16%, var(--ms-obs-bg));
+  --ms-badge-degraded-border: var(--ms-obs-warning);
+  --ms-badge-degraded-fg: var(--ms-obs-warning);
+  --ms-diag-code-bg: var(--ms-obs-surface);
+  --ms-diag-code-fg: var(--ms-obs-fg);
+}
+
+.theme-dark [data-host='obsidian']:not([data-theme-override]),
+.theme-dark [data-host='obsidian']:not([data-theme-override]) [data-theme],
+[data-host='obsidian'][data-theme='dark']:not([data-theme-override]),
+.theme-dark .mathslot-obsidian-host:not([data-theme-override]),
+.theme-dark .mathslot-obsidian-host:not([data-theme-override]) [data-theme] {
+  --ms-obs-fallback-bg: #111827;
+  --ms-obs-fallback-surface: #1e293b;
+  --ms-obs-fallback-surface-alt: #334155;
+  --ms-obs-fallback-border: #334155;
+  --ms-obs-fallback-border-strong: #475569;
+  --ms-obs-fallback-fg: #f8fafc;
+  --ms-obs-fallback-fg-muted: #cbd5e1;
+  --ms-obs-fallback-fg-faint: #94a3b8;
+  --ms-obs-fallback-accent: #60a5fa;
+  --ms-obs-fallback-on-accent: #0f172a;
+  --ms-obs-fallback-error: #f87171;
+  --ms-obs-fallback-warning: #f59e0b;
+  --ms-obs-fallback-success: #4ade80;
 }
 
 .theme-light [data-host='obsidian'],

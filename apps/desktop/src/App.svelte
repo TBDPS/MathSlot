@@ -661,24 +661,8 @@
   />
 
   {#if showImportModal}
-    <div
-      class="ms-modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="import-modal-heading"
-    >
-      <div class="ms-modal-card">
-        <div class="ms-modal-header">
-          <h2 id="import-modal-heading" class="ms-modal-title">导入 LaTeX 公式</h2>
-          <button
-            type="button"
-            class="ms-btn ms-btn-compact"
-            data-testid="desktop-close-import-btn"
-            onclick={closeImportModal}
-          >
-            关闭
-          </button>
-        </div>
+    <div class="ms-modal-backdrop">
+      <div class="ms-modal-shell">
         <ImportModal
           client={reactiveClient}
           lastImport={snapshot.last_import ?? null}

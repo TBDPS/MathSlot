@@ -118,12 +118,25 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     // Open ImportModal and test syntax error blocking (Step 1 Preview -> Apply disabled)
     await page.getByTestId('desktop-import-btn').click();
     await expect(page.getByTestId('import-modal')).toBeVisible();
+
+    // D-146: single modal header + non-wrapping single-line close button
+    await expect(page.getByRole('heading', { name: '导入 LaTeX 公式' })).toHaveCount(1);
+    const closeBtn = page.getByTestId('import-close-btn');
+    await expect(closeBtn).toBeVisible();
+    const closeBox = await closeBtn.boundingBox();
+    expect(closeBox).not.toBeNull();
+    expect(closeBox!.height).toBeLessThanOrEqual(42);
+    expect(closeBox!.width).toBeGreaterThanOrEqual(40);
+
     await page.getByTestId('import-latex-input').fill('\\frac{1}{');
     await page.getByTestId('import-submit-btn').click();
 
     await expect(page.getByTestId('import-report')).toBeVisible();
     await expect(page.getByTestId('import-blocked-banner')).toBeVisible();
     await expect(page.getByTestId('import-apply-btn')).toBeDisabled();
+    // D-144: raw_nodes === 0 && blocked must NOT show RawLatex 降级 pill
+    await expect(page.getByTestId('import-diff-view')).not.toContainText('RawLatex 降级');
+    await expect(page.getByTestId('import-diff-pill')).toContainText('语法错误已阻断');
     await page.screenshot({
       path: resolve(ARTIFACT_DIR, 'import-error-blocking.png'),
       fullPage: false,
@@ -149,9 +162,10 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     });
   });
 
-  test('T4.1 / D-140 / D-142 / D-012: two-phase Diff preview, RawLatex warning badge, Cancel non-mutation, Apply & 1-step Undo', async ({
+  test('T4.1 / D-140 / D-142 / D-012 / D-146: two-phase Diff preview, RawLatex warning badge, 720p scroll, Cancel non-mutation, Apply & 1-step Undo', async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
     const cmContent = page.locator('.cm-content');
     await cmContent.click();
@@ -168,6 +182,15 @@ test.describe('MathSlot Desktop Playwright E2E (T3.5 / S-001..S-007 / A-UI-001..
     await expect(page.getByTestId('import-diagnostics-list')).toContainText('OUTER_DELIMITERS_STRIPPED');
     await expect(page.getByTestId('import-diagnostics-list')).toContainText('UNSUPPORTED_ENVIRONMENT');
     await expect(page.getByTestId('import-apply-btn')).toBeEnabled();
+
+    // D-146: ensure all diagnostics are comfortably reachable/visible inside 1280x720 modal viewport
+    const lastDiag = page.getByTestId('import-diagnostics-list').locator('li').last();
+    await lastDiag.scrollIntoViewIfNeeded();
+    await expect(lastDiag).toBeVisible();
+    const lastDiagBox = await lastDiag.boundingBox();
+    expect(lastDiagBox).not.toBeNull();
+    expect(lastDiagBox!.y + lastDiagBox!.height).toBeLessThanOrEqual(720);
+
     await page.screenshot({
       path: resolve(ARTIFACT_DIR, 'import-diff-warning.png'),
       fullPage: false,

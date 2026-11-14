@@ -44,8 +44,9 @@
 
   const activeReport = $derived(localReport ?? lastImport ?? null);
   const resolvedThemeAttr = $derived(theme === 'system' ? undefined : theme);
+  const hasRawNodes = $derived(activeReport !== null && activeReport.raw_nodes > 0);
   const isDegraded = $derived(
-    activeReport !== null && (activeReport.raw_nodes > 0 || !activeReport.lossless),
+    activeReport !== null && !activeReport.blocked && hasRawNodes,
   );
   const previewStale = $derived.by(() => {
     if (!activeReport) return false;
@@ -162,7 +163,7 @@
         class="ms-import-textarea"
         data-testid="import-latex-input"
         aria-label="输入或粘贴 LaTeX 公式"
-        rows="4"
+        rows="3"
         bind:value={inputLatex}
         placeholder="例如：\frac&#123;\sin x&#125;&#123;x&#125; = 1"
       ></textarea>
@@ -235,6 +236,10 @@
             <span class="ms-import-degraded-badge" data-testid="import-degraded-badge">降级 RawLatex</span>
             <strong>有损转换预警：</strong>包含 {activeReport.raw_nodes} 个未识别或不支持节点，将在保留原始 LaTeX 后写入。
           </div>
+        {:else if !activeReport.lossless}
+          <div class="ms-import-banner ms-import-banner-warn" role="status" data-testid="import-nonlossless-banner">
+            <strong>结构化改写提示：</strong>输出与原始输入存在差异，请审阅下方 Diff 后再确认导入。
+          </div>
         {:else}
           <div class="ms-import-banner ms-import-banner-ok" role="status" data-testid="import-lossless-banner">
             <strong>无损解析就绪：</strong>可安全确认导入为结构化 AST（支持一步撤回）。
@@ -264,12 +269,16 @@
           <div class="ms-import-diff-panel" data-testid="import-diff-view" aria-label="导入前后差异对比">
             <div class="ms-import-diff-header">
               <span class="ms-import-label">输入与规范回环差异对比 (Diff)</span>
-              {#if isDegraded}
-                <span class="ms-import-diff-pill ms-import-diff-pill-warn">RawLatex 降级</span>
+              {#if activeReport.blocked}
+                <span class="ms-import-diff-pill ms-import-diff-pill-error" data-testid="import-diff-pill">
+                  {hasRawNodes ? `语法错误已阻断 · 含 ${activeReport.raw_nodes} RawLatex` : '语法错误已阻断'}
+                </span>
+              {:else if hasRawNodes}
+                <span class="ms-import-diff-pill ms-import-diff-pill-warn" data-testid="import-diff-pill">RawLatex 降级</span>
               {:else if diffResult.changed}
-                <span class="ms-import-diff-pill ms-import-diff-pill-info">已归一化</span>
+                <span class="ms-import-diff-pill ms-import-diff-pill-info" data-testid="import-diff-pill">已归一化</span>
               {:else}
-                <span class="ms-import-diff-pill ms-import-diff-pill-ok">完全一致</span>
+                <span class="ms-import-diff-pill ms-import-diff-pill-ok" data-testid="import-diff-pill">完全一致</span>
               {/if}
             </div>
             <div class="ms-import-diff-grid">
@@ -322,8 +331,8 @@
   .ms-import-modal {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 14px;
+    gap: 10px;
+    padding: 12px 14px;
     border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius-md);
     background: var(--ms-bg);
@@ -405,6 +414,8 @@
     font-weight: 600;
     padding: 6px 12px;
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .ms-import-btn:disabled {
@@ -534,6 +545,14 @@
     border: 1px solid var(--ms-border);
     font-size: 0.7rem;
     font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .ms-import-diff-pill-error {
+    border-color: var(--ms-status-error-border);
+    background: var(--ms-status-error-bg);
+    color: var(--ms-status-error-fg);
   }
 
   .ms-import-diff-pill-ok {
