@@ -104,15 +104,92 @@ PY
   fi
 fi
 
-count() { rg -c --no-filename "$1" "${@:2}" 2>/dev/null | awk '{s+=$1} END {print s+0}'; }
+read -r ACTIVE_LET ACTIVE_UNWRAP ACTIVE_TABLES LEGACY_LET LEGACY_UNWRAP LEGACY_TABLES <<< "$(python3 - "$ROOT" <<'PY'
+import pathlib, re, sys
 
-LET_UNDERSCORE="$(count 'let _ = ' src crates --glob '!target' || true)"
-UNWRAP="$(count '\.unwrap\(\)' src crates/mathslot-core/src --glob '!target' || true)"
-TABLES="$(count 'const (COMMAND|SYMBOL|STRUCT|RELATION|OPERATOR|GREEK)_ENTRIES' src crates --glob '!target' || true)"
+root = pathlib.Path(sys.argv[1])
+active_dirs = [
+    "crates/mathslot-syntax/src",
+    "crates/mathslot-doc/src",
+    "crates/mathslot-latex/src",
+    "crates/mathslot-command/src",
+    "crates/mathslot-app/src",
+    "crates/mathslot-store/src",
+    "crates/mathslot-render/src",
+    "crates/mathslot-wasm/src",
+    "apps/desktop/src-tauri/src",
+]
 
-record WARN "let _ = 计数" "$LET_UNDERSCORE 处（G4 前应清零）"
-record WARN "unwrap() 计数" "$UNWRAP 处（用户输入路径应为 0）"
-record WARN "命令表常量" "$TABLES 处（G1 后应只剩 catalog）"
+def strip_cfg_tests(src: str) -> str:
+    out = []
+    in_test = False
+    brace_depth = 0
+    saw_open = False
+    for line in src.splitlines(keepends=True):
+        if not in_test and re.match(r'\s*#\[cfg\(test\)\]', line):
+            in_test = True
+            brace_depth = 0
+            saw_open = False
+        if in_test:
+            opens = line.count('{')
+            closes = line.count('}')
+            if opens > 0:
+                saw_open = True
+            brace_depth += opens - closes
+            if saw_open and brace_depth <= 0:
+                in_test = False
+            continue
+        out.append(line)
+    return "".join(out)
+
+p_let = re.compile(r'let\s+_\s*=')
+p_unwrap = re.compile(r'\.unwrap\s*\(')
+p_tables = re.compile(r'const\s+(?:COMMAND|SYMBOL|STRUCT|RELATION|OPERATOR|GREEK)_ENTRIES')
+
+a_let = a_unwrap = a_tables = 0
+for d in active_dirs:
+    base = root / d
+    if not base.exists():
+        continue
+    for f in base.rglob("*.rs"):
+        code = strip_cfg_tests(f.read_text(encoding="utf-8"))
+        a_let += len(p_let.findall(code))
+        a_unwrap += len(p_unwrap.findall(code))
+        a_tables += len(p_tables.findall(code))
+
+l_let = l_unwrap = l_tables = 0
+for d in ["src", "crates/mathslot-core"]:
+    base = root / d
+    if not base.exists():
+        continue
+    for f in base.rglob("*.rs"):
+        txt = f.read_text(encoding="utf-8")
+        l_let += len(p_let.findall(txt))
+        if d == "src" or "/src/" in f.as_posix():
+            l_unwrap += len(p_unwrap.findall(txt))
+        l_tables += len(p_tables.findall(txt))
+
+print(a_let, a_unwrap, a_tables, l_let, l_unwrap, l_tables)
+PY
+)"
+
+if [[ "$ACTIVE_LET" -eq 0 ]]; then
+  record PASS "活跃产品路径 let _ =" "0 处（冻结旧栈 $LEGACY_LET 处）"
+else
+  record FAIL "活跃产品路径 let _ =" "$ACTIVE_LET 处（应为 0）"
+fi
+
+if [[ "$ACTIVE_UNWRAP" -eq 0 ]]; then
+  record PASS "活跃产品路径 unwrap()" "0 处（冻结旧栈 $LEGACY_UNWRAP 处）"
+else
+  record FAIL "活跃产品路径 unwrap()" "$ACTIVE_UNWRAP 处（应为 0）"
+fi
+
+if [[ "$ACTIVE_TABLES" -eq 0 ]]; then
+  record PASS "活跃产品路径命令表常量" "0 处（仅 catalog，冻结旧栈 $LEGACY_TABLES 处）"
+else
+  record FAIL "活跃产品路径命令表常量" "$ACTIVE_TABLES 处（应为 0）"
+fi
 
 if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   DIRTY="$(git -C "$ROOT" status --porcelain | wc -l)"
