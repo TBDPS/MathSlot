@@ -10,13 +10,17 @@
     PalettePanel,
     PreviewPanel,
     SettingsPanel,
+    captureRestoreFocus,
     createDefaultAppSettings,
     createEmptySnapshot,
     createLatexRustBridgeAdapter,
     createManagedRenderer,
     createMathJaxSvgAdapter,
+    focusFirstInside,
     formatLatexWithDelimiter,
     matchesShortcut,
+    restoreFocus,
+    trapFocusKeydown,
     type AppEvent,
     type AppSettings,
     type DelimiterStyle,
@@ -54,7 +58,10 @@
   let renderDiagnostics = $state<PreviewDiagnostic[]>([]);
   let userFormulas = $state<UserFormulaEntry[]>([]);
   let fileInputEl: HTMLInputElement | null = null;
-  let lastTriggerEl: HTMLElement | null = null;
+  let importModalRef = $state<{ cancel: () => void } | null>(null);
+  let settingsModalCardEl = $state<HTMLDivElement | null>(null);
+  let importReturnFocusEl: HTMLElement | null = null;
+  let settingsReturnFocusEl: HTMLElement | null = null;
 
   const currentSettings = $derived(snapshot.settings ?? createDefaultAppSettings());
 
@@ -203,23 +210,42 @@
   }
 
   function openImportModal(): void {
-    lastTriggerEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!showImportModal) {
+      importReturnFocusEl = captureRestoreFocus(document);
+    }
     showImportModal = true;
   }
 
   function closeImportModal(): void {
     showImportModal = false;
-    lastTriggerEl?.focus();
+    const target = importReturnFocusEl;
+    importReturnFocusEl = null;
+    restoreFocus(target);
   }
 
   function openSettingsModal(): void {
-    lastTriggerEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!showSettingsModal) {
+      settingsReturnFocusEl = captureRestoreFocus(document);
+    }
     showSettingsModal = true;
+    void tick().then(() => {
+      if (showSettingsModal && settingsModalCardEl) {
+        focusFirstInside(settingsModalCardEl, settingsModalCardEl);
+      }
+    });
   }
 
   function closeSettingsModal(): void {
     showSettingsModal = false;
-    lastTriggerEl?.focus();
+    const target = settingsReturnFocusEl;
+    settingsReturnFocusEl = null;
+    restoreFocus(target);
+  }
+
+  function handleSettingsDialogKeydown(event: KeyboardEvent): void {
+    trapFocusKeydown(event, settingsModalCardEl, () => {
+      closeSettingsModal();
+    });
   }
 
   async function handleSaveSettings(next: AppSettings): Promise<void> {
@@ -309,7 +335,11 @@
     if (event.key === 'Escape') {
       if (showImportModal) {
         event.preventDefault();
-        closeImportModal();
+        if (importModalRef) {
+          importModalRef.cancel();
+        } else {
+          closeImportModal();
+        }
         return;
       }
       if (showSettingsModal) {
@@ -404,17 +434,26 @@
       >
         {primaryStatusInfo.label}
       </span>
-      {#if toastMessage}
-        <span
-          class="ms-desktop-toast"
-          data-testid="desktop-toast"
-          data-severity={toastSeverity}
-          role="status"
-          aria-live="polite"
-        >
+      <span
+        class="ms-desktop-toast"
+        class:ms-desktop-toast-empty={!toastMessage}
+        data-testid="desktop-toast"
+        data-severity={toastSeverity}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {#if toastMessage}
+          {#if toastSeverity === 'Error'}
+            <span class="ms-toast-badge" aria-hidden="true">!</span>
+            <span class="ms-sr-only">错误：</span>
+          {:else if toastSeverity === 'Warning'}
+            <span class="ms-toast-badge" aria-hidden="true">!</span>
+            <span class="ms-sr-only">警告：</span>
+          {/if}
           {toastMessage}
-        </span>
-      {/if}
+        {/if}
+      </span>
     </div>
 
     <div class="ms-desktop-actions">
@@ -676,6 +715,8 @@
     type="file"
     accept=".json,application/json"
     class="ms-sr-only"
+    tabindex="-1"
+    aria-hidden="true"
     data-testid="desktop-config-file-input"
     onchange={handleConfigFileSelected}
   />
@@ -684,6 +725,7 @@
     <div class="ms-modal-backdrop">
       <div class="ms-modal-shell">
         <ImportModal
+          bind:this={importModalRef}
           client={reactiveClient}
           lastImport={snapshot.last_import ?? null}
           theme={resolvedTheme}
@@ -706,8 +748,10 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-modal-heading"
+      tabindex="-1"
+      onkeydown={handleSettingsDialogKeydown}
     >
-      <div class="ms-modal-card">
+      <div bind:this={settingsModalCardEl} class="ms-modal-card" tabindex="-1">
         <div class="ms-modal-header">
           <h2 id="settings-modal-heading" class="ms-modal-title">应用设置与数据恢复</h2>
           <button

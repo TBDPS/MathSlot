@@ -15,7 +15,7 @@
 
   --ms-fg: #0f172a;
   --ms-fg-muted: #475569;
-  --ms-fg-subtle: #64748b;
+  --ms-fg-subtle: #525e70;
 
   --ms-accent: #1d4ed8;
   --ms-accent-hover: #1e40af;
@@ -27,6 +27,7 @@
   --ms-danger-bg: #dc2626;
   --ms-danger-hover-bg: #b91c1c;
   --ms-danger-fg: #ffffff;
+  --ms-modal-backdrop: rgba(15, 23, 42, 0.45);
 
   --ms-cmd-bg: #eff6ff;
   --ms-cmd-border: #60a5fa;
@@ -117,6 +118,7 @@
   --ms-danger-bg: #dc2626;
   --ms-danger-hover-bg: #b91c1c;
   --ms-danger-fg: #ffffff;
+  --ms-modal-backdrop: rgba(2, 6, 23, 0.72);
 
   --ms-cmd-bg: rgba(37, 99, 235, 0.2);
   --ms-cmd-border: #60a5fa;
@@ -273,12 +275,12 @@
   --ms-obs-fallback-border-strong: #94a3b8;
   --ms-obs-fallback-fg: #1f2328;
   --ms-obs-fallback-fg-muted: #59636e;
-  --ms-obs-fallback-fg-faint: #64748b;
+  --ms-obs-fallback-fg-faint: #525e6e;
   --ms-obs-fallback-accent: #1d4ed8;
   --ms-obs-fallback-on-accent: #ffffff;
   --ms-obs-fallback-error: #dc2626;
   --ms-obs-fallback-warning: #d97706;
-  --ms-obs-fallback-success: #16a34a;
+  --ms-obs-fallback-success: #15803d;
 
   --ms-obs-bg: var(--background-primary, var(--ms-obs-fallback-bg));
   --ms-obs-surface: var(--background-secondary, var(--ms-obs-fallback-surface));
@@ -287,7 +289,7 @@
   --ms-obs-border-strong: var(--background-modifier-border-hover, var(--ms-obs-border));
   --ms-obs-fg: var(--text-normal, var(--ms-obs-fallback-fg));
   --ms-obs-fg-muted: var(--text-muted, var(--ms-obs-fallback-fg-muted));
-  --ms-obs-fg-faint: var(--text-faint, var(--ms-obs-fg-muted));
+  --ms-obs-fg-faint: var(--text-faint, var(--ms-obs-fallback-fg-faint));
   --ms-obs-accent: var(--interactive-accent, var(--ms-obs-fallback-accent));
   --ms-obs-on-accent: var(--text-on-accent, var(--ms-obs-fallback-on-accent));
   --ms-obs-error: var(--text-error, var(--ms-obs-fallback-error));
@@ -330,7 +332,7 @@
 
   --ms-slot-empty-bg: color-mix(in srgb, var(--ms-obs-warning) 16%, var(--ms-obs-bg));
   --ms-slot-empty-border: var(--ms-obs-warning);
-  --ms-slot-empty-fg: var(--ms-obs-warning);
+  --ms-slot-empty-fg: color-mix(in srgb, var(--ms-obs-warning) 45%, var(--ms-obs-fg));
 
   --ms-slot-active-bg: color-mix(in srgb, var(--ms-obs-accent) 20%, var(--ms-obs-bg));
   --ms-slot-active-border: var(--ms-obs-accent);
@@ -346,22 +348,22 @@
 
   --ms-status-success-bg: color-mix(in srgb, var(--ms-obs-success) 14%, var(--ms-obs-bg));
   --ms-status-success-border: var(--ms-obs-success);
-  --ms-status-success-fg: var(--ms-obs-success);
+  --ms-status-success-fg: color-mix(in srgb, var(--ms-obs-success) 45%, var(--ms-obs-fg));
 
   --ms-status-warn-bg: color-mix(in srgb, var(--ms-obs-warning) 14%, var(--ms-obs-bg));
   --ms-status-warn-border: var(--ms-obs-warning);
-  --ms-status-warn-fg: var(--ms-obs-warning);
+  --ms-status-warn-fg: color-mix(in srgb, var(--ms-obs-warning) 45%, var(--ms-obs-fg));
 
   --ms-status-error-bg: color-mix(in srgb, var(--ms-obs-error) 14%, var(--ms-obs-bg));
   --ms-status-error-border: var(--ms-obs-error);
-  --ms-status-error-fg: var(--ms-obs-error);
+  --ms-status-error-fg: color-mix(in srgb, var(--ms-obs-error) 50%, var(--ms-obs-fg));
 
   --ms-mode-idle-bg: var(--ms-obs-surface);
   --ms-mode-idle-fg: var(--ms-obs-fg);
   --ms-mode-prefix-bg: color-mix(in srgb, var(--ms-obs-accent) 18%, var(--ms-obs-bg));
   --ms-mode-prefix-fg: var(--text-accent, var(--ms-obs-accent));
   --ms-mode-nav-bg: color-mix(in srgb, var(--ms-obs-success) 18%, var(--ms-obs-bg));
-  --ms-mode-nav-fg: var(--ms-obs-success);
+  --ms-mode-nav-fg: color-mix(in srgb, var(--ms-obs-success) 45%, var(--ms-obs-fg));
   --ms-mode-ime-bg: color-mix(in srgb, var(--ms-obs-accent) 22%, var(--ms-obs-surface));
   --ms-mode-ime-fg: var(--ms-obs-fg);
 
@@ -370,9 +372,10 @@
   --ms-preview-border: var(--ms-obs-border);
   --ms-badge-degraded-bg: color-mix(in srgb, var(--ms-obs-warning) 16%, var(--ms-obs-bg));
   --ms-badge-degraded-border: var(--ms-obs-warning);
-  --ms-badge-degraded-fg: var(--ms-obs-warning);
+  --ms-badge-degraded-fg: color-mix(in srgb, var(--ms-obs-warning) 45%, var(--ms-obs-fg));
   --ms-diag-code-bg: var(--ms-obs-surface);
   --ms-diag-code-fg: var(--ms-obs-fg);
+  --ms-modal-backdrop: color-mix(in srgb, var(--ms-obs-fg) 42%, transparent);
 }
 
 .theme-dark [data-host='obsidian']:not([data-theme-override]),
@@ -405,4 +408,38 @@
 [data-host='obsidian'][data-theme='dark'],
 .theme-dark .mathslot-obsidian-host {
   color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-desktop-app,
+  .ms-desktop-app *,
+  .ms-desktop-app *::before,
+  .ms-desktop-app *::after,
+  .mathslot-obsidian-host,
+  .mathslot-obsidian-host *,
+  .mathslot-obsidian-host *::before,
+  .mathslot-obsidian-host *::after,
+  .ms-obsidian-modal,
+  .ms-obsidian-modal *,
+  .ms-modal-backdrop,
+  .ms-modal-backdrop *,
+  .ms-editor-shell,
+  .ms-editor-shell *,
+  .ms-palette-shell,
+  .ms-palette-shell *,
+  .ms-preview-shell,
+  .ms-preview-shell *,
+  .ms-nav-shell,
+  .ms-nav-shell *,
+  .ms-diag-shell,
+  .ms-diag-shell *,
+  .ms-settings-shell,
+  .ms-settings-shell *,
+  .ms-import-modal,
+  .ms-import-modal * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
 }

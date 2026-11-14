@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { handleRovingKeydown } from '../a11y';
   import type { DispatchResponse, EngineClient, UserFormulaEntry } from '../client/engine';
   import type { CommandCategory, CommandEntry } from '../generated/catalog';
   import type { PresetCategory, PresetEntry } from '../generated/presets';
@@ -94,28 +95,32 @@
     items?.[index]?.focus();
   }
 
+  const PALETTE_MODES = ['commands', 'presets', 'snippets'] as const;
+
+  function handleModeTabKeydown(evt: KeyboardEvent, index: number): void {
+    const items = Array.from(
+      paletteRoot?.querySelectorAll<HTMLButtonElement>('.ms-mode-tabs [role="tab"]') ?? [],
+    );
+    handleRovingKeydown(evt, items, index, (nextIdx) => {
+      const nextMode = PALETTE_MODES[nextIdx];
+      if (nextMode) {
+        handleModeSwitch(nextMode);
+      }
+    });
+  }
+
   function handleCategoryTabKeydown(
     evt: KeyboardEvent,
     index: number,
-    total: number,
     selectAt: (nextIdx: number) => void,
   ): void {
-    let nextIdx: number | null = null;
-    if (evt.key === 'ArrowRight') {
-      nextIdx = (index + 1) % total;
-    } else if (evt.key === 'ArrowLeft') {
-      nextIdx = (index - 1 + total) % total;
-    } else if (evt.key === 'Home') {
-      nextIdx = 0;
-    } else if (evt.key === 'End') {
-      nextIdx = total - 1;
-    }
-
-    if (nextIdx === null) return;
-    evt.preventDefault();
-    selectAt(nextIdx);
-    activeCardIndex = 0;
-    focusElementAt('.ms-category-tabs .ms-category-tab', nextIdx);
+    const items = Array.from(
+      paletteRoot?.querySelectorAll<HTMLButtonElement>('.ms-category-tabs .ms-category-tab') ?? [],
+    );
+    handleRovingKeydown(evt, items, index, (nextIdx) => {
+      selectAt(nextIdx);
+      activeCardIndex = 0;
+    });
   }
 
   function handleGridCardKeydown(
@@ -151,30 +156,42 @@
       <button
         type="button"
         role="tab"
+        id="ms-palette-tab-commands"
         class="ms-mode-tab"
         aria-selected={mode === 'commands'}
+        aria-controls="ms-palette-tabpanel"
+        tabindex={mode === 'commands' ? 0 : -1}
         data-palette-mode="commands"
         onclick={() => handleModeSwitch('commands')}
+        onkeydown={(evt) => handleModeTabKeydown(evt, 0)}
       >
         命令目录 (121)
       </button>
       <button
         type="button"
         role="tab"
+        id="ms-palette-tab-presets"
         class="ms-mode-tab"
         aria-selected={mode === 'presets'}
+        aria-controls="ms-palette-tabpanel"
+        tabindex={mode === 'presets' ? 0 : -1}
         data-palette-mode="presets"
         onclick={() => handleModeSwitch('presets')}
+        onkeydown={(evt) => handleModeTabKeydown(evt, 1)}
       >
         预置公式 (88)
       </button>
       <button
         type="button"
         role="tab"
+        id="ms-palette-tab-snippets"
         class="ms-mode-tab"
         aria-selected={mode === 'snippets'}
+        aria-controls="ms-palette-tabpanel"
+        tabindex={mode === 'snippets' ? 0 : -1}
         data-palette-mode="snippets"
         onclick={() => handleModeSwitch('snippets')}
+        onkeydown={(evt) => handleModeTabKeydown(evt, 2)}
       >
         片段 ({userFormulas.length})
       </button>
@@ -189,7 +206,11 @@
           : mode === 'presets'
             ? '搜索预置公式、分类或简码…'
             : '搜索已保存自定义片段…'}
-        aria-label="搜索命令或预置"
+        aria-label={mode === 'commands'
+          ? '搜索命令'
+          : mode === 'presets'
+            ? '搜索预置公式'
+            : '搜索自定义片段'}
         value={searchQuery}
         oninput={(evt) => {
           searchQuery = (evt.currentTarget as HTMLInputElement).value;
@@ -212,6 +233,12 @@
     </div>
   </header>
 
+  <div
+    id="ms-palette-tabpanel"
+    class="ms-palette-tabpanel"
+    role="tabpanel"
+    aria-labelledby={`ms-palette-tab-${mode}`}
+  >
   {#if mode === 'commands'}
     <div class="ms-category-tabs" role="tablist" aria-label="命令分类">
       {#each COMMAND_CATEGORIES as cat, idx (cat.id)}
@@ -227,7 +254,7 @@
             activeCardIndex = 0;
           }}
           onkeydown={(evt) =>
-            handleCategoryTabKeydown(evt, idx, COMMAND_CATEGORIES.length, (nextIdx) => {
+            handleCategoryTabKeydown(evt, idx, (nextIdx) => {
               const targetCat = COMMAND_CATEGORIES[nextIdx];
               if (targetCat) commandCategory = targetCat.id;
             })}
@@ -313,7 +340,7 @@
             activeCardIndex = 0;
           }}
           onkeydown={(evt) =>
-            handleCategoryTabKeydown(evt, idx, PRESET_CATEGORY_TABS.length, (nextIdx) => {
+            handleCategoryTabKeydown(evt, idx, (nextIdx) => {
               const targetCat = PRESET_CATEGORY_TABS[nextIdx];
               if (targetCat) presetCategory = targetCat.id;
             })}
@@ -408,6 +435,7 @@
       </div>
     {/if}
   {/if}
+  </div>
 </section>
 
 <style>
@@ -430,6 +458,13 @@
     justify-content: space-between;
     gap: 10px;
     flex-wrap: wrap;
+  }
+
+  .ms-palette-tabpanel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
   }
 
   .ms-mode-tabs {

@@ -8,11 +8,15 @@
     PalettePanel,
     PreviewPanel,
     SettingsPanel,
+    captureRestoreFocus,
     createDefaultAppSettings,
     createEmptySnapshot,
     createMathJaxSvgAdapter,
+    focusFirstInside,
     formatLatexWithDelimiter,
     matchesShortcut,
+    restoreFocus,
+    trapFocusKeydown,
     type AppSettings,
     type DelimiterStyle,
     type EngineSnapshot,
@@ -87,7 +91,23 @@
   let editorComponent = $state<{ focus: () => void } | null>(null);
   let diagnosticsComponent = $state<{ expand: () => void } | null>(null);
   let configFileInputEl: HTMLInputElement | null = null;
+  let importModalRef = $state<{ cancel: () => void } | null>(null);
+  let settingsDialogEl = $state<HTMLDivElement | null>(null);
+  let settingsReturnFocusEl: HTMLElement | null = null;
+  let importReturnFocusEl: HTMLElement | null = null;
+  let wasSettingsOpen = false;
   let didApplyInitialToggles = false;
+
+  const noticeSeverity = $derived<'Info' | 'Warning' | 'Error'>(
+    statusNotice.includes('失败') ||
+      statusNotice.includes('阻断') ||
+      statusNotice.includes('错误') ||
+      statusNotice.includes('为空')
+      ? 'Error'
+      : statusNotice.includes('降级') || statusNotice.includes('注意')
+        ? 'Warning'
+        : 'Info',
+  );
 
   $effect.pre(() => {
     if (!didApplyInitialToggles) {
@@ -95,6 +115,35 @@
       importOpen = initialImportOpen;
       userFormulas = [...initialUserFormulas];
       didApplyInitialToggles = true;
+    }
+  });
+
+  $effect(() => {
+    if (settingsOpen && settingsDialogEl) {
+      if (!wasSettingsOpen) {
+        wasSettingsOpen = true;
+        if (!settingsReturnFocusEl) {
+          const active = captureRestoreFocus(settingsDialogEl.ownerDocument);
+          settingsReturnFocusEl =
+            active && !settingsDialogEl.contains(active) ? active : null;
+        }
+        void tick().then(() => {
+          if (
+            settingsOpen &&
+            settingsDialogEl &&
+            !settingsDialogEl.contains(settingsDialogEl.ownerDocument?.activeElement ?? null)
+          ) {
+            focusFirstInside(settingsDialogEl, settingsDialogEl);
+          }
+        });
+      }
+      return;
+    }
+    if (!settingsOpen && wasSettingsOpen) {
+      wasSettingsOpen = false;
+      const target = settingsReturnFocusEl;
+      settingsReturnFocusEl = null;
+      restoreFocus(target);
     }
   });
 
@@ -433,16 +482,51 @@
     }
   }
 
+  function openSettingsDialog(): void {
+    if (!settingsOpen) {
+      settingsReturnFocusEl = captureRestoreFocus(document);
+    }
+    settingsOpen = true;
+  }
+
+  function closeSettingsDialog(): void {
+    settingsOpen = false;
+  }
+
+  function openImportDialog(): void {
+    if (!importOpen) {
+      importReturnFocusEl = captureRestoreFocus(document);
+    }
+    importOpen = true;
+  }
+
+  function closeImportDialog(): void {
+    importOpen = false;
+    const target = importReturnFocusEl;
+    importReturnFocusEl = null;
+    restoreFocus(target);
+  }
+
+  function handleSettingsDialogKeydown(event: KeyboardEvent): void {
+    trapFocusKeydown(event, settingsDialogEl, () => {
+      closeSettingsDialog();
+    });
+  }
+
   function handleWindowKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       if (importOpen) {
         event.preventDefault();
-        importOpen = false;
+        if (importModalRef) {
+          importModalRef.cancel();
+        } else {
+          closeImportDialog();
+        }
         return;
       }
       if (settingsOpen) {
         event.preventDefault();
-        settingsOpen = false;
+        closeSettingsDialog();
         return;
       }
     }
@@ -455,7 +539,11 @@
 
     if (matchesShortcut(event, currentSettings.shortcuts.open_settings)) {
       event.preventDefault();
-      settingsOpen = !settingsOpen;
+      if (settingsOpen) {
+        closeSettingsDialog();
+      } else {
+        openSettingsDialog();
+      }
       return;
     }
 
@@ -485,7 +573,7 @@
 >
   <header class="ms-obsidian-toolbar">
     <div class="ms-obsidian-brand">
-      <h2 class="ms-obsidian-title">MathSlot</h2>
+      <h1 class="ms-obsidian-title">MathSlot</h1>
       <span class="ms-obsidian-badge">WASM</span>
     </div>
 
@@ -505,7 +593,15 @@
         class:is-active={importOpen}
         data-testid="obsidian-import-btn"
         onclick={() => {
-          importOpen = !importOpen;
+          if (importOpen) {
+            if (importModalRef) {
+              importModalRef.cancel();
+            } else {
+              closeImportDialog();
+            }
+          } else {
+            openImportDialog();
+          }
         }}
       >
         导入 LaTeX
@@ -524,7 +620,11 @@
         class:is-active={settingsOpen}
         data-testid="obsidian-settings-btn"
         onclick={() => {
-          settingsOpen = !settingsOpen;
+          if (settingsOpen) {
+            closeSettingsDialog();
+          } else {
+            openSettingsDialog();
+          }
         }}
       >
         设置
@@ -548,97 +648,130 @@
     </div>
   </header>
 
-  {#if statusNotice}
-    <div class="ms-obsidian-status" role="status" aria-live="polite">{statusNotice}</div>
-  {/if}
+  <div
+    class="ms-obsidian-status"
+    class:is-empty={!statusNotice}
+    data-severity={noticeSeverity}
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+  >
+    {#if statusNotice}
+      {#if noticeSeverity === 'Error'}
+        <span class="ms-status-badge" aria-hidden="true">!</span>
+        <span class="ms-sr-only">错误：</span>
+      {:else if noticeSeverity === 'Warning'}
+        <span class="ms-status-badge" aria-hidden="true">!</span>
+        <span class="ms-sr-only">警告：</span>
+      {/if}
+      {statusNotice}
+    {/if}
+  </div>
 
   <input
     bind:this={configFileInputEl}
     type="file"
     accept=".json,application/json"
     class="ms-sr-only"
+    tabindex="-1"
+    aria-hidden="true"
     data-testid="obsidian-config-file-input"
     onchange={handleConfigFileSelected}
   />
 
   {#if settingsOpen}
-    <SettingsPanel
-      settings={currentSettings}
-      recovery={snapshot.recovery ?? null}
-      {client}
-      theme={resolvedTheme}
-      sampleLatex={snapshot.latex || '\\frac{a + b}{c}'}
-      supportedBackends={['mathjax']}
-      onSaveSettings={handleSaveSettings}
-      onResetDefaults={handleResetDefaults}
-      onImportConfig={triggerImportConfig}
-      onExportConfig={handleExportConfig}
-      onRestoreBackup={async (backupPath) => {
-        try {
-          const restored = await onRestoreBackup?.(backupPath);
-          if (Array.isArray(restored)) {
-            userFormulas = restored;
-          }
-          if (!client.isDisposed()) {
-            snapshot = await client.snapshot();
-          }
-          statusNotice = '已从备份恢复配置';
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          statusNotice = `恢复备份失败: ${msg}`;
-          throw err;
-        }
-      }}
-      onConfirmResetEmpty={async () => {
-        try {
-          const resetEntries = await onResetEmptyConfig?.();
-          if (Array.isArray(resetEntries)) {
-            userFormulas = resetEntries;
-          }
-          if (!client.isDisposed()) {
-            snapshot = await client.snapshot();
-          }
-          statusNotice = '已重置为空配置';
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          statusNotice = `重置空配置失败: ${msg}`;
-          throw err;
-        }
-      }}
-      onClose={() => {
-        settingsOpen = false;
-      }}
-    />
+    <div
+      bind:this={settingsDialogEl}
+      class="ms-obsidian-dialog-backdrop"
+      data-testid="obsidian-settings-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ms-obsidian-settings-heading"
+      tabindex="-1"
+      onkeydown={handleSettingsDialogKeydown}
+    >
+      <div class="ms-obsidian-dialog-card">
+        <SettingsPanel
+          headingId="ms-obsidian-settings-heading"
+          settings={currentSettings}
+          recovery={snapshot.recovery ?? null}
+          {client}
+          theme={resolvedTheme}
+          sampleLatex={snapshot.latex || '\\frac{a + b}{c}'}
+          supportedBackends={['mathjax']}
+          onSaveSettings={handleSaveSettings}
+          onResetDefaults={handleResetDefaults}
+          onImportConfig={triggerImportConfig}
+          onExportConfig={handleExportConfig}
+          onRestoreBackup={async (backupPath) => {
+            try {
+              const restored = await onRestoreBackup?.(backupPath);
+              if (Array.isArray(restored)) {
+                userFormulas = restored;
+              }
+              if (!client.isDisposed()) {
+                snapshot = await client.snapshot();
+              }
+              statusNotice = '已从备份恢复配置';
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              statusNotice = `恢复备份失败: ${msg}`;
+              throw err;
+            }
+          }}
+          onConfirmResetEmpty={async () => {
+            try {
+              const resetEntries = await onResetEmptyConfig?.();
+              if (Array.isArray(resetEntries)) {
+                userFormulas = resetEntries;
+              }
+              if (!client.isDisposed()) {
+                snapshot = await client.snapshot();
+              }
+              statusNotice = '已重置为空配置';
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              statusNotice = `重置空配置失败: ${msg}`;
+              throw err;
+            }
+          }}
+          onClose={closeSettingsDialog}
+        />
+      </div>
+    </div>
   {/if}
 
   {#if importOpen}
-    <ImportModal
-      open={importOpen}
-      {client}
-      initialLatex={initialImportLatex}
-      lastImport={snapshot.last_import ?? null}
-      theme={resolvedTheme}
-      onPreviewed={(res) => {
-        snapshot = res.snapshot;
-        if (res.snapshot.last_import?.blocked) {
-          statusNotice = 'LaTeX 预览检测到语法错误，已禁用确认导入';
-        } else if (res.snapshot.last_import) {
-          statusNotice = 'LaTeX 导入预览已就绪，请审阅 Diff 后确认';
-        }
-      }}
-      onImported={(res) => {
-        snapshot = res.snapshot;
-        renderGen += 1;
-        if (res.snapshot.last_import?.blocked) {
-          statusNotice = 'LaTeX 导入已阻断，请查看诊断';
-        } else if (res.snapshot.last_import) {
-          statusNotice = 'LaTeX 已导入（支持 Ctrl+Z 一步撤回）';
-        }
-      }}
-      onClose={() => {
-        importOpen = false;
-      }}
-    />
+    <div class="ms-obsidian-dialog-backdrop" data-testid="obsidian-import-dialog">
+      <div class="ms-obsidian-dialog-card">
+        <ImportModal
+          bind:this={importModalRef}
+          open={importOpen}
+          {client}
+          initialLatex={initialImportLatex}
+          lastImport={snapshot.last_import ?? null}
+          theme={resolvedTheme}
+          onPreviewed={(res) => {
+            snapshot = res.snapshot;
+            if (res.snapshot.last_import?.blocked) {
+              statusNotice = 'LaTeX 预览检测到语法错误，已禁用确认导入';
+            } else if (res.snapshot.last_import) {
+              statusNotice = 'LaTeX 导入预览已就绪，请审阅 Diff 后确认';
+            }
+          }}
+          onImported={(res) => {
+            snapshot = res.snapshot;
+            renderGen += 1;
+            if (res.snapshot.last_import?.blocked) {
+              statusNotice = 'LaTeX 导入已阻断，请查看诊断';
+            } else if (res.snapshot.last_import) {
+              statusNotice = 'LaTeX 已导入（支持 Ctrl+Z 一步撤回）';
+            }
+          }}
+          onClose={closeImportDialog}
+        />
+      </div>
+    </div>
   {/if}
 
   <div class="ms-obsidian-workspace">

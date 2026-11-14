@@ -5,6 +5,8 @@ import type * as PlaywrightTest from '../../../desktop/node_modules/@playwright/
 
 const require = createRequire(import.meta.url);
 const { expect, test } = require('../../../desktop/node_modules/@playwright/test/index.js') as typeof PlaywrightTest;
+const processMod = 'node:process';
+const { env } = require(processMod) as { env: Record<string, string | undefined> };
 
 const ARTIFACT_DIR = resolve(import.meta.dirname, '../../.e2e-artifacts');
 mkdirSync(ARTIFACT_DIR, { recursive: true });
@@ -333,5 +335,258 @@ test.describe('MathSlot Obsidian Playwright E2E (T3.7 / A-OBS-001..005 / D-131..
     await expect(page.locator('.ms-obsidian-status')).toContainText('已验证并导入');
     await expect(page.locator('[data-host="obsidian"]')).toHaveAttribute('data-theme', 'dark');
     await expect(page.locator('[data-palette-mode="snippets"]')).toContainText('片段 (1)');
+  });
+
+  test('T4.4 / A-UI-001 / D-156..D-161: Obsidian keyboard workflow, dialog focus trap & restore, Tab hygiene, WCAG AA contrast, focus ring, reduced motion, and ariaSnapshot', async ({
+    page,
+  }) => {
+    const shotDir = env.MATHSLOT_A11Y_SCREENSHOT_DIR || ARTIFACT_DIR;
+    mkdirSync(shotDir, { recursive: true });
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/harness.html');
+
+    const hostRoot = page.locator('[data-host="obsidian"]');
+    await expect(hostRoot).toBeVisible();
+
+    // D-160: h1 heading & permanent live status region
+    await expect(page.locator('h1.ms-obsidian-title')).toHaveText('MathSlot');
+    const liveStatus = page.locator('.ms-obsidian-status');
+    await expect(liveStatus).toHaveAttribute('role', 'status');
+    await expect(liveStatus).toHaveAttribute('aria-live', 'polite');
+    await expect(liveStatus).toHaveAttribute('aria-atomic', 'true');
+
+    // D-161: ariaSnapshot check
+    await expect(hostRoot).toMatchAriaSnapshot(`
+      - banner:
+        - heading "MathSlot" [level=1]
+      - status
+      - region "MathSlot 公式编辑器":
+        - textbox "MathSlot 公式编辑器"
+      - region "公式实时预览":
+        - toolbar "预览缩放与导出工具栏"
+        - region "数学公式 SVG 预览区域"
+      - region "错误与诊断面板"
+      - region "MathSlot 命令与预置调色板":
+        - tablist "调色板模式":
+          - tab "命令目录 (121)" [selected]
+          - tab "预置公式 (88)"
+          - tab "片段 (0)"
+        - searchbox "搜索命令"
+        - tabpanel "命令目录 (121)":
+          - tablist "命令分类":
+            - tab "全部" [selected]
+    `);
+
+    // D-157: hidden <input type="file"> excluded from Tab order
+    const fileAttrs = await page.getByTestId('obsidian-config-file-input').evaluate((el) => ({
+      tabIndex: (el as HTMLInputElement).tabIndex,
+      ariaHidden: el.getAttribute('aria-hidden'),
+    }));
+    expect(fileAttrs.tabIndex).toBe(-1);
+    expect(fileAttrs.ariaHidden).toBe('true');
+
+    // D-159: .ms-obsidian-btn shows explicit 2px solid focus-visible ring
+    const navBtn = page.getByTestId('obsidian-nav-btn');
+    await navBtn.focus();
+    await page.keyboard.press('Tab');
+    const importBtn = page.getByTestId('obsidian-import-btn');
+    await expect(importBtn).toBeFocused();
+    const focusOutline = await importBtn.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { style: s.outlineStyle, width: s.outlineWidth };
+    });
+    expect(focusOutline.style).toBe('solid');
+    expect(focusOutline.width).toBe('2px');
+
+    // D-160: PalettePanel mode tablist roving tabindex & ArrowRight/Home
+    const cmdTab = page.locator('[data-palette-mode="commands"]');
+    const presetTab = page.locator('[data-palette-mode="presets"]');
+    await cmdTab.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(presetTab).toHaveAttribute('aria-selected', 'true');
+    await expect(presetTab).toBeFocused();
+    await page.keyboard.press('Home');
+    await expect(cmdTab).toHaveAttribute('aria-selected', 'true');
+
+    // D-156: ImportModal focus entry, trap, Escape -> ImportAcknowledge, and focus restore
+    await importBtn.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('import-modal')).toBeVisible();
+    const importFocusedInside = await page.evaluate(() =>
+      Boolean(document.activeElement?.closest('[data-testid="import-modal"]')),
+    );
+    expect(importFocusedInside).toBe(true);
+
+    for (let i = 0; i < 6; i += 1) {
+      await page.keyboard.press('Shift+Tab');
+      const inside = await page.evaluate(() =>
+        Boolean(document.activeElement?.closest('[data-testid="import-modal"]')),
+      );
+      expect(inside).toBe(true);
+    }
+
+    await page.getByTestId('import-latex-input').fill('1 + 2}');
+    await page.getByTestId('import-submit-btn').click();
+    await expect(page.getByTestId('import-blocked-banner')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('import-modal')).toHaveCount(0);
+    await expect(importBtn).toBeFocused();
+
+    // D-156 & D-160: Obsidian SettingsPanel wrapped in role="dialog" aria-modal="true", focus trap, radiogroup Arrow keys, Escape isolation, focus restore
+    const settingsBtn = page.getByTestId('obsidian-settings-btn');
+    await settingsBtn.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+    await expect(dialog).toBeVisible();
+    const settingsFocusedInside = await page.evaluate(() =>
+      Boolean(document.activeElement?.closest('[role="dialog"][aria-modal="true"]')),
+    );
+    expect(settingsFocusedInside).toBe(true);
+
+    await page.screenshot({
+      path: resolve(shotDir, 'obsidian-a11y-light-settings-dialog.png'),
+      fullPage: false,
+    });
+
+    // Capture Escape isolation inside SettingsPanel
+    await page.getByTestId('shortcut-capture-open_settings').click();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeVisible();
+    await expect(page.getByTestId('shortcut-capture-open_settings')).toHaveAttribute('aria-pressed', 'false');
+
+    // Light theme contrast check on SettingsPanel warning/danger elements
+    const measureContrast = async (selectors: string[]) => {
+      return page.evaluate((sels) => {
+        const parseRgba = (raw: string): [number, number, number, number] => {
+          const srgb = raw.match(/color\(srgb\s+([^/)]+)(?:\/\s*([^)]+))?\)/);
+          if (srgb) {
+            const vals = srgb[1]!
+              .trim()
+              .split(/\s+/)
+              .map((p) => Number.parseFloat(p) * 255);
+            const alpha = srgb[2] ? Number.parseFloat(srgb[2].trim()) : 1;
+            return [vals[0] ?? 0, vals[1] ?? 0, vals[2] ?? 0, Number.isFinite(alpha) ? alpha : 1];
+          }
+          const m = raw.match(/rgba?\(([^)]+)\)/);
+          if (!m) return [0, 0, 0, 0];
+          const parts = m[1]!.split(',').map((p) => Number.parseFloat(p.trim()));
+          return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1];
+        };
+        const composite = (
+          fg: [number, number, number, number],
+          bg: [number, number, number],
+        ): [number, number, number] => {
+          const a = fg[3];
+          return [
+            fg[0] * a + bg[0] * (1 - a),
+            fg[1] * a + bg[1] * (1 - a),
+            fg[2] * a + bg[2] * (1 - a),
+          ];
+        };
+        const resolveEffectiveBg = (el: Element): [number, number, number] => {
+          const chain: Array<[number, number, number, number]> = [];
+          let cur: Element | null = el;
+          while (cur) {
+            chain.push(parseRgba(getComputedStyle(cur).backgroundColor));
+            cur = cur.parentElement;
+          }
+          let acc: [number, number, number] = [255, 255, 255];
+          for (let i = chain.length - 1; i >= 0; i -= 1) {
+            const c = chain[i]!;
+            if (c[3] > 0) acc = composite(c, acc);
+          }
+          return acc;
+        };
+        const lum = (rgb: [number, number, number]) => {
+          const ch = (v: number) => {
+            const s = v / 255;
+            return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          };
+          return 0.2126 * ch(rgb[0]) + 0.7152 * ch(rgb[1]) + 0.0722 * ch(rgb[2]);
+        };
+        return sels.map((sel) => {
+          const el = document.querySelector(sel);
+          if (!el) return { sel, missing: true, ratio: 0 };
+          const style = getComputedStyle(el);
+          const bg = resolveEffectiveBg(el);
+          const fgRaw = parseRgba(style.color);
+          const fg = composite(fgRaw, bg);
+          const l1 = lum(fg);
+          const l2 = lum(bg);
+          const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+          return { sel, missing: false, ratio: Number(ratio.toFixed(2)) };
+        });
+      }, selectors);
+    };
+
+    // Make settings dirty to reveal .ms-state-pill-warn, then measure Light ratios
+    await page.getByTestId('theme-option-light').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('theme-option-dark')).toHaveAttribute('aria-checked', 'true');
+    const lightSettingsRatios = await measureContrast([
+      '.ms-state-pill-warn',
+      '[data-testid="settings-reset-trigger"]',
+    ]);
+    for (const item of lightSettingsRatios) {
+      expect(item.missing, `Missing ${item.sel}`).toBe(false);
+      expect(item.ratio, `Low contrast on Obsidian Light ${item.sel}: ${item.ratio}`).toBeGreaterThanOrEqual(4.5);
+    }
+
+    // Save dark theme and close via Escape -> restores focus to settingsBtn
+    await page.getByTestId('settings-save-btn').click();
+    await expect(hostRoot).toHaveAttribute('data-theme', 'dark');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(settingsBtn).toBeFocused();
+
+    // Check CM6 placeholder contrast in Dark theme and focus Palette tab for screenshot
+    await cmdTab.focus();
+    await page.screenshot({
+      path: resolve(shotDir, 'obsidian-a11y-dark-palette-focus.png'),
+      fullPage: false,
+    });
+    const darkWorkspaceRatios = await measureContrast(['.cm-placeholder', '.ms-diag-severity']);
+    for (const item of darkWorkspaceRatios) {
+      expect(item.missing, `Missing ${item.sel}`).toBe(false);
+      expect(item.ratio, `Low contrast on Obsidian Dark ${item.sel}: ${item.ratio}`).toBeGreaterThanOrEqual(4.5);
+    }
+
+    // Check reducedMotion: 'reduce'
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const cardDuration = await page
+      .locator('.ms-command-card')
+      .first()
+      .evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(cardDuration).toBe('0s');
+
+    // Switch back to Light + check placeholder + render failure degraded badge + error status contrast in Light
+    await page.goto('/harness.html?failRender=1');
+    const lightPlaceholderRatios = await measureContrast(['.cm-placeholder']);
+    for (const item of lightPlaceholderRatios) {
+      expect(item.missing, `Missing ${item.sel}`).toBe(false);
+      expect(item.ratio, `Low contrast on Obsidian Light ${item.sel}: ${item.ratio}`).toBeGreaterThanOrEqual(4.5);
+    }
+
+    await page.getByTestId('obsidian-import-btn').click();
+    await page.getByTestId('import-latex-input').fill('\\frac{1}{}');
+    await page.getByTestId('import-submit-btn').click();
+    await page.getByTestId('import-apply-btn').click();
+    await expect(page.getByTestId('degraded-badge')).toBeVisible();
+
+    await page.getByTestId('preview-export-btn').click();
+    await expect(liveStatus).toHaveAttribute('data-severity', 'Error');
+
+    const lightWorkspaceRatios = await measureContrast([
+      '.ms-degraded-badge',
+      '.ms-diag-severity',
+      '.ms-slot-empty',
+      '.ms-obsidian-status',
+    ]);
+    for (const item of lightWorkspaceRatios) {
+      expect(item.missing, `Missing ${item.sel}`).toBe(false);
+      expect(item.ratio, `Low contrast on Obsidian Light ${item.sel}: ${item.ratio}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

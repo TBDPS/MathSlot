@@ -1,10 +1,17 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import type {
     DispatchResponse,
     EngineClient,
     ImportReportSnapshot,
     ThemePreference,
   } from '../client/engine';
+  import {
+    captureRestoreFocus,
+    focusFirstInside,
+    restoreFocus,
+    trapFocusKeydown,
+  } from '../a11y';
   import { computeLatexDiff } from './diff';
 
   export interface ImportModalProps {
@@ -34,12 +41,37 @@
   let previewedLatex = $state<string | null>(null);
   let busy = $state(false);
   let submitError = $state<string | null>(null);
+  let modalEl = $state<HTMLDivElement | null>(null);
+  let returnFocusEl: HTMLElement | null = null;
+  let wasOpen = false;
 
   $effect(() => {
     inputLatex = initialLatex;
     previewedLatex = null;
     localReport = null;
     submitError = null;
+  });
+
+  $effect(() => {
+    if (open && modalEl) {
+      if (!wasOpen) {
+        wasOpen = true;
+        const active = captureRestoreFocus(modalEl.ownerDocument);
+        returnFocusEl = active && !modalEl.contains(active) ? active : null;
+        void tick().then(() => {
+          if (open && modalEl && !modalEl.contains(modalEl.ownerDocument?.activeElement ?? null)) {
+            focusFirstInside(modalEl, modalEl);
+          }
+        });
+      }
+      return;
+    }
+    if (!open && wasOpen) {
+      wasOpen = false;
+      const target = returnFocusEl;
+      returnFocusEl = null;
+      restoreFocus(target);
+    }
   });
 
   const activeReport = $derived(localReport ?? lastImport ?? null);
@@ -85,7 +117,18 @@
       localReport = response.snapshot.last_import ?? null;
       onImported?.(response);
       if (!response.snapshot.last_import?.blocked) {
+        const target = returnFocusEl;
+        returnFocusEl = null;
+        wasOpen = false;
         onClose?.();
+        const activeAfterClose = modalEl?.ownerDocument?.activeElement ?? null;
+        if (
+          !activeAfterClose ||
+          activeAfterClose === modalEl?.ownerDocument?.body ||
+          (modalEl !== null && modalEl.contains(activeAfterClose))
+        ) {
+          restoreFocus(target);
+        }
       }
     } catch (err) {
       submitError = err instanceof Error ? err.message : String(err);
@@ -124,18 +167,35 @@
           // Ignore acknowledge errors when dismissing the modal cleanly.
         });
     }
+    const target = returnFocusEl;
+    returnFocusEl = null;
+    wasOpen = false;
     onClose?.();
+    restoreFocus(target);
+  }
+
+  export function cancel(): void {
+    handleCancel();
+  }
+
+  function handleModalKeydown(event: KeyboardEvent): void {
+    trapFocusKeydown(event, modalEl, () => {
+      handleCancel();
+    });
   }
 </script>
 
 {#if open}
   <div
+    bind:this={modalEl}
     class="ms-import-modal"
     data-testid="import-modal"
     data-theme={resolvedThemeAttr}
     role="dialog"
     aria-modal="true"
     aria-label="导入 LaTeX 公式"
+    tabindex="-1"
+    onkeydown={handleModalKeydown}
   >
     <header class="ms-import-header">
       <div class="ms-import-title-group">
@@ -162,6 +222,7 @@
         id="ms-import-latex-textarea"
         class="ms-import-textarea"
         data-testid="import-latex-input"
+        data-autofocus
         aria-label="输入或粘贴 LaTeX 公式"
         rows="3"
         bind:value={inputLatex}

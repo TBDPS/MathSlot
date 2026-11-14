@@ -111,16 +111,42 @@ body {
 }
 
 .ms-desktop-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.78rem;
   padding: 4px 10px;
   border-radius: var(--ms-radius-sm);
   border: 1px solid var(--ms-status-info-border);
   background: var(--ms-status-info-bg);
   color: var(--ms-status-info-fg);
-  max-width: 340px;
+  max-width: 480px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.ms-desktop-toast-empty {
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  position: absolute;
+}
+
+.ms-toast-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .ms-desktop-toast[data-severity='Warning'] {

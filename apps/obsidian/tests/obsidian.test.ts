@@ -1053,4 +1053,97 @@ describe('apps/obsidian WASM & shared UI integration (T3.6)', () => {
     expect(deliveredAt.length).toBeLessThan(10);
     expect(deliveredAt[0]).toBeLessThan(100);
   });
+
+  it('T4.4 / D-156..D-160: AppShell hides file input from Tab order, uses h1, mounts permanent live region with error severity, wraps SettingsPanel in dialog with focus restore, and runs ImportAcknowledge on Escape', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+    const dispatchSpy = vi.spyOn(client, 'dispatch');
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: { client },
+    });
+    await tick();
+    await tick();
+
+    // D-160: h1 heading & permanent live status region
+    const h1 = target.querySelector('h1.ms-obsidian-title');
+    expect(h1).not.toBeNull();
+    expect(h1!.textContent).toBe('MathSlot');
+
+    const statusEl = target.querySelector<HTMLElement>('.ms-obsidian-status');
+    expect(statusEl).not.toBeNull();
+    expect(statusEl!.getAttribute('role')).toBe('status');
+    expect(statusEl!.getAttribute('aria-live')).toBe('polite');
+    expect(statusEl!.getAttribute('aria-atomic')).toBe('true');
+
+    // D-157: hidden file input excluded from Tab order
+    const fileInput = target.querySelector<HTMLInputElement>(
+      '[data-testid="obsidian-config-file-input"]',
+    );
+    expect(fileInput).not.toBeNull();
+    expect(fileInput!.tabIndex).toBe(-1);
+    expect(fileInput!.getAttribute('aria-hidden')).toBe('true');
+
+    // D-159: .ms-obsidian-btn has :focus-visible ring in styles.css
+    const obsidianCss = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8');
+    expect(obsidianCss).toContain('.ms-obsidian-btn:focus-visible');
+
+    // D-156: SettingsPanel wrapped in role="dialog" aria-modal="true" + focus entry + focus restore
+    const settingsBtn = target.querySelector<HTMLButtonElement>(
+      '[data-testid="obsidian-settings-btn"]',
+    )!;
+    settingsBtn.focus();
+    settingsBtn.click();
+    await tick();
+    await tick();
+
+    const settingsDialog = target.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+    expect(settingsDialog).not.toBeNull();
+    expect(settingsDialog!.querySelector('[data-testid="settings-panel"]')).not.toBeNull();
+    expect(settingsDialog!.contains(document.activeElement)).toBe(true);
+
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-close-btn"]')!.click();
+    await tick();
+    await tick();
+    expect(target.querySelector('[data-testid="settings-panel"]')).toBeNull();
+    expect(document.activeElement).toBe(settingsBtn);
+
+    // D-156: ImportModal Escape runs ImportAcknowledge and restores focus
+    const importBtn = target.querySelector<HTMLButtonElement>('[data-testid="obsidian-import-btn"]')!;
+    importBtn.focus();
+    importBtn.click();
+    await tick();
+    await tick();
+
+    const textarea = target.querySelector<HTMLTextAreaElement>('[data-testid="import-latex-input"]')!;
+    textarea.value = 'x^2';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="import-submit-btn"]')!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(target.querySelector('[data-testid="import-modal"]')).toBeNull();
+    expect(dispatchSpy.mock.calls.some((c) => c[0] === 'ImportAcknowledge')).toBe(true);
+    expect(document.activeElement).toBe(importBtn);
+
+    // D-160: strict export block sets error severity on status region
+    await client.dispatch({ ApplyCard: 'frac' });
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="preview-export-btn"]')!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+    expect(statusEl!.getAttribute('data-severity')).toBe('Error');
+
+    client.dispose();
+  });
 });

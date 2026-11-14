@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import '../theme/tokens.css';
+  import { focusFirstInside, handleRovingKeydown } from '../a11y';
   import {
     createDefaultAppSettings,
     formatLatexWithDelimiter,
@@ -26,6 +27,7 @@
     sampleLatex?: string;
     supportedBackends?: RenderBackendPreference[];
     ariaLabel?: string;
+    headingId?: string;
     onSaveSettings?: (next: AppSettings) => void | Promise<void>;
     onResetDefaults?: (defaults: AppSettings) => void | Promise<void>;
     onImportConfig?: () => void | Promise<void>;
@@ -43,6 +45,7 @@
     sampleLatex = '\\frac{a + b}{c}',
     supportedBackends = ['mathjax', 'latex-rust'],
     ariaLabel = 'MathSlot 设置面板',
+    headingId = 'ms-settings-title',
     onSaveSettings,
     onResetDefaults,
     onImportConfig,
@@ -71,6 +74,24 @@
   let capturingAction = $state<ShortcutActionId | null>(null);
   let saveFeedback = $state<'idle' | 'saving' | 'saved' | 'blocked' | 'error'>('idle');
   let saveErrorMessage = $state<string | null>(null);
+  let settingsShellEl = $state<HTMLElement | null>(null);
+  let hadRecovery = false;
+
+  $effect(() => {
+    if (recovery) {
+      hadRecovery = true;
+      return;
+    }
+    if (hadRecovery) {
+      hadRecovery = false;
+      void tick().then(() => {
+        const doc = settingsShellEl?.ownerDocument;
+        if (settingsShellEl && (!doc?.activeElement || doc.activeElement === doc.body)) {
+          focusFirstInside(settingsShellEl);
+        }
+      });
+    }
+  });
 
   $effect.pre(() => {
     const incomingJson = JSON.stringify(settings);
@@ -191,15 +212,38 @@
     }
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopPropagation();
       capturingAction = null;
       return;
     }
     const formatted = formatKeyboardEventToShortcut(event);
     if (formatted) {
       event.preventDefault();
+      event.stopPropagation();
       updateShortcutValue(id, formatted);
       capturingAction = null;
     }
+  }
+
+  function handleRadioGroupKeydown(
+    event: KeyboardEvent,
+    currentIndex: number,
+    onSelect: (nextIndex: number) => void,
+  ): void {
+    const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const group = target?.closest('[role="radiogroup"]');
+    if (!group) {
+      return;
+    }
+    const radios = Array.from(group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not([disabled])'));
+    handleRovingKeydown(event, radios, currentIndex, onSelect, { orientation: 'both' });
+  }
+
+  function focusSelectorAfterTick(selector: string): void {
+    void tick().then(() => {
+      const target = settingsShellEl?.querySelector<HTMLElement>(selector);
+      target?.focus();
+    });
   }
 
   async function handleSave(): Promise<void> {
@@ -246,10 +290,12 @@
       lastSyncedPropSnapshot = JSON.stringify(defaults);
       confirmingResetDefaults = false;
       saveFeedback = 'saved';
+      focusSelectorAfterTick('[data-testid="settings-reset-trigger"]');
     } catch (err) {
       confirmingResetDefaults = false;
       saveFeedback = 'error';
       saveErrorMessage = err instanceof Error ? err.message : String(err);
+      focusSelectorAfterTick('[data-testid="settings-reset-trigger"]');
     }
   }
 
@@ -302,6 +348,7 @@
 </script>
 
 <section
+  bind:this={settingsShellEl}
   class="ms-settings-shell"
   data-testid="settings-panel"
   data-theme={resolvedThemeAttr}
@@ -309,7 +356,7 @@
 >
   <header class="ms-settings-header">
     <div class="ms-settings-title-group">
-      <h2 class="ms-settings-title">设置与偏好</h2>
+      <h2 id={headingId} class="ms-settings-title">设置与偏好</h2>
       <p class="ms-settings-subtitle">主题外观、导出定界符、渲染后端、全局快捷键与数据恢复</p>
     </div>
 
@@ -383,6 +430,7 @@
             data-testid="recovery-reset-trigger"
             onclick={() => {
               confirmingResetEmpty = true;
+              focusSelectorAfterTick('[data-testid="recovery-reset-confirm"]');
             }}
           >
             重置为空配置…
@@ -410,6 +458,7 @@
               data-testid="recovery-reset-cancel"
               onclick={() => {
                 confirmingResetEmpty = false;
+                focusSelectorAfterTick('[data-testid="recovery-reset-trigger"]');
               }}
             >
               取消
@@ -429,15 +478,21 @@
       </div>
 
       <div class="ms-segmented" role="radiogroup" aria-label="主题模式选择">
-        {#each THEME_OPTIONS as opt (opt.value)}
+        {#each THEME_OPTIONS as opt, idx (opt.value)}
           <button
             type="button"
             role="radio"
             aria-checked={draft.theme === opt.value}
+            tabindex={draft.theme === opt.value ? 0 : -1}
             class="ms-choice-card"
             class:ms-choice-active={draft.theme === opt.value}
             data-testid={`theme-option-${opt.value}`}
             onclick={() => updateTheme(opt.value)}
+            onkeydown={(e) =>
+              handleRadioGroupKeydown(e, idx, (nextIdx) => {
+                const next = THEME_OPTIONS[nextIdx];
+                if (next) updateTheme(next.value);
+              })}
           >
             <span class="ms-choice-label">{opt.label}</span>
             <span class="ms-choice-hint">{opt.hint}</span>
@@ -460,15 +515,24 @@
         role="radiogroup"
         aria-label="渲染后端选择"
       >
-        {#each visibleBackendOptions as opt (opt.value)}
+        {#each visibleBackendOptions as opt, idx (opt.value)}
+          {@const checked =
+            draft.render_backend === opt.value ||
+            (obsidianHostBackendOnly && opt.value === 'mathjax')}
           <button
             type="button"
             role="radio"
-            aria-checked={draft.render_backend === opt.value || (obsidianHostBackendOnly && opt.value === 'mathjax')}
+            aria-checked={checked}
+            tabindex={checked || (idx === 0 && !visibleBackendOptions.some((o) => draft.render_backend === o.value || (obsidianHostBackendOnly && o.value === 'mathjax'))) ? 0 : -1}
             class="ms-choice-card"
-            class:ms-choice-active={draft.render_backend === opt.value || (obsidianHostBackendOnly && opt.value === 'mathjax')}
+            class:ms-choice-active={checked}
             data-testid={`backend-option-${opt.value}`}
             onclick={() => updateBackend(opt.value)}
+            onkeydown={(e) =>
+              handleRadioGroupKeydown(e, idx, (nextIdx) => {
+                const next = visibleBackendOptions[nextIdx];
+                if (next) updateBackend(next.value);
+              })}
           >
             <span class="ms-choice-label">
               {obsidianHostBackendOnly ? '宿主 renderMath + MathJax 回退' : opt.label}
@@ -521,15 +585,21 @@
       </div>
 
       <div class="ms-segmented ms-segmented-4" role="radiogroup" aria-label="输出定界符选择">
-        {#each DELIMITER_OPTIONS as opt (opt.value)}
+        {#each DELIMITER_OPTIONS as opt, idx (opt.value)}
           <button
             type="button"
             role="radio"
             aria-checked={draft.delimiter_style === opt.value}
+            tabindex={draft.delimiter_style === opt.value ? 0 : -1}
             class="ms-choice-card"
             class:ms-choice-active={draft.delimiter_style === opt.value}
             data-testid={`delimiter-option-${opt.value}`}
             onclick={() => updateDelimiter(opt.value)}
+            onkeydown={(e) =>
+              handleRadioGroupKeydown(e, idx, (nextIdx) => {
+                const next = DELIMITER_OPTIONS[nextIdx];
+                if (next) updateDelimiter(next.value);
+              })}
           >
             <span class="ms-choice-label">{opt.label}</span>
             <code class="ms-choice-code">{opt.badge}</code>
@@ -615,9 +685,22 @@
                 class:ms-btn-capturing={capturingAction === action.id}
                 data-testid={`shortcut-capture-${action.id}`}
                 aria-pressed={capturingAction === action.id}
-                onclick={() => {
-                  capturingAction = capturingAction === action.id ? null : action.id;
+                onclick={(e) => {
+                  if (capturingAction === action.id) {
+                    capturingAction = null;
+                  } else {
+                    capturingAction = action.id;
+                    const inputEl = settingsShellEl?.querySelector<HTMLInputElement>(
+                      `#ms-sc-${action.id}`,
+                    );
+                    if (inputEl) {
+                      inputEl.focus();
+                    } else {
+                      e.currentTarget.focus();
+                    }
+                  }
                 }}
+                onkeydown={(e) => handleShortcutKeyCapture(action.id, e)}
               >
                 {capturingAction === action.id ? '请按下组合键…' : '录入'}
               </button>
@@ -683,6 +766,7 @@
           data-testid="settings-reset-trigger"
           onclick={() => {
             confirmingResetDefaults = true;
+            focusSelectorAfterTick('[data-testid="settings-reset-confirm"]');
           }}
         >
           恢复默认设置
@@ -709,6 +793,7 @@
             data-testid="settings-reset-cancel"
             onclick={() => {
               confirmingResetDefaults = false;
+              focusSelectorAfterTick('[data-testid="settings-reset-trigger"]');
             }}
           >
             取消

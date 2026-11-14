@@ -77,6 +77,11 @@
   background: var(--ms-surface-elevated);
 }
 
+.ms-obsidian-btn:focus-visible {
+  outline: 2px solid var(--ms-focus-ring);
+  outline-offset: 2px;
+}
+
 .ms-obsidian-btn.is-primary {
   background: var(--ms-accent);
   border-color: var(--ms-accent);
@@ -89,9 +94,68 @@
 }
 
 .ms-obsidian-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: var(--ms-fg-muted);
   min-height: 18px;
+}
+
+.ms-obsidian-status.is-empty {
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.ms-obsidian-status[data-severity='Warning'] {
+  padding: 4px 8px;
+  border-radius: var(--ms-radius-sm, 6px);
+  border: 1px solid var(--ms-status-warn-border);
+  background: var(--ms-status-warn-bg);
+  color: var(--ms-status-warn-fg);
+}
+
+.ms-obsidian-status[data-severity='Error'] {
+  padding: 4px 8px;
+  border-radius: var(--ms-radius-sm, 6px);
+  border: 1px solid var(--ms-status-error-border);
+  background: var(--ms-status-error-bg);
+  color: var(--ms-status-error-fg);
+}
+
+.ms-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ms-obsidian-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--ms-modal-backdrop);
+}
+
+.ms-obsidian-dialog-card {
+  width: min(880px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border-radius: var(--ms-radius-md);
+  box-shadow: var(--ms-shadow-sm);
 }
 
 .ms-obsidian-workspace {

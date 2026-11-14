@@ -179,6 +179,10 @@
       '.cm-line': {
         padding: '0 2px',
       },
+      '.cm-placeholder': {
+        color: 'var(--ms-fg-muted)',
+        opacity: '1',
+      },
     });
 
     const state = CmEditorState.create({
@@ -317,7 +321,7 @@
       {/if}
     </div>
 
-    <div class="ms-header-meta" aria-label={`文档行数 ${lineCount}`}>
+    <div class="ms-header-meta">
       <span class="ms-meta-item">{lineCount} 行</span>
       <span class="ms-meta-item">{activeSnapshot.slots.length} 槽位</span>
     </div>

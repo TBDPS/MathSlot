@@ -340,4 +340,62 @@ describe('apps/desktop UI & DesktopHostBridge (T3.5)', () => {
     const appSrc = readFileSync(resolve(import.meta.dirname, '../src/App.svelte'), 'utf8');
     expect(appSrc).not.toMatch(/const\s+latexRustManaged\s*=\s*\$derived\(/);
   });
+
+  it('T4.4 / D-156 / D-157 / D-160: Desktop hides file input from Tab order, mounts permanent live region, traps modal focus, and dispatches ImportAcknowledge on Escape', async () => {
+    const base = createBrowserHarnessBridge();
+    const dispatchSpy = vi.spyOn(base, 'dispatch');
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(App, {
+      target,
+      props: { bridge: base },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    await tick();
+
+    // D-157: hidden file input must be excluded from Tab order and AT tree
+    const fileInput = target.querySelector<HTMLInputElement>(
+      '[data-testid="desktop-config-file-input"]',
+    );
+    expect(fileInput).not.toBeNull();
+    expect(fileInput!.tabIndex).toBe(-1);
+    expect(fileInput!.getAttribute('aria-hidden')).toBe('true');
+
+    // D-160: live region must be permanently mounted in initial DOM
+    const liveStatus = target.querySelector<HTMLElement>('[data-testid="desktop-toast"]');
+    expect(liveStatus).not.toBeNull();
+    expect(liveStatus!.getAttribute('role')).toBe('status');
+    expect(liveStatus!.getAttribute('aria-live')).toBe('polite');
+    expect(liveStatus!.getAttribute('aria-atomic')).toBe('true');
+
+    // D-156: ImportModal focus entry, Escape -> ImportAcknowledge, and focus restore
+    const importBtn = target.querySelector<HTMLButtonElement>('[data-testid="desktop-import-btn"]')!;
+    importBtn.focus();
+    importBtn.click();
+    await tick();
+    await tick();
+
+    const importModal = target.querySelector<HTMLElement>('[data-testid="import-modal"]')!;
+    expect(importModal).not.toBeNull();
+    expect(importModal.contains(document.activeElement)).toBe(true);
+
+    target.querySelector<HTMLButtonElement>('[data-testid="import-submit-btn"]')!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await tick();
+    await new Promise((r) => setTimeout(r, 20));
+    await tick();
+
+    expect(target.querySelector('[data-testid="import-modal"]')).toBeNull();
+    expect(dispatchSpy.mock.calls.some((c) => c[0] === 'ImportAcknowledge')).toBe(true);
+    expect(document.activeElement).toBe(importBtn);
+  });
 });

@@ -154,3 +154,15 @@ export {
   type ShortcutValidationIssue,
   type ShortcutValidationResult,
 } from './settings/shortcuts';
+
+export {
+  captureRestoreFocus,
+  focusFirstInside,
+  getFocusableElements,
+  handleRovingKeydown,
+  resolveRovingIndex,
+  restoreFocus,
+  trapFocusKeydown,
+  type RovingKeyOptions,
+  type RovingOrientation,
+} from './a11y';
