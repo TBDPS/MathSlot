@@ -88,15 +88,16 @@
     ]
   },
   "gate": "G4",
-  "round": 31,
+  "round": 32,
   "active_task": "T4.1",
   "next_task": "T4.1",
-  "last_verdict": "PASS",
+  "last_verdict": "FAIL",
   "open_p1": [
     "D-007",
-    "D-138",
-    "D-139",
-    "D-140"
+    "D-140",
+    "D-144",
+    "D-145",
+    "D-146"
   ],
   "new_defects": [
     "D-101",
@@ -140,13 +141,17 @@
     "D-140",
     "D-141",
     "D-142",
-    "D-143"
+    "D-143",
+    "D-144",
+    "D-145",
+    "D-146"
   ],
   "no_progress_rounds": 0,
   "reopened": {
     "T2.5": 1,
     "T3.6": 1,
-    "T3.5": 1
+    "T3.5": 1,
+    "T4.1": 1
   },
   "human_approvals": [],
   "stop_rules": {

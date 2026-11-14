@@ -71,8 +71,14 @@
 - `crates/mathslot-wasm/src/**` 与测试
 - `apps/desktop/src/**`、`apps/desktop/src-tauri/**`、`apps/desktop/tests/**`、`apps/desktop/package.json`（如需引用本地 `wasm-pkg` / `@mathslot/wasm`）
 - `packages/ui/src/**`、`packages/ui/tests/**`
-- `apps/obsidian/src/**`、`apps/obsidian/tests/**`
+- `apps/obsidian/src/**`、`apps/obsidian/tests/**`、`apps/obsidian/e2e/**`
 - `obsidian-mathslot/main.js`、`obsidian-mathslot/styles.css`（由 `node obsidian-mathslot/scripts/build.mjs` 重新生成并保持零漂移）
+
+## 5. Round 32 视觉阻断缺陷补充契约（针对 `VER-31.md`）
+
+1. **`D-144`（Diff 徽章语义准确）**：`packages/ui/src/import/ImportModal.svelte` 中 Diff 面板右上角的 `"RawLatex 降级"` 徽章**仅当** `activeReport.raw_nodes > 0`（且可区分语法阻断态与非阻断降级态）时才展示；当 `blocked === true && raw_nodes === 0`（如 `\frac{1}{`）时，不得误标 `"RawLatex 降级"`，应标注 `"语法错误已阻断"` 或不渲染 `RawLatex 降级` pill。
+2. **`D-145`（Obsidian 导入弹窗语义色彩完整性）**：`packages/ui/src/theme/tokens.css` 的 `[data-host='obsidian']` 必须为 `--text-error`、`--text-warning`、`--text-success`、`--text-on-accent` 提供完整 CSS fallback 值（含明/暗两套主题语义色），且 `apps/obsidian/e2e/harness.html` 中 `.theme-light` / `.theme-dark` 需补齐真实 Obsidian 语义变量（`--text-error`、`--text-warning`、`--text-success`），确保 Obsidian 端 Error 红色横幅/诊断卡/Diff 删除高亮、Warning 琥珀色横幅/徽章、Apply 绿色按钮全部有清晰高对比度边框与底色。
+3. **`D-146`（Desktop 弹窗去重与 720px 视口布局）**：消除 `apps/desktop/src/App.svelte` 与 `packages/ui/src/import/ImportModal.svelte` 的双套 `"导入 LaTeX 公式"` + `"关闭"` 头部（仅保留单层标题栏与单行不折行的 `"关闭"` 按钮），并保证 `ImportModal` 在 `1280x720` 桌面视口下整体/内容区可舒适滚动、诊断详情不被莫名截断。
 
 禁止修改：`docs/LLM_IMPLEMENTATION_SPEC.md`、`scripts/agent/**`、`agent-state/**`、冻结参考目录。
 
