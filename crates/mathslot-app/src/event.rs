@@ -32,6 +32,7 @@ pub enum AppEvent {
     SelectSlot(u32),
     Clear,
     ImportLatex(String),
+    ImportAcknowledge,
     LoadStreamSource(String),
     UpdateSettings(AppSettings),
     ResetSettingsConfirmed,

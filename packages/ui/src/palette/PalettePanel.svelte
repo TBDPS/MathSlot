@@ -636,4 +636,40 @@
     outline: 2px solid var(--ms-focus-ring);
     outline-offset: 2px;
   }
+
+  @media (max-width: 480px) {
+    .ms-palette-shell {
+      padding: 8px;
+    }
+
+    .ms-palette-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .ms-mode-tabs {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ms-search-wrap {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .ms-mode-tab,
+    .ms-search-clear,
+    .ms-category-tab,
+    .ms-featured-chip,
+    .ms-command-card,
+    .ms-preset-card {
+      min-height: 36px;
+    }
+
+    .ms-card-grid,
+    .ms-preset-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>

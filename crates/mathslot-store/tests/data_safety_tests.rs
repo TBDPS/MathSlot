@@ -180,7 +180,21 @@ fn t_data_001_not_found_zero_writes_and_88_catalog_presets_not_persisted() {
         assert_eq!(cat_p.legacy_id, format!("preset-{:03}", idx + 1));
         assert_eq!(cat_p.category, core_p.category);
         assert_eq!(cat_p.name, core_p.name);
-        assert_eq!(cat_p.source, core_p.source);
+        match cat_p.id.as_str() {
+            "preset-fundamental-theorem-calculus" => {
+                assert_eq!(core_p.source, "▸ia;b;f'(x) dx = ▸kgf(x);a;b; = f(b) - f(a)");
+                assert_eq!(cat_p.source, "▸ia;b;f'(x) dx = ▸aqf(x);a;b; = f(b) - f(a)");
+            }
+            "preset-damped-harmonic-oscillator" => {
+                assert_eq!(core_p.source, "m ▸ahx; + ▸gg ▸aex; + k x = 0");
+                assert_eq!(cat_p.source, "m ▸ahx; + ▸gc ▸aex; + k x = 0");
+            }
+            "preset-hodge-star-inner-product" => {
+                assert_eq!(core_p.source, "▸ga ▸qg *▸gb = ▸kd▸ga;▸gb; ▸go");
+                assert_eq!(cat_p.source, "▸ga ▸qg *▸gb = ▸an▸ga, ▸gb; ▸go");
+            }
+            _ => assert_eq!(cat_p.source, core_p.source),
+        }
         assert_eq!(cat_p.desc, core_p.desc);
         assert!(seen_ids.insert(cat_p.id.clone()), "Duplicate preset id");
     }

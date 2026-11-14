@@ -7,8 +7,8 @@ use crate::effect::{
 };
 use crate::event::{AppEvent, EditorAction, Key, NavAction};
 use crate::snapshot::{
-    AppSettings, DiagnosticSnapshot, DispatchResponse, EngineSnapshot, RecoveryStateSnapshot,
-    SlotSnapshot,
+    AppSettings, DiagnosticSnapshot, DispatchResponse, EngineSnapshot, ImportReportSnapshot,
+    RecoveryStateSnapshot, SlotSnapshot,
 };
 use crate::state::EditorState;
 
@@ -27,6 +27,7 @@ pub struct App {
     render_seq: u64,
     settings: AppSettings,
     recovery: Option<RecoveryStateSnapshot>,
+    last_import: Option<ImportReportSnapshot>,
 }
 
 impl Default for App {
@@ -49,6 +50,7 @@ impl App {
             render_seq: 0,
             settings: AppSettings::default(),
             recovery: None,
+            last_import: None,
         }
     }
 
@@ -116,6 +118,7 @@ impl App {
             active_slot_id,
             settings: self.settings.clone(),
             recovery: self.recovery.clone(),
+            last_import: self.last_import.clone(),
         }
     }
 
@@ -198,6 +201,7 @@ impl App {
             AppEvent::SelectSlot(id) => AppCommand::SelectSlot(id),
             AppEvent::Clear => AppCommand::ResetDocument,
             AppEvent::ImportLatex(latex) => AppCommand::ImportLatex(latex),
+            AppEvent::ImportAcknowledge => AppCommand::AcknowledgeImport,
             AppEvent::LoadStreamSource(source) => AppCommand::LoadStreamSource(source),
             AppEvent::UpdateSettings(settings) => AppCommand::UpdateSettings(settings),
             AppEvent::ResetSettingsConfirmed => AppCommand::ResetSettingsConfirmed,
@@ -371,6 +375,7 @@ impl App {
             }
             AppCommand::ResetDocument => match self.editor.clear() {
                 Ok(changed) => {
+                    self.last_import = None;
                     if changed {
                         emit_render = true;
                         emit_focus = true;
@@ -384,14 +389,66 @@ impl App {
                 }
             },
             AppCommand::ImportLatex(latex) => {
-                if let Err(err) = self.editor.import_latex(&latex) {
+                let (_ast, report) = mathslot_latex::convert_latex_with_report(&latex);
+                let blocked = report.has_errors();
+                let diag_snapshots: Vec<DiagnosticSnapshot> = report
+                    .diagnostics
+                    .iter()
+                    .map(|diag| DiagnosticSnapshot::from_syntax_diagnostic(diag, &latex))
+                    .collect();
+                let import_snapshot = ImportReportSnapshot {
+                    lossless: report.lossless,
+                    empty_slots: report.empty_slots,
+                    raw_nodes: report.raw_nodes,
+                    roundtrip_latex: report.roundtrip_latex.clone(),
+                    normalized_match: report.normalized_match,
+                    blocked,
+                    diagnostics: diag_snapshots.clone(),
+                };
+                self.last_import = Some(import_snapshot);
+
+                if blocked {
+                    let first_summary = diag_snapshots
+                        .first()
+                        .map(|d| d.summary.clone())
+                        .unwrap_or_else(|| {
+                            "LaTeX 导入存在语法错误，已阻断覆盖当前文档".to_string()
+                        });
                     status_effects.push(Effect::Status(StatusMessage {
                         severity: StatusSeverity::Error,
-                        message: format!("Import error: {err}"),
+                        message: first_summary,
                     }));
+                } else {
+                    match self.editor.import_latex(&latex) {
+                        Ok(_) => {
+                            if report.lossless {
+                                status_effects.push(Effect::Status(StatusMessage {
+                                    severity: StatusSeverity::Info,
+                                    message: "LaTeX 已无损导入".to_string(),
+                                }));
+                            } else {
+                                status_effects.push(Effect::Status(StatusMessage {
+                                    severity: StatusSeverity::Warning,
+                                    message: format!(
+                                        "LaTeX 已导入（含 {} 个未识别或原始节点）",
+                                        report.raw_nodes
+                                    ),
+                                }));
+                            }
+                        }
+                        Err(err) => {
+                            status_effects.push(Effect::Status(StatusMessage {
+                                severity: StatusSeverity::Error,
+                                message: format!("Import error: {err}"),
+                            }));
+                        }
+                    }
+                    emit_render = true;
+                    emit_focus = true;
                 }
-                emit_render = true;
-                emit_focus = true;
+            }
+            AppCommand::AcknowledgeImport => {
+                self.last_import = None;
             }
             AppCommand::LoadStreamSource(source) => {
                 let (expanded_latex, stream_errors) = expand_stream_source(&source);
@@ -667,6 +724,11 @@ impl App {
     #[must_use]
     pub fn recovery(&self) -> Option<&RecoveryStateSnapshot> {
         self.recovery.as_ref()
+    }
+
+    #[must_use]
+    pub fn last_import(&self) -> Option<&ImportReportSnapshot> {
+        self.last_import.as_ref()
     }
 
     #[must_use]

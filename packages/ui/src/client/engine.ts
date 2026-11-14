@@ -131,6 +131,7 @@ export type AppEvent =
   | { SelectSlot: number }
   | 'Clear'
   | { ImportLatex: string }
+  | 'ImportAcknowledge'
   | { LoadStreamSource: string }
   | { UpdateSettings: AppSettings }
   | 'ResetSettingsConfirmed'
@@ -207,6 +208,16 @@ export interface DiagnosticSnapshot {
   span?: CommandSpan | null;
 }
 
+export interface ImportReportSnapshot {
+  lossless: boolean;
+  empty_slots: number;
+  raw_nodes: number;
+  roundtrip_latex: string;
+  normalized_match: boolean;
+  blocked: boolean;
+  diagnostics: DiagnosticSnapshot[];
+}
+
 export interface EngineSnapshot {
   state: EditorState;
   latex: string;
@@ -222,6 +233,7 @@ export interface EngineSnapshot {
   active_slot_id: number | null;
   settings?: AppSettings;
   recovery?: RecoveryStateSnapshot | null;
+  last_import?: ImportReportSnapshot | null;
 }
 
 export interface DispatchResponse {
@@ -255,5 +267,6 @@ export function createEmptySnapshot(): EngineSnapshot {
     active_slot_id: null,
     settings: createDefaultAppSettings(),
     recovery: null,
+    last_import: null,
   };
 }

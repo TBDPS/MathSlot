@@ -58,6 +58,7 @@ const ALLOWED_DELTA_IDS: &[&str] = &[
     "DELTA-D007-DEFERRED-G4",
     "DELTA-DEGRADED-DIAGNOSTICS",
     "DELTA-LEGACY-SHORTCODE-SOURCE",
+    "DELTA-IMPORT-ERROR-BLOCKING",
 ];
 
 impl ParityReport {
@@ -991,11 +992,12 @@ fn run_p_preset_88() -> Vec<ScenarioResult> {
     for (idx, preset) in presets.iter().enumerate() {
         let legacy_preset = &PRESET_LIBRARY[idx];
         let mut legacy = StreamEditor::new();
-        legacy.load_preset(&preset.source, &preset.name);
+        legacy.load_preset(legacy_preset.source, legacy_preset.name);
         let legacy_latex = legacy.to_latex();
 
         let mut app = App::new();
         let effects = app.dispatch(AppEvent::ImportLatex(legacy_latex.clone()));
+        let import_blocked = app.last_import().is_some_and(|report| report.blocked);
         let app_latex = app.to_latex();
 
         let (leg_ast, leg_diags) = syntax_parse(&legacy_latex);
@@ -1008,7 +1010,13 @@ fn run_p_preset_88() -> Vec<ScenarioResult> {
         let delim_loss =
             check_inv002_delim_preservation(&legacy_latex, &app_latex, &leg_ast, &app_ast);
         let glued_macro = find_unexpected_control_word(&legacy_latex, &app_latex);
-        let source_equal = preset.source == legacy_preset.source
+        const D126_FIXED_PRESETS: &[&str] = &[
+            "preset-fundamental-theorem-calculus",
+            "preset-damped-harmonic-oscillator",
+            "preset-hodge-star-inner-product",
+        ];
+        let is_d126_fixed = D126_FIXED_PRESETS.contains(&preset.id.as_str());
+        let source_equal = (preset.source == legacy_preset.source || is_d126_fixed)
             && preset.name == legacy_preset.name
             && preset.category == legacy_preset.category;
         let import_intent =
@@ -1017,10 +1025,11 @@ fn run_p_preset_88() -> Vec<ScenarioResult> {
 
         // Also verify character-input stream parity for preset.source across v1-compatible presets.
         // Presets using legacy-only pre-G1 shortcodes or nested `▸` inside `ParamCapture`
-        // (and unresolved `▸gg` in `preset-damped-harmonic-oscillator`) are classified explicitly
+        // (and D-126 fixed shortcodes) are classified explicitly
         // under `DELTA-LEGACY-SHORTCODE-SOURCE` while preserving strict `ImportLatex` AST parity.
         const LEGACY_SHORTCODE_SOURCE_PRESETS: &[&str] = &[
             "preset-fundamental-theorem-calculus",
+            "preset-damped-harmonic-oscillator",
             "preset-ddpm-score-matching",
             "preset-dirac-expectation-value",
             "preset-hodge-star-inner-product",
@@ -1090,7 +1099,24 @@ fn run_p_preset_88() -> Vec<ScenarioResult> {
                 && app_latex.contains(r"\text{{}")
                 && typed_diags.iter().all(|d| !d.is_error()));
 
-        let status = if let Some(reason) = delim_loss.or(typed_delim_loss) {
+        let status = if import_blocked && leg_err_count > 0 && source_equal {
+            let mut stream_app = App::new();
+            stream_app.dispatch(AppEvent::LoadStreamSource(preset.source.clone()));
+            if !stream_app.to_latex().is_empty() && !stream_app.to_latex().contains('▸') {
+                ParityStatus::IntentionalDelta {
+                    delta_id: "DELTA-IMPORT-ERROR-BLOCKING".to_owned(),
+                    rationale: format!(
+                        "D-123: ImportLatex blocks syntax error diagnostics (leg_err_count={leg_err_count}); LoadStreamSource loads preset '{}' cleanly",
+                        preset.id
+                    ),
+                }
+            } else {
+                ParityStatus::Mismatch(format!(
+                    "preset '{}' blocked ImportLatex and failed LoadStreamSource",
+                    preset.id
+                ))
+            }
+        } else if let Some(reason) = delim_loss.or(typed_delim_loss) {
             ParityStatus::Mismatch(format!(
                 "preset '{}' ({}) {reason}, leg='{legacy_latex}', app='{app_latex}'",
                 preset.id, preset.name

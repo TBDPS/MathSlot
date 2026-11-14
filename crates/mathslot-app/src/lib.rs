@@ -12,7 +12,8 @@ pub use command::AppCommand;
 pub use effect::{Effect, FocusTarget, RenderRequest, StatusMessage, StatusSeverity};
 pub use event::{AppEvent, EditorAction, Key, NavAction};
 pub use snapshot::{
-    CommandSpan, DiagnosticSnapshot, DispatchResponse, EngineSnapshot, SlotSnapshot,
+    CommandSpan, DiagnosticSnapshot, DispatchResponse, EngineSnapshot, ImportReportSnapshot,
+    SlotSnapshot,
 };
 pub use state::EditorState;
 

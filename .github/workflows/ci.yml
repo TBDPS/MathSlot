@@ -42,6 +42,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install frontend dependencies (packages/ui)
+        run: npm ci --prefix packages/ui
+
+      - name: Install wasm-bindgen-cli 0.2.130
+        run: |
+          if [ "$(wasm-bindgen --version 2>/dev/null || true)" != "wasm-bindgen 0.2.130" ]; then
+            cargo install --locked wasm-bindgen-cli --version 0.2.130
+          fi
+
       - name: Check code formatting
         run: cargo fmt --check
 
@@ -51,8 +60,21 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace
 
-      - name: Build mathslot-wasm
-        run: cargo build -p mathslot-wasm --target wasm32-unknown-unknown --release
+      - name: Check generated artifacts
+        run: cargo run -p xtask -- check
+
+      - name: Test, typecheck, and build shared UI (packages/ui)
+        run: |
+          cd packages/ui
+          npm test
+          npm run check
+          npm run build
 
       - name: Build and smoke-test Obsidian plugin
         run: node obsidian-mathslot/scripts/build.mjs
+
+      - name: Test and typecheck Obsidian shell (apps/obsidian)
+        run: |
+          cd apps/obsidian
+          npm test
+          npm run check

@@ -21,6 +21,7 @@ export {
   type EngineSnapshot,
   type FocusTarget,
   type HostAction,
+  type ImportReportSnapshot,
   type Key,
   type NavAction,
   type RawEditorDiagnostic,
@@ -125,6 +126,9 @@ export type { DiagnosticsPanelProps } from './diagnostics/DiagnosticsPanel.svelt
 
 export { default as SettingsPanel } from './settings/SettingsPanel.svelte';
 export type { SettingsPanelProps } from './settings/SettingsPanel.svelte';
+
+export { default as ImportModal } from './import/ImportModal.svelte';
+export type { ImportModalProps } from './import/ImportModal.svelte';
 
 export {
   DEFAULT_SHORTCUTS,

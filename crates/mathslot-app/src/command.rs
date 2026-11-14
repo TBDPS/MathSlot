@@ -25,6 +25,7 @@ pub enum AppCommand {
     },
     ResetDocument,
     ImportLatex(String),
+    AcknowledgeImport,
     LoadStreamSource(String),
     UpdateSettings(AppSettings),
     ResetSettingsConfirmed,

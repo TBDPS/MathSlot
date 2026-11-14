@@ -1,5 +1,6 @@
 use mathslot_doc::{EditorDiagnostic as Diagnostic, Slot, SlotRole};
 use mathslot_render::ErrorSummary;
+use mathslot_syntax::{Diagnostic as SyntaxDiagnostic, SyntaxErrorKind};
 use serde::{Deserialize, Serialize};
 
 use crate::effect::{Effect, StatusSeverity};
@@ -114,6 +115,73 @@ impl DiagnosticSnapshot {
             span: None,
         }
     }
+
+    #[must_use]
+    pub fn from_syntax_diagnostic(diag: &SyntaxDiagnostic, source: &str) -> Self {
+        let (code, hint) = match &diag.kind {
+            SyntaxErrorKind::UnexpectedToken(tok) => (
+                "UNEXPECTED_TOKEN",
+                Some(format!("检查意外标记 `{tok}` 附近的语法结构")),
+            ),
+            SyntaxErrorKind::ExpectedToken { expected, found } => (
+                "EXPECTED_TOKEN",
+                Some(format!("预期 `{expected}`，但实际遇到 `{found}`")),
+            ),
+            SyntaxErrorKind::UnclosedDelimiter(delim) => (
+                "UNCLOSED_DELIMITER",
+                Some(format!("请补全未闭合的定界符 `{delim}`")),
+            ),
+            SyntaxErrorKind::UnclosedEnvironment(env) => (
+                "UNCLOSED_ENVIRONMENT",
+                Some(format!("请补全 `\\end{{{env}}}` 闭合环境")),
+            ),
+            SyntaxErrorKind::EmptyBlock => (
+                "EMPTY_BLOCK",
+                Some("存在空分组或空代码块，请补充内容".to_string()),
+            ),
+            SyntaxErrorKind::UnknownMacro(name) => (
+                "UNKNOWN_MACRO",
+                Some(format!("未知 LaTeX 宏 \\{name} 已降级保留为原始节点")),
+            ),
+            SyntaxErrorKind::Custom(_) => (
+                "SYNTAX_ERROR",
+                Some("请检查输入 LaTeX 语法是否完整".to_string()),
+            ),
+        };
+        let severity = if diag.is_warning {
+            StatusSeverity::Warning
+        } else {
+            StatusSeverity::Error
+        };
+        let message = diag.kind.to_string();
+        let err_summary = ErrorSummary::from_error(code, &message, source);
+
+        Self {
+            code: err_summary.code,
+            severity,
+            message,
+            summary: err_summary.header_summary,
+            source_excerpt: err_summary.source_excerpt,
+            truncated: err_summary.truncated,
+            detail: err_summary.full_detail,
+            hint,
+            span: Some(CommandSpan {
+                start: diag.span.start,
+                end: diag.span.end,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportReportSnapshot {
+    pub lossless: bool,
+    pub empty_slots: usize,
+    pub raw_nodes: usize,
+    pub roundtrip_latex: String,
+    pub normalized_match: bool,
+    pub blocked: bool,
+    pub diagnostics: Vec<DiagnosticSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +346,8 @@ pub struct EngineSnapshot {
     pub settings: AppSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<RecoveryStateSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_import: Option<ImportReportSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -488,4 +488,23 @@
     font-size: 0.85rem;
     color: var(--ms-fg-subtle);
   }
+
+  @media (max-width: 480px) {
+    .ms-preview-shell {
+      padding: 8px;
+    }
+
+    .ms-preview-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .ms-preview-actions {
+      width: 100%;
+    }
+
+    .ms-toolbar-btn {
+      min-height: 36px;
+    }
+  }
 </style>

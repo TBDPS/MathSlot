@@ -1,203 +1,238 @@
-import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import Module from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { gzipSync } from "node:zlib";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pluginRoot = resolve(__dirname, "..");
-const repoRoot = resolve(pluginRoot, "..");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pluginRoot = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(pluginRoot, "..");
+const appsObsidianDir = path.join(repoRoot, "apps", "obsidian");
+const packagesUiDir = path.join(repoRoot, "packages", "ui");
+const wasmPkgOutDir = path.join(appsObsidianDir, "src", "wasm-pkg");
+const distDir = path.join(appsObsidianDir, "dist");
+const wasmTargetPath = path.join(
+  repoRoot,
+  "target",
+  "wasm32-unknown-unknown",
+  "release",
+  "mathslot_wasm.wasm",
+);
 
-console.log("[1/3] Compiling shared mathslot-wasm (wasm32-unknown-unknown --release)...");
-execSync("cargo build -p mathslot-wasm --target wasm32-unknown-unknown --release", {
-  cwd: repoRoot,
+const EXPECTED_ENGINE_VERSION = "0.7.0+schema1";
+
+function resolveWasmBindgenBin() {
+  const candidates = ["wasm-bindgen", path.join(os.homedir(), ".cargo", "bin", "wasm-bindgen")];
+  for (const bin of candidates) {
+    try {
+      const out = execFileSync(bin, ["--version"], { encoding: "utf8" }).trim();
+      return { bin, version: out };
+    } catch {
+      // Try next candidate.
+    }
+  }
+  throw new Error(
+    "wasm-bindgen CLI (0.2.130) not found in PATH or ~/.cargo/bin. Install via: cargo install --locked wasm-bindgen-cli --version 0.2.130",
+  );
+}
+
+console.log("[1/4] Building mathslot-wasm (wasm32-unknown-unknown --release)...");
+execFileSync(
+  "cargo",
+  ["build", "-p", "mathslot-wasm", "--target", "wasm32-unknown-unknown", "--release"],
+  { cwd: repoRoot, stdio: "inherit" },
+);
+
+const rawTargetWasm = readFileSync(wasmTargetPath);
+console.log(
+  `      cargo release wasm size: ${(rawTargetWasm.length / 1024).toFixed(1)} KB (${rawTargetWasm.length} bytes)`,
+);
+
+const { bin: wasmBindgenBin, version: wasmBindgenVersion } = resolveWasmBindgenBin();
+console.log(`[2/4] Running ${wasmBindgenVersion} (--target web) -> apps/obsidian/src/wasm-pkg...`);
+mkdirSync(wasmPkgOutDir, { recursive: true });
+execFileSync(
+  wasmBindgenBin,
+  [wasmTargetPath, "--target", "web", "--out-dir", wasmPkgOutDir, "--out-name", "mathslot_wasm"],
+  { cwd: repoRoot, stdio: "inherit" },
+);
+
+const bindgenWasmPath = path.join(wasmPkgOutDir, "mathslot_wasm_bg.wasm");
+const wasmBytes = readFileSync(bindgenWasmPath);
+const wasmGzipBytes = gzipSync(wasmBytes);
+console.log(
+  `      wasm-bindgen output size: ${(wasmBytes.length / 1024).toFixed(1)} KB raw / ${(wasmGzipBytes.length / 1024).toFixed(1)} KB gzip`,
+);
+
+console.log("[3/4] Bundling apps/obsidian single-file plugin with inline base64 WASM...");
+const uiNodeModules = path.join(packagesUiDir, "node_modules");
+const obsidianNodeModules = path.join(appsObsidianDir, "node_modules");
+assert.ok(
+  existsSync(uiNodeModules),
+  `Missing ${uiNodeModules}. Run npm ci --prefix packages/ui first.`,
+);
+if (!existsSync(obsidianNodeModules)) {
+  symlinkSync(path.relative(appsObsidianDir, uiNodeModules), obsidianNodeModules, "dir");
+}
+
+const viteBin = path.join(uiNodeModules, "vite", "bin", "vite.js");
+execFileSync(process.execPath, [viteBin, "build"], {
+  cwd: appsObsidianDir,
   stdio: "inherit",
 });
 
-const wasmPath = resolve(
-  repoRoot,
-  "target/wasm32-unknown-unknown/release/mathslot_wasm.wasm"
+const distMainPath = path.join(distDir, "main.js");
+const distStylesPath = path.join(distDir, "styles.css");
+const srcManifestPath = path.join(appsObsidianDir, "manifest.json");
+const bundledMainJs = readFileSync(distMainPath, "utf8");
+const wasmBase64 = wasmBytes.toString("base64");
+assert.ok(
+  bundledMainJs.includes(wasmBase64.slice(0, 64)),
+  "Embedded WASM base64 slice missing from main.js",
 );
-const wasmBytes = readFileSync(wasmPath);
-const wasmB64 = wasmBytes.toString("base64");
 
+copyFileSync(srcManifestPath, path.join(distDir, "manifest.json"));
+copyFileSync(distMainPath, path.join(pluginRoot, "main.js"));
+copyFileSync(distStylesPath, path.join(pluginRoot, "styles.css"));
+copyFileSync(srcManifestPath, path.join(pluginRoot, "manifest.json"));
 console.log(
-  `[2/3] Bundling obsidian-mathslot/main.js (WASM binary: ${(wasmBytes.length / 1024).toFixed(1)} KB)...`
+  `      Synced main.js (${(Buffer.byteLength(bundledMainJs) / 1024).toFixed(1)} KB), styles.css, manifest.json`,
 );
-const template = readFileSync(resolve(pluginRoot, "src/plugin.js"), "utf8");
-const bundled = template.replace("__MATHSLOT_WASM_BASE64__", wasmB64);
-if (bundled.includes("__MATHSLOT_WASM_BASE64__")) {
-  throw new Error("WASM Base64 占位符替换失败：main.js 仍包含 __MATHSLOT_WASM_BASE64__");
-}
-if (!bundled.includes(wasmB64.slice(0, 64))) {
-  throw new Error("WASM Base64 内联校验失败：main.js 未包含编译产物");
-}
-writeFileSync(resolve(pluginRoot, "main.js"), bundled, "utf8");
 
-console.log("[3/3] Running Node.js WebAssembly end-to-end smoke test...");
-const { instance } = await WebAssembly.instantiate(wasmBytes, {});
-const ex = instance.exports;
-const enc = new TextEncoder();
-const dec = new TextDecoder("utf-8");
+console.log("[4/4] Running Node.js E2E smoke test on bundled plugin + wasm-bindgen Engine...");
 
-const readOut = (len) =>
-  JSON.parse(dec.decode(new Uint8Array(ex.memory.buffer, ex.out_ptr(), len)));
-const withStr = (s, fn) => {
-  const b = enc.encode(s);
-  const p = ex.wasm_alloc(b.length);
-  new Uint8Array(ex.memory.buffer, p, b.length).set(b);
-  try {
-    return fn(p, b.length);
-  } finally {
-    ex.wasm_dealloc(p, b.length);
+// 4a) Load the compiled CJS main.js with a minimal Obsidian host stub
+const registeredCommands = [];
+const registeredProcessors = [];
+const originalLoad = Module._load;
+Module._load = function patchedLoad(request, parent, isMain) {
+  if (request === "obsidian") {
+    return {
+      Plugin: class {
+        constructor(app, manifest) {
+          this.app = app;
+          this.manifest = manifest;
+        }
+        async loadData() {
+          return {};
+        }
+        async saveData() {}
+        addRibbonIcon() {}
+        addCommand(cmd) {
+          registeredCommands.push(cmd.id);
+        }
+        registerMarkdownCodeBlockProcessor(lang) {
+          registeredProcessors.push(lang);
+        }
+        addSettingTab() {}
+      },
+      Modal: class {},
+      MarkdownView: class {},
+      PluginSettingTab: class {},
+      Setting: class {
+        setName() {
+          return this;
+        }
+        setDesc() {
+          return this;
+        }
+        addButton() {
+          return this;
+        }
+      },
+      Notice: class {},
+      Platform: { isMobile: false, isDesktop: true },
+      addIcon() {},
+      renderMath() {
+        throw new Error("stub");
+      },
+      finishRenderMath: async () => {},
+    };
   }
+  return originalLoad.call(this, request, parent, isMain);
 };
 
-const catalog = readOut(ex.get_catalog_json());
-if (catalog.directEntries.length !== 12 || catalog.subCategories.length !== 9) {
-  throw new Error(`Unexpected catalog counts: direct=${catalog.directEntries.length}, sub=${catalog.subCategories.length}`);
+try {
+  const requireCjs = createRequire(import.meta.url);
+  const pluginPath = path.join(pluginRoot, "main.js");
+  delete requireCjs.cache[pluginPath];
+  const PluginClass = requireCjs(pluginPath);
+  assert.equal(typeof PluginClass, "function", "Default CJS export must be MathSlotPlugin class");
+
+  const instance = new PluginClass({ workspace: {} }, { id: "mathslot", name: "MathSlot", version: "0.7.0" });
+  await instance.onload();
+  assert.ok(registeredCommands.includes("open-mathslot-inline"));
+  assert.ok(registeredCommands.includes("open-mathslot-display"));
+  assert.ok(registeredCommands.includes("open-mathslot-import"));
+  assert.ok(registeredProcessors.includes("mathslot"));
+  instance.onunload();
+} finally {
+  Module._load = originalLoad;
 }
 
-// 1) 验证嵌套根号三阶段层级高亮 + MathJax 方言输出
-ex.editor_reset();
-let st = withStr("▸r1+▸rx", (p, l) => readOut(ex.editor_sync_text(p, l, 7, 1)));
-if (!st.previewLatex.includes("\\sqrt{1+\\sqrt{\\bbox[#ecfdf5")) {
-  throw new Error(`Expected inner root green bbox, got: ${st.previewLatex}`);
-}
-st = readOut(ex.editor_enter()); // 闭合内层根号 -> `▸r1+▸rx;`
-if (!st.previewLatex.startsWith("\\sqrt{\\bbox[#ecfdf5")) {
-  throw new Error(`Expected outer root green bbox after 1st Enter, got: ${st.previewLatex}`);
-}
-st = readOut(ex.editor_enter()); // 闭合外层根号 -> `▸r1+▸rx;;`
-if (st.previewLatex.includes("#ecfdf5")) {
-  throw new Error(`Expected no active slot bbox at root after 2nd Enter, got: ${st.previewLatex}`);
+// 4b) Instantiate real wasm-bindgen Engine and verify single-source behavior
+const wasmGlue = await import(pathToFileURL(path.join(wasmPkgOutDir, "mathslot_wasm.js")).href);
+await wasmGlue.default({ module_or_path: wasmBytes });
+assert.equal(wasmGlue.Engine.engineVersion(), EXPECTED_ENGINE_VERSION);
+
+const engine = new wasmGlue.Engine();
+try {
+  const catalog = JSON.parse(engine.catalogJson());
+  assert.equal(catalog.commands.length, 121, "Catalog must expose 121 single-source commands");
+
+  const presets = JSON.parse(engine.presetsJson());
+  assert.equal(presets.presets.length, 88, "Presets must expose 88 single-source presets");
+
+  // Type stream fraction: ▸fa;b; -> \frac{a}{b}
+  for (const ch of ["\u25b8", "f", "a", ";", "b", ";"]) {
+    engine.dispatch(JSON.stringify({ KeyInput: ch }));
+  }
+  const fracSnap = JSON.parse(engine.snapshot());
+  assert.equal(fracSnap.latex, "\\frac{a}{b}");
+
+  // Verify LaTeX error blocks overwrite (A-OBS-005 / D-123)
+  const blockedRes = JSON.parse(engine.dispatch(JSON.stringify({ ImportLatex: "{1 + 2" })));
+  assert.equal(blockedRes.snapshot.last_import.blocked, true);
+  assert.equal(blockedRes.snapshot.latex, "\\frac{a}{b}");
+
+  // Verify all 88 presets expand cleanly without stream errors (A-OBS-004 / D-126)
+  for (const preset of presets.presets) {
+    const res = JSON.parse(engine.dispatch(JSON.stringify({ LoadStreamSource: preset.source })));
+    assert.equal(
+      res.snapshot.has_pending_command,
+      false,
+      `Preset ${preset.id} left pending command`,
+    );
+    assert.ok(
+      !res.snapshot.latex.includes("\u25b8"),
+      `Preset ${preset.id} leaked raw stream marker in latex: ${res.snapshot.latex}`,
+    );
+    const streamErrors = res.snapshot.diagnostics.filter(
+      (d) => d.code === "PENDING_COMMAND" || d.code === "UNKNOWN_COMMAND",
+    );
+    assert.equal(
+      streamErrors.length,
+      0,
+      `Preset ${preset.id} produced stream errors: ${JSON.stringify(streamErrors)}`,
+    );
+    assert.ok(res.snapshot.latex.length > 0, `Preset ${preset.id} expanded to empty latex`);
+  }
+
+  assert.equal(engine.wrapLatex("x^2", "inline_dollar"), "$x^2$");
+} finally {
+  engine.free();
 }
 
-// 2) 验证三槽位极限自动生成 `\to`
-st = withStr("▸lx;0;▸fsin x;x;", (p, l) => readOut(ex.editor_sync_text(p, l, 16, 1)));
-if (st.latex !== "\\lim_{x \\to 0} \\frac{\\sin x}{x}") {
-  throw new Error(`Unexpected limit LaTeX: ${st.latex}`);
-}
-
-// 3) 验证多级分层导航 c b 与 a 行首
-st = withStr("▸i0;▸i1;t;g(u) du;;f(x) dx", (p, l) =>
-  readOut(ex.editor_sync_text(p, l, 26, 1))
+console.log(
+  `✓ Obsidian plugin built and verified successfully: obsidian-mathslot/main.js (${registeredCommands.length} commands, 121 catalog entries, 88/88 presets)`,
 );
-readOut(ex.editor_toggle_esc());
-st = readOut(ex.editor_esc_char("c".codePointAt(0)));
-if (!st.escActive || st.escPath.join("") !== "c") {
-  throw new Error("Expected composite slot [c+] drill-down");
-}
-st = readOut(ex.editor_esc_char("b".codePointAt(0)));
-if (st.escActive || st.cursorChar !== 7) {
-  throw new Error(`Expected cursorChar=7 after Esc c b, got ${st.cursorChar}`);
-}
-readOut(ex.editor_toggle_esc());
-st = readOut(ex.editor_esc_char("a".codePointAt(0)));
-if (st.cursorChar !== 0) {
-  throw new Error(`Expected cursorChar=0 after nav a, got ${st.cursorChar}`);
-}
-
-// 4) 验证前置插入极限自动包裹已有式子为主体
-ex.editor_reset();
-st = withStr("▸fsin x;x; = 1", (p, l) => readOut(ex.editor_sync_text(p, l, 15, 1)));
-readOut(ex.editor_jump_start()); // cursor -> 0
-// 在行首插入 `▸l`
-st = withStr("▸l▸fsin x;x; = 1", (p, l) => readOut(ex.editor_sync_text(p, l, 2, 1)));
-if (st.source !== "▸l;;▸fsin x;x;; = 1" || st.cursorChar !== 2) {
-  throw new Error(`Expected wrapped limit: "▸l;;▸fsin x;x;; = 1" at cursor 2, got: ${st.source} at ${st.cursorChar}`);
-}
-
-// 5) 验证 2D 上下方向键穿槽与行尾 [;]、上一位置 [-]
-ex.editor_reset();
-st = withStr("▸fnum;den;", (p, l) => readOut(ex.editor_sync_text(p, l, 5, 1))); // num|
-st = readOut(ex.editor_arrow_down()); // den|
-if (st.cursorChar !== 9) throw new Error(`Expected cursorChar=9 on ArrowDown, got ${st.cursorChar}`);
-st = readOut(ex.editor_arrow_up()); // num|
-if (st.cursorChar !== 5) throw new Error(`Expected cursorChar=5 on ArrowUp, got ${st.cursorChar}`);
-readOut(ex.editor_toggle_esc());
-st = readOut(ex.editor_esc_char(";".codePointAt(0))); // jump to line end
-if (st.cursorChar !== 10) throw new Error(`Expected cursorChar=10 on nav ;, got ${st.cursorChar}`);
-st = readOut(ex.editor_jump_back()); // jump back to 5
-if (st.cursorChar !== 5) throw new Error(`Expected cursorChar=5 on jump_back, got ${st.cursorChar}`);
-
-// 6) 验证自定义格式与片段保存/展开
-ex.editor_reset();
-const customLibJson = JSON.stringify({
-  custom_formats: [
-    {
-      item_key: "g",
-      label: "同余式",
-      glyph_hint: "a≡b(m)",
-      slot_roles: ["左项", "右项", "模数"],
-      latex_template: "$1 \\equiv $2 \\pmod{$3}",
-      scheme_a_name: "cong"
-    }
-  ],
-  snippets: [
-    {
-      item_key: "d",
-      label: "判别式",
-      stream_source: "▸rb^2 - 4ac;"
-    }
-  ]
-});
-st = withStr(customLibJson, (p, l) => readOut(ex.library_set_json(p, l)));
-st = withStr("▸kga^p;a;p;", (p, l) => readOut(ex.editor_sync_text(p, l, 10, 1)));
-if (st.latex !== "a^{p} \\equiv a \\pmod{p}") {
-  throw new Error(`Unexpected custom format latex: ${st.latex}`);
-}
-// 调用片段
-st = withStr("x = ▸td", (p, l) => readOut(ex.editor_sync_text(p, l, 7, 1)));
-if (st.source !== "x = ▸rb^2 - 4ac;" || st.latex !== "x = \\sqrt{b^{2} - 4ac}") {
-  throw new Error(`Unexpected snippet expansion: source=${st.source}, latex=${st.latex}`);
-}
-
-// 7) 导航 h 标签可达 + 括号自动配对/跳过/导航锚点
-ex.editor_reset();
-st = withStr("▸f1;2;▸f3;4;▸f5;6;▸f7;8;", (p, l) =>
-  readOut(ex.editor_sync_text(p, l, 25, 1))
-);
-readOut(ex.editor_toggle_esc());
-st = readOut(ex.editor_esc_char("h".codePointAt(0)));
-if (st.escActive || st.cursorChar === 0) {
-  throw new Error(`h label must reach its own slot, got cursor=${st.cursorChar}`);
-}
-
-ex.editor_reset();
-st = withStr("(", (p, l) => readOut(ex.editor_sync_text(p, l, 1, 1)));
-if (st.source !== "()" || st.cursorChar !== 1) {
-  throw new Error(`Expected auto pair "()", got ${st.source} at ${st.cursorChar}`);
-}
-st = withStr("())", (p, l) => readOut(ex.editor_sync_text(p, l, 2, 1)));
-if (st.source !== "()" || st.cursorChar !== 2) {
-  throw new Error(`Expected type-through to "()", got ${st.source} at ${st.cursorChar}`);
-}
-
-ex.editor_reset();
-st = withStr("a(b+c)d", (p, l) => readOut(ex.editor_sync_text(p, l, 3, 1)));
-if (!st.enclosingBracket || st.enclosingBracket.open !== 1) {
-  throw new Error(`Expected enclosingBracket open=1, got ${JSON.stringify(st.enclosingBracket)}`);
-}
-readOut(ex.editor_toggle_esc());
-st = readOut(ex.editor_esc_char("(".codePointAt(0)));
-if (st.cursorChar !== 2) {
-  throw new Error(`Expected bracket open anchor at 2, got ${st.cursorChar}`);
-}
-st = readOut(ex.editor_esc_char(")".codePointAt(0)));
-if (st.cursorChar !== 6) {
-  throw new Error(`Expected bracket close anchor at 6, got ${st.cursorChar}`);
-}
-
-// 8) 内联跳转补齐分号后可撤销
-ex.editor_reset();
-st = withStr("▸i0;▸f1", (p, l) => readOut(ex.editor_sync_text(p, l, 6, 1)));
-st = withStr("▸i0;▸f1▸jd", (p, l) => readOut(ex.editor_sync_text(p, l, 10, 1)));
-if (st.source !== "▸i0;▸f1;;;") {
-  throw new Error(`Expected materialized semis, got ${st.source}`);
-}
-st = readOut(ex.editor_undo());
-if (st.source !== "▸i0;▸f1") {
-  throw new Error(`Expected undo to restore clean source, got ${st.source}`);
-}
-
-console.log("✓ Obsidian plugin built and verified successfully: obsidian-mathslot/main.js");

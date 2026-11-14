@@ -1444,7 +1444,11 @@ dependencies = [
 name = "mathslot-wasm"
 version = "0.7.0"
 dependencies = [
- "mathslot-core",
+ "mathslot-app",
+ "mathslot-command",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

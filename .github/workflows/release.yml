@@ -135,6 +135,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install frontend dependencies (packages/ui)
+        run: npm ci --prefix packages/ui
+
+      - name: Install wasm-bindgen-cli 0.2.130
+        run: |
+          if [ "$(wasm-bindgen --version 2>/dev/null || true)" != "wasm-bindgen 0.2.130" ]; then
+            cargo install --locked wasm-bindgen-cli --version 0.2.130
+          fi
+
       - name: Build and Bundle Obsidian Plugin
         run: node obsidian-mathslot/scripts/build.mjs
 

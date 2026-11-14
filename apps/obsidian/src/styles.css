@@ -1,0 +1,158 @@
+.ms-obsidian-modal .modal-content {
+  padding: 0;
+}
+
+.mathslot-obsidian-host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--ms-bg);
+  color: var(--ms-text);
+  font-family: var(--font-text, var(--ms-font-sans, sans-serif));
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 460px;
+}
+
+.ms-obsidian-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ms-border);
+}
+
+.ms-obsidian-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ms-obsidian-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ms-text);
+}
+
+.ms-obsidian-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--ms-surface-2);
+  color: var(--ms-text-muted);
+  border: 1px solid var(--ms-border);
+}
+
+.ms-obsidian-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ms-obsidian-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: var(--ms-radius-sm, 6px);
+  border: 1px solid var(--ms-border);
+  background: var(--ms-surface);
+  color: var(--ms-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ms-obsidian-btn:hover {
+  border-color: var(--ms-accent);
+  background: var(--ms-surface-2);
+}
+
+.ms-obsidian-btn.is-primary {
+  background: var(--ms-accent);
+  border-color: var(--ms-accent);
+  color: var(--ms-on-accent);
+}
+
+.ms-obsidian-btn.is-active {
+  border-color: var(--ms-accent);
+  color: var(--ms-accent);
+}
+
+.ms-obsidian-status {
+  font-size: 12px;
+  color: var(--ms-text-muted);
+  min-height: 18px;
+}
+
+.ms-obsidian-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.ms-obsidian-main,
+.ms-obsidian-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mathslot-obsidian-host.is-mobile .ms-obsidian-workspace {
+  grid-template-columns: 1fr;
+}
+
+.ms-obsidian-codeblock {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: var(--ms-radius-sm, 6px);
+  border: 1px solid var(--ms-border);
+  background: var(--ms-surface);
+}
+
+.ms-obsidian-degraded-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--ms-warn);
+  color: var(--ms-warn);
+  background: var(--ms-surface-2);
+}
+
+@media (max-width: 480px) {
+  .mathslot-obsidian-host {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .ms-obsidian-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .ms-obsidian-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ms-obsidian-btn {
+    min-height: 40px;
+    width: 100%;
+  }
+}

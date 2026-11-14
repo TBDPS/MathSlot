@@ -260,3 +260,101 @@
     --ms-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
   }
 }
+
+/* Obsidian Host CSS Variable Mapping (D-124 / A-OBS-001) */
+[data-host='obsidian'],
+[data-host='obsidian'] [data-theme],
+.mathslot-obsidian-host,
+.mathslot-obsidian-host [data-theme] {
+  --ms-font-sans: var(--font-interface, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  --ms-font-mono: var(--font-monospace, 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace);
+
+  --ms-bg: var(--background-primary);
+  --ms-surface: var(--background-secondary);
+  --ms-surface-elevated: var(--background-secondary-alt, var(--background-secondary));
+  --ms-surface-muted: var(--background-modifier-hover);
+  --ms-border: var(--background-modifier-border);
+  --ms-border-strong: var(--background-modifier-border-hover, var(--background-modifier-border));
+
+  --ms-fg: var(--text-normal);
+  --ms-fg-muted: var(--text-muted);
+  --ms-fg-subtle: var(--text-faint, var(--text-muted));
+
+  --ms-accent: var(--interactive-accent);
+  --ms-accent-hover: var(--interactive-accent-hover, var(--interactive-accent));
+  --ms-accent-contrast: var(--text-on-accent);
+  --ms-accent-soft: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-primary));
+  --ms-accent-fg: var(--text-accent, var(--interactive-accent));
+  --ms-focus-ring: var(--interactive-accent);
+
+  --ms-danger-bg: var(--text-error);
+  --ms-danger-hover-bg: color-mix(in srgb, var(--text-error) 85%, var(--background-primary));
+  --ms-danger-fg: var(--text-on-accent);
+
+  --ms-cmd-bg: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary));
+  --ms-cmd-border: var(--interactive-accent);
+  --ms-cmd-fg: var(--text-accent, var(--interactive-accent));
+
+  --ms-kbd-bg: var(--background-secondary-alt, var(--background-secondary));
+  --ms-kbd-border: var(--background-modifier-border);
+  --ms-kbd-fg: var(--text-normal);
+  --ms-card-hover-bg: var(--background-modifier-hover);
+
+  --ms-slot-empty-bg: color-mix(in srgb, var(--text-warning) 16%, var(--background-primary));
+  --ms-slot-empty-border: var(--text-warning);
+  --ms-slot-empty-fg: var(--text-warning);
+
+  --ms-slot-active-bg: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-primary));
+  --ms-slot-active-border: var(--interactive-accent);
+  --ms-slot-active-fg: var(--text-normal);
+
+  --ms-slot-filled-bg: var(--background-secondary);
+  --ms-slot-filled-border: var(--background-modifier-border);
+  --ms-slot-filled-fg: var(--text-normal);
+
+  --ms-status-info-bg: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary));
+  --ms-status-info-border: var(--interactive-accent);
+  --ms-status-info-fg: var(--text-accent, var(--interactive-accent));
+
+  --ms-status-success-bg: color-mix(in srgb, var(--text-success) 14%, var(--background-primary));
+  --ms-status-success-border: var(--text-success);
+  --ms-status-success-fg: var(--text-success);
+
+  --ms-status-warn-bg: color-mix(in srgb, var(--text-warning) 14%, var(--background-primary));
+  --ms-status-warn-border: var(--text-warning);
+  --ms-status-warn-fg: var(--text-warning);
+
+  --ms-status-error-bg: color-mix(in srgb, var(--text-error) 14%, var(--background-primary));
+  --ms-status-error-border: var(--text-error);
+  --ms-status-error-fg: var(--text-error);
+
+  --ms-mode-idle-bg: var(--background-secondary);
+  --ms-mode-idle-fg: var(--text-normal);
+  --ms-mode-prefix-bg: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
+  --ms-mode-prefix-fg: var(--text-accent, var(--interactive-accent));
+  --ms-mode-nav-bg: color-mix(in srgb, var(--text-success) 18%, var(--background-primary));
+  --ms-mode-nav-fg: var(--text-success);
+  --ms-mode-ime-bg: color-mix(in srgb, var(--interactive-accent) 22%, var(--background-secondary));
+  --ms-mode-ime-fg: var(--text-normal);
+
+  --ms-preview-bg: var(--background-primary);
+  --ms-preview-fg: var(--text-normal);
+  --ms-preview-border: var(--background-modifier-border);
+  --ms-badge-degraded-bg: color-mix(in srgb, var(--text-warning) 16%, var(--background-primary));
+  --ms-badge-degraded-border: var(--text-warning);
+  --ms-badge-degraded-fg: var(--text-warning);
+  --ms-diag-code-bg: var(--background-secondary);
+  --ms-diag-code-fg: var(--text-normal);
+}
+
+.theme-light [data-host='obsidian'],
+[data-host='obsidian'][data-theme='light'],
+.theme-light .mathslot-obsidian-host {
+  color-scheme: light;
+}
+
+.theme-dark [data-host='obsidian'],
+[data-host='obsidian'][data-theme='dark'],
+.theme-dark .mathslot-obsidian-host {
+  color-scheme: dark;
+}

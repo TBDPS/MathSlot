@@ -9,13 +9,13 @@ description = "Pure headless state machine and event-command-effect core for Mat
 [dependencies]
 mathslot-command = { path = "../mathslot-command" }
 mathslot-doc = { path = "../mathslot-doc" }
-mathslot-render = { path = "../mathslot-render" }
+mathslot-latex = { path = "../mathslot-latex" }
+mathslot-render = { path = "../mathslot-render", default-features = false }
 mathslot-syntax = { path = "../mathslot-syntax" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 
 [dev-dependencies]
 mathslot-core = { path = "../mathslot-core" }
-mathslot-latex = { path = "../mathslot-latex" }
 mathslot-store = { path = "../mathslot-store" }
 serde_json = "1"

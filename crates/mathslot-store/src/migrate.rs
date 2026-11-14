@@ -223,6 +223,22 @@ pub fn dry_run_migrate(
     }
 }
 
+fn is_legacy_d126_builtin_source(preset_id: &str, legacy_source: &str) -> bool {
+    matches!(
+        (preset_id, legacy_source),
+        (
+            "preset-fundamental-theorem-calculus",
+            "▸ia;b;f'(x) dx = ▸kgf(x);a;b; = f(b) - f(a)",
+        ) | (
+            "preset-damped-harmonic-oscillator",
+            "m ▸ahx; + ▸gg ▸aex; + k x = 0",
+        ) | (
+            "preset-hodge-star-inner-product",
+            "▸ga ▸qg *▸gb = ▸kd▸ga;▸gb; ▸go",
+        )
+    )
+}
+
 fn migrate_v1_v2(
     obj: &serde_json::Map<String, Value>,
     from_version: u32,
@@ -334,7 +350,9 @@ fn migrate_v1_v2(
                         hidden: false,
                         name: (name != preset.name).then_some(name),
                         category: (category != preset.category).then_some(category),
-                        source: (source != preset.source).then_some(source),
+                        source: (source != preset.source
+                            && !is_legacy_d126_builtin_source(&preset.id, &source))
+                        .then_some(source),
                         desc: (desc != preset.desc).then_some(desc),
                         tags: (tags != preset.tags).then_some(tags),
                     };

@@ -421,4 +421,15 @@
     outline: 2px solid var(--ms-focus-ring);
     outline-offset: 2px;
   }
+
+  @media (max-width: 480px) {
+    .ms-nav-shell {
+      padding: 8px;
+    }
+
+    .ms-nav-toggle,
+    .ms-tree-item {
+      min-height: 36px;
+    }
+  }
 </style>

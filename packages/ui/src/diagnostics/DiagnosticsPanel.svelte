@@ -492,4 +492,19 @@
     font-size: 0.78rem;
     color: var(--ms-fg-muted);
   }
+
+  @media (max-width: 480px) {
+    .ms-diag-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .ms-diag-actions {
+      flex-wrap: wrap;
+    }
+
+    .ms-diag-btn {
+      min-height: 36px;
+    }
+  }
 </style>

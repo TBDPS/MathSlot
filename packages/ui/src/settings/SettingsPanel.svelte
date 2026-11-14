@@ -1190,4 +1190,39 @@
   .ms-btn-danger-outline:hover:not(:disabled) {
     background: var(--ms-status-error-bg);
   }
+
+  @media (max-width: 480px) {
+    .ms-settings-shell {
+      padding: 10px;
+    }
+
+    .ms-settings-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .ms-segmented,
+    .ms-segmented-2,
+    .ms-segmented-4 {
+      grid-template-columns: 1fr;
+    }
+
+    .ms-btn,
+    .ms-choice-card {
+      min-height: 36px;
+    }
+
+    .ms-shortcut-info {
+      min-width: 0;
+    }
+
+    .ms-shortcut-controls,
+    .ms-shortcut-input {
+      width: 100%;
+    }
+
+    .ms-settings-footer {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
 </style>

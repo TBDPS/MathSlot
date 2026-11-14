@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "exactOptionalPropertyTypes": false,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": false,
+    "verbatimModuleSyntax": true,
+    "types": ["vitest/globals"],
+    "paths": {
+      "@mathslot/ui": ["../../packages/ui/src/index.ts"],
+      "@mathslot/ui/tokens.css": ["../../packages/ui/src/theme/tokens.css"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.d.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/wasm-pkg"]
+}

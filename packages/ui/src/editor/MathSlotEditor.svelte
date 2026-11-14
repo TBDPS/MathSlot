@@ -513,4 +513,22 @@
     font-size: 0.72rem;
     text-transform: uppercase;
   }
+
+  @media (max-width: 480px) {
+    .ms-editor-shell {
+      padding: 8px;
+    }
+
+    .ms-editor-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .ms-slot-pill {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+    }
+  }
 </style>
