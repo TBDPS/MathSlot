@@ -55,10 +55,10 @@
     ]
   },
   "gate": "G3",
-  "round": 18,
+  "round": 19,
   "active_task": null,
   "next_task": "T3.1",
-  "last_verdict": "PASS",
+  "last_verdict": "BLOCK",
   "open_p1": [
     "D-007"
   ],

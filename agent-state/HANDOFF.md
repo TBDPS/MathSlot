@@ -4,25 +4,25 @@
 
 ## 当前
 
-- 轮次：18
-- Gate：G3（Gate `G2` 已正式收口 **PASS**）
-- 当前任务：`T2.5` 修复轮（Round 18）验收 **PASS**，闭环 `D-108`、`D-109` 与对照测试盲区，签署 `GATE-G2.md`
-- 下一步：启动 Gate G3 首轮 `T3.1`（按规范 §14：桌面端编辑器接入 `app-core`，替换 `src/app.rs` 内 `StreamEditor` 直调、`F-012`/`D-009` 单行输入不折行、`D-015` 字体与候选词、及端到端状态机同步）
+- 轮次：19
+- Gate：G3（**STOPPED**：在 `T3.1` 审计阶段因 `OPEN_SPEC` + `BLOCKED_ENV` 按规程停机等待人工决策）
+- 当前任务：`T3.1` 审计完成（`AUD-19.md`），已产出 `OPEN-0002-g3-ui-target-and-env.md`、`STOPPED` 与 `OVERNIGHT_REPORT.md`
+- 下一步：人工批复 [`OPEN-0002-g3-ui-target-and-env.md`](file:///home/mat/Projects/mathslot-next/agent-state/decisions/OPEN-0002-g3-ui-target-and-env.md)（确定 `OPEN-001..003` 选择 `Tauri 2 + Svelte 5 + CodeMirror 6` 并补齐离线依赖/系统库，或批准修订规范改回原生 `egui` 路线），随后移除 `agent-state/STOPPED` 恢复 `T3.1`。
 
 ## 本轮做过什么
 
-- 决策 `ADR-0021`（含作用域修订）：批准修复 `mathslot-syntax` 的 `D-108`（控制字与字母粘连）与 `D-109`（`\Vert`/`\lfloor`/`\rfloor`/`\lceil`/`\rceil` 降级 `Delim::Empty`），并允许 `crates/mathslot-doc/src/transaction.rs` 复用共享边界逻辑及更新 `parity_harness_tests.rs:216`。
-- 实现提交 `7156ff5`：`T2.5: fix D-108 macro spacing, D-109 delimiter preservation, and parity assertions`，修复 `Printer::to_canonical_latex` / `join_latex_without_macro_gluing`、`Transaction::apply_insert_text`、`Delim::{DoublePipe, Floor, Ceil}` 词法/语法支持，消除 `P-PRESET-88` 同义反复，验证全部 84 条 v1 兼容预置字符流输入及 `StreamEditor::from_source("a b")` 空白收敛。
-- 验收产出 `VER-18.md`（**PASS**）与 `GATE-G2.md`：全仓 214 passed / 0 failed / 1 ignored（仅 `D-007`），348 项对照场景 `unexpected_mismatches=0`，完整 `scripts/agent/acceptance.sh`（exit 0）通过，Gate G2 正式收口。
+- 独立审计 `AUD-19.md`（`BLOCK` / `BLOCKED_ENV` + `OPEN_SPEC`）：
+  - 核实 `docs/LLM_IMPLEMENTATION_SPEC.md` §14 `T3.1` 原文为 `packages/ui` 的 CodeMirror 6 编辑器、`T3.5` 为 `apps/desktop`（Tauri 2），且附录 C `OPEN-001..003` 从未闭环（纠正了 Round 18 `HANDOFF.md` 对 `T3.1` 与 `D-015` 的语义偏差）。
+  - 实测环境缺少离线构建能力：npm 离线缓存缺 `codemirror` / `@codemirror/view` / `@tauri-apps/api` / `mathjax` / `mathjax-full`（`ENOTCACHED`），Cargo 缓存缺 `tauri` / `wry` / `tao` / `serde-wasm-bindgen`，系统缺 `pnpm` / `cargo-tauri` / `wasm-pack` / `wasm-opt` / `webkit2gtk-4.1` / `gtk+-3.0`。
+- 依 `AGENTS.md` 硬规则 2 与夜间停止条件 §7.2 / §7.4，创建 `OPEN-0002-g3-ui-target-and-env.md`、`agent-state/STOPPED` 与 `agent-state/OVERNIGHT_REPORT.md` 并停机。
 
 ## 证据在哪
 
-- `agent-state/decisions/ADR-0021-fix-syntax-macro-spacing-delims-and-parity-t2.5.md`
-- `agent-state/verify/VER-18.md`（Verdict: PASS）
-- `agent-state/verify/GATE-G2.md`（Gate G2 收口验收 PASS）
-- Commit：`7156ff5` (`T2.5: fix D-108 macro spacing, D-109 delimiter preservation, and parity assertions`)
-- 门禁：`cargo test --workspace --offline` (214 passed, 1 ignored)；`scripts/agent/acceptance.sh` (PASS=4 FAIL=0)
+- `agent-state/verify/GATE-G2.md`（Gate G2 收口 PASS）
+- `agent-state/audits/AUD-19.md`（`BLOCKED_ENV` + `OPEN_SPEC` 实测证据）
+- `agent-state/decisions/OPEN-0002-g3-ui-target-and-env.md`
+- `agent-state/STOPPED` 与 `agent-state/OVERNIGHT_REPORT.md`
 
 ## 下一轮入口
 
-- 先读 `docs/LLM_IMPLEMENTATION_SPEC.md` §14（`T3.1..T3.7` 与 Gate G3 退出条件）及 §4/§12 相关缺陷，派 `auditor` 审计 `T3.1`（桌面端 `src/app.rs` / `src/modals.rs` / `crates/mathslot-core` 与 `mathslot-app` 边界、`D-009` 单行输入、`D-015` 字体等），产出 `agent-state/audits/AUD-19.md`。
+- 人工决定 `OPEN-0002`（选项 A 补齐环境/缓存，或选项 B 修订规范 §5/§11/§14）后，删除 `agent-state/STOPPED` 并执行 `scripts/agent/resume.sh` 推进 Gate G3 `T3.1`。
