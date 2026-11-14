@@ -102,19 +102,19 @@
       "D-148",
       "D-149",
       "D-150",
-      "D-151"
+      "D-151",
+      "D-152",
+      "D-153",
+      "D-154",
+      "D-155"
     ]
   },
   "gate": "G4",
-  "round": 34,
-  "active_task": "T4.3",
-  "next_task": "T4.3",
+  "round": 35,
+  "active_task": "T4.4",
+  "next_task": "T4.4",
   "last_verdict": "PASS",
-  "open_p1": [
-    "D-152",
-    "D-153",
-    "D-154"
-  ],
+  "open_p1": [],
   "new_defects": [
     "D-101",
     "D-102",
