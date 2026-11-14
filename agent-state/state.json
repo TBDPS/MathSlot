@@ -117,19 +117,19 @@
       "D-163",
       "D-164",
       "D-165",
-      "D-166"
+      "D-166",
+      "D-167",
+      "D-168",
+      "D-169",
+      "D-170"
     ]
   },
   "gate": "G4",
-  "round": 37,
-  "active_task": "T4.6",
-  "next_task": "T4.6",
-  "last_verdict": "BLOCK",
-  "open_p1": [
-    "D-167",
-    "D-168",
-    "D-169"
-  ],
+  "round": 38,
+  "active_task": "GATE-G4",
+  "next_task": "GATE-G4",
+  "last_verdict": "PASS",
+  "open_p1": [],
   "new_defects": [
     "D-101",
     "D-102",
