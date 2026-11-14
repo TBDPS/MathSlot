@@ -341,6 +341,7 @@
 
   .ms-preview-toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -351,8 +352,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    min-width: 0;
-    flex: 1 1 auto;
+    min-width: min(220px, 100%);
+    flex: 1 1 220px;
     overflow: hidden;
   }
 

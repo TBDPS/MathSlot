@@ -448,4 +448,135 @@ describe('MathSlotEditor (T3.1)', () => {
     expect(onFocusEditor).toHaveBeenCalledTimes(1);
     expect(events).not.toContainEqual({ KeyInput: 'i' });
   });
+
+  it('D-127: external snapshot.source updates CM6 doc without re-emitting KeyInput and routes Backspace/Delete/Enter/Mod+Z to engine', async () => {
+    const { client, events } = createMockClient();
+    const onSaveSnippet = vi.fn();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    let editorView: {
+      state: { doc: { toString(): string } };
+      contentDOM: HTMLElement;
+      focus: () => void;
+    } | null = null;
+
+    const app = mount(MathSlotEditor, {
+      target,
+      props: {
+        client,
+        onSaveSnippet,
+        onViewReady: (view) => {
+          editorView = view;
+        },
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    // External snapshot update (e.g., ApplyCard / LoadStreamSource / Undo) updates CM6 doc
+    app.setSnapshot({
+      ...createEmptySnapshot(),
+      latex: '\\frac{1}{2}',
+      source: '\\frac{1}{2}',
+      cursor_char: 11,
+    });
+    await tick();
+
+    expect(editorView!.state.doc.toString()).toBe('\\frac{1}{2}');
+    expect(events).toHaveLength(0);
+
+    // Editing keys route directly to engine dispatch
+    editorView!.focus();
+    const enterEvt = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    editorView!.contentDOM.dispatchEvent(enterEvt);
+    const backspaceEvt = new KeyboardEvent('keydown', {
+      key: 'Backspace',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(backspaceEvt);
+    const deleteEvt = new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true });
+    editorView!.contentDOM.dispatchEvent(deleteEvt);
+    const undoEvt = new KeyboardEvent('keydown', {
+      key: 'z',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(undoEvt);
+    const redoEvt = new KeyboardEvent('keydown', {
+      key: 'Z',
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(redoEvt);
+    const snippetEvt = new KeyboardEvent('keydown', {
+      key: 'S',
+      ctrlKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(snippetEvt);
+    await tick();
+
+    expect(events).toContainEqual({ KeyDown: 'Enter' });
+    expect(events).toContainEqual({ KeyDown: 'Backspace' });
+    expect(events).toContainEqual({ KeyDown: 'Delete' });
+    expect(events).toContain('Undo');
+    expect(events).toContain('Redo');
+    expect(onSaveSnippet).toHaveBeenCalledTimes(1);
+  });
+
+  it('D-127: beforeinput insertText dispatches non-keydown chars like ▸ without duplicating keydown chars', async () => {
+    const { client, events } = createMockClient();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    let editorView: {
+      contentDOM: HTMLElement;
+    } | null = null;
+
+    const app = mount(MathSlotEditor, {
+      target,
+      props: {
+        client,
+        onViewReady: (view) => {
+          editorView = view;
+        },
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    editorView!.contentDOM.dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: '▸',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    editorView!.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true }),
+    );
+    editorView!.contentDOM.dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: 'f',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await tick();
+
+    expect(events).toEqual([{ KeyInput: '▸' }, { KeyInput: 'f' }]);
+  });
 });

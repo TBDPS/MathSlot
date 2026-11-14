@@ -1,6 +1,6 @@
-import { Compartment, Facet, type Extension } from '@codemirror/state';
+import { Compartment, Facet, Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap } from '@codemirror/commands';
 import type { AppEvent, NavAction, ShortcutSettings } from '../client/engine';
 import { DEFAULT_SHORTCUTS, matchesShortcut } from '../settings/shortcuts';
 
@@ -45,6 +45,7 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
   const tabMovesFocus = options.tabMovesFocus ?? true;
   const initialShortcuts = resolveShortcutSettings(options.shortcuts);
   let composing = false;
+  let lastKeydownInputChar: string | null = null;
 
   const setComposing = (next: boolean) => {
     composing = next;
@@ -53,6 +54,7 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
 
   const domHandlers = EditorView.domEventHandlers({
     compositionstart() {
+      lastKeydownInputChar = null;
       setComposing(true);
       return false;
     },
@@ -62,11 +64,13 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
       return false;
     },
     compositionend(event) {
+      lastKeydownInputChar = null;
       setComposing(false);
       options.dispatchEvent({ ImeCompositionCommit: event.data ?? '' });
       return false;
     },
     paste(event, view) {
+      lastKeydownInputChar = null;
       const text = event.clipboardData?.getData('text/plain') ?? '';
       event.preventDefault();
       if (text.length > 0) {
@@ -80,7 +84,25 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
       options.dispatchEvent({ Paste: text });
       return true;
     },
+    beforeinput(event, view) {
+      if (composing || view.composing) {
+        lastKeydownInputChar = null;
+        return false;
+      }
+      if (event.inputType === 'insertText' && typeof event.data === 'string' && event.data.length > 0) {
+        if (lastKeydownInputChar === event.data) {
+          lastKeydownInputChar = null;
+          return false;
+        }
+        lastKeydownInputChar = null;
+        for (const ch of event.data) {
+          options.dispatchEvent({ KeyInput: ch });
+        }
+      }
+      return false;
+    },
     keydown(event, view) {
+      lastKeydownInputChar = null;
       // A-EDIT-007: Never intercept or mutate during active IME composition
       if (composing || view.composing || event.isComposing) {
         return false;
@@ -120,7 +142,11 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
         }
         if (matchesShortcut(event, activeShortcuts.save_snippet)) {
           event.preventDefault();
-          options.shortcutCallbacks?.onSaveSnippet?.();
+          if (options.shortcutCallbacks?.onSaveSnippet) {
+            options.shortcutCallbacks.onSaveSnippet();
+          } else {
+            options.dispatchEvent('RequestSaveSnippet');
+          }
           return true;
         }
         if (matchesShortcut(event, activeShortcuts.open_settings)) {
@@ -171,11 +197,51 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
       }
 
       if (event.key === 'Enter') {
-        // D-009: Allow native multiline newline in CM6
-        return false;
+        event.preventDefault();
+        options.dispatchEvent({ KeyDown: 'Enter' });
+        return true;
+      }
+
+      if (event.key === 'Backspace') {
+        event.preventDefault();
+        options.dispatchEvent({ KeyDown: 'Backspace' });
+        return true;
+      }
+
+      if (event.key === 'Delete') {
+        event.preventDefault();
+        options.dispatchEvent({ KeyDown: 'Delete' });
+        return true;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        options.dispatchEvent({ KeyDown: 'ArrowLeft' });
+        return true;
+      }
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        options.dispatchEvent({ KeyDown: 'ArrowRight' });
+        return true;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+        const lower = event.key.toLowerCase();
+        if (lower === 'z' && !event.shiftKey) {
+          event.preventDefault();
+          options.dispatchEvent('Undo');
+          return true;
+        }
+        if ((lower === 'z' && event.shiftKey) || (lower === 'y' && !event.shiftKey)) {
+          event.preventDefault();
+          options.dispatchEvent('Redo');
+          return true;
+        }
       }
 
       if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        lastKeydownInputChar = event.key;
         options.dispatchEvent({ KeyInput: event.key });
       }
       return false;
@@ -185,8 +251,7 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
   return [
     navCompartment.of(navModeFacet.of(options.initialNavMode ?? false)),
     shortcutsCompartment.of(shortcutsFacet.of(initialShortcuts)),
-    history(),
-    keymap.of([...defaultKeymap, ...historyKeymap]),
-    domHandlers,
+    Prec.highest(domHandlers),
+    keymap.of([...defaultKeymap]),
   ];
 }

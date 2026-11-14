@@ -41,6 +41,7 @@ pub enum AppEvent {
     ConfirmResetEmptyConfig,
     RequestImportConfig,
     RequestExportConfig,
+    RequestSaveSnippet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

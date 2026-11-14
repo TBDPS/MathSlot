@@ -13,14 +13,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use fd_lock::RwLock;
 use mathslot_core::library::{
-    AutoJoin, CustomFormat, FormulaEntry, FormulaLibrary, FormulaSnippet, LayoutKind, UserLibrary,
+    AutoJoin, CustomFormat, FormulaEntry, FormulaLibrary, FormulaSnippet, LayoutKind,
 };
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
 pub use catalog::{Catalog, CatalogPreset};
-pub use mathslot_core::library::{is_valid_uuid_v7, next_uuid_v7};
+pub use mathslot_core::library::{UserLibrary, is_valid_uuid_v7, next_uuid_v7};
 pub use migrate::{dry_run_migrate, import_formulas_json};
 pub use paths::{
     default_library_path, library_path_for_linux, library_path_for_macos, library_path_for_windows,
@@ -237,6 +237,30 @@ pub struct Settings {
     pub render_backend: RenderBackendPreference,
     #[serde(default)]
     pub shortcuts: ShortcutSettings,
+}
+
+impl Settings {
+    /// Returns the canonical delimiter style key understood by `mathslot_app::DelimiterStyle`.
+    #[must_use]
+    pub fn canonical_delimiter_style(&self) -> &'static str {
+        match self.delimiter_style.as_deref() {
+            Some("inline" | "inline_dollar") => "inline_dollar",
+            Some("display" | "block" | "block_dollar") => "block_dollar",
+            Some("markdown_code" | "code_fence") => "markdown_code",
+            _ => "none",
+        }
+    }
+
+    /// Normalizes and sets `delimiter_style` from any supported alias (`none`, `inline`, `inline_dollar`, `block`, `display`, `block_dollar`, `markdown_code`, `code_fence`).
+    pub fn set_delimiter_style(&mut self, style: &str) {
+        let normalized = match style.trim() {
+            "inline" | "inline_dollar" => "inline_dollar",
+            "display" | "block" | "block_dollar" => "block_dollar",
+            "markdown_code" | "code_fence" => "markdown_code",
+            _ => "none",
+        };
+        self.delimiter_style = Some(normalized.to_owned());
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1018,5 +1042,59 @@ impl Store {
         self.settings = file.settings.clone();
         self.last_revision = Some(rev.clone());
         Ok(rev)
+    }
+
+    /// Restores the primary library file from an explicit backup path, validates/migrates it,
+    /// writes it atomically without disturbing the quarantined `.corrupt-*` file, and refreshes
+    /// cached store `settings` and `last_revision`.
+    pub fn restore_from_backup(
+        &mut self,
+        backup_path: &Path,
+        catalog: &Catalog,
+    ) -> Result<LibraryFile, StoreError> {
+        let raw_str =
+            std::fs::read_to_string(backup_path).map_err(|e| map_io_err(backup_path, e))?;
+        let (file, _report) = dry_run_migrate(&raw_str, catalog)?;
+        let rev = save_atomic(&self.path, &file, WriteCondition::Unconditional)?;
+        self.settings = file.settings.clone();
+        self.last_revision = Some(rev);
+        Ok(file)
+    }
+
+    /// Resets the primary library file to a clean empty v3 document with default settings.
+    pub fn reset_empty(&mut self) -> Result<LibraryFile, StoreError> {
+        let file = LibraryFile::empty_v3();
+        let rev = save_atomic(&self.path, &file, WriteCondition::Unconditional)?;
+        self.settings = file.settings.clone();
+        self.last_revision = Some(rev);
+        Ok(file)
+    }
+
+    /// Serializes the full library (user formulas, overrides, snippets, formats, and settings) as pretty v3 JSON.
+    pub fn export_library_json(
+        &self,
+        lib: &UserLibrary,
+        catalog: &Catalog,
+    ) -> Result<String, StoreError> {
+        let file =
+            LibraryFile::from_user_library_with_settings(lib, catalog, self.settings.clone());
+        let mut out = serde_json::to_string_pretty(&file)
+            .map_err(|e| StoreError::Serialize(e.to_string()))?;
+        out.push('\n');
+        Ok(out)
+    }
+
+    /// Validates/migrates an imported JSON library string (rejecting `is_builtin: true` in user entries
+    /// and unsupported schema versions), atomically persists it, and updates store settings/revision.
+    pub fn import_library_json(
+        &mut self,
+        raw_json: &str,
+        catalog: &Catalog,
+    ) -> Result<(LibraryFile, Option<MigrationReport>), StoreError> {
+        let (file, report) = dry_run_migrate(raw_json, catalog)?;
+        let rev = save_atomic(&self.path, &file, WriteCondition::Unconditional)?;
+        self.settings = file.settings.clone();
+        self.last_revision = Some(rev);
+        Ok((file, report))
     }
 }

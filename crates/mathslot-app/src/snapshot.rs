@@ -334,6 +334,10 @@ pub struct EngineSnapshot {
     pub latex: String,
     pub preview_latex: String,
     pub copy_text: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub cursor_char: usize,
     pub has_pending_command: bool,
     pub is_composing: bool,
     pub is_nav_mode: bool,

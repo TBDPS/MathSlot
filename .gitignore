@@ -28,3 +28,13 @@ agent-state/.autorun-*
 packages/ui/node_modules/
 packages/ui/dist/
 packages/ui/.vite/
+
+# apps/desktop 前端构建、依赖缓存、Playwright 产物与 Tauri target
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/.vite/
+apps/desktop/.e2e-artifacts/
+apps/desktop/playwright-report/
+apps/desktop/test-results/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/

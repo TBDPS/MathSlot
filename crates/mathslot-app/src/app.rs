@@ -28,6 +28,11 @@ pub struct App {
     settings: AppSettings,
     recovery: Option<RecoveryStateSnapshot>,
     last_import: Option<ImportReportSnapshot>,
+    source_text: String,
+    cursor_char: usize,
+    pending_origin: Option<(String, usize)>,
+    source_undo: Vec<(String, usize)>,
+    source_redo: Vec<(String, usize)>,
 }
 
 impl Default for App {
@@ -44,13 +49,21 @@ impl App {
 
     #[must_use]
     pub fn from_doc(doc: Document) -> Self {
+        let editor = Editor::new(doc);
+        let source_text = editor.to_latex();
+        let cursor_char = compute_cursor_char(&editor, &source_text);
         Self {
-            editor: Editor::new(doc),
+            editor,
             state: EditorState::Idle,
             render_seq: 0,
             settings: AppSettings::default(),
             recovery: None,
             last_import: None,
+            source_text,
+            cursor_char,
+            pending_origin: None,
+            source_undo: Vec::new(),
+            source_redo: Vec::new(),
         }
     }
 
@@ -108,6 +121,8 @@ impl App {
                 .settings
                 .delimiter_style
                 .format_latex(&self.editor.copy_text()),
+            source: self.source_text.clone(),
+            cursor_char: self.cursor_char.min(self.source_text.chars().count()),
             has_pending_command: self.editor.has_pending_command(),
             is_composing: self.editor.is_composing(),
             is_nav_mode: self.is_nav_mode(),
@@ -148,7 +163,13 @@ impl App {
                         AppCommand::DeleteBackward
                     }
                 }
-                Key::Enter => AppCommand::Noop,
+                Key::Enter => {
+                    if self.is_nav_mode() {
+                        AppCommand::Noop
+                    } else {
+                        AppCommand::InsertNewline
+                    }
+                }
                 Key::ArrowLeft => AppCommand::MoveCursor(NavAction::StepLeft),
                 Key::ArrowRight => AppCommand::MoveCursor(NavAction::StepRight),
             },
@@ -164,7 +185,13 @@ impl App {
                         AppCommand::DeleteBackward
                     }
                 }
-                EditorAction::Enter => AppCommand::Noop,
+                EditorAction::Enter => {
+                    if self.is_nav_mode() {
+                        AppCommand::Noop
+                    } else {
+                        AppCommand::InsertNewline
+                    }
+                }
             },
             AppEvent::Paste(s) | AppEvent::PasteText(s) => AppCommand::InsertLiteral(s),
             AppEvent::PaletteCard(id) | AppEvent::ApplyCard(id) => {
@@ -210,6 +237,7 @@ impl App {
             AppEvent::ConfirmResetEmptyConfig => AppCommand::ConfirmResetEmptyConfig,
             AppEvent::RequestImportConfig => AppCommand::RequestImportConfig,
             AppEvent::RequestExportConfig => AppCommand::RequestExportConfig,
+            AppEvent::RequestSaveSnippet => AppCommand::SaveSnippet,
         }
     }
 
@@ -222,8 +250,55 @@ impl App {
         match command {
             AppCommand::Noop => {}
             AppCommand::TypeChar(ch) => {
+                let was_pending = self.editor.has_pending_command();
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
+                let prev_latex = if self.source_text.contains('\n') && was_pending {
+                    Some(self.editor.to_latex())
+                } else {
+                    None
+                };
                 match self.editor.type_char(ch) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if self.editor.has_pending_command() {
+                            if !was_pending {
+                                self.pending_origin = Some((prev_source.clone(), prev_cursor));
+                            }
+                            let mut buf = [0u8; 4];
+                            insert_str_at_char(
+                                &mut self.source_text,
+                                &mut self.cursor_char,
+                                ch.encode_utf8(&mut buf),
+                            );
+                        } else if !self.source_text.contains('\n') {
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        } else if let Some(prev_tex) = prev_latex {
+                            // Pending command finished inside a multiline buffer
+                            let now_tex = self.editor.to_latex();
+                            let added = now_tex.strip_prefix(&prev_tex).unwrap_or(&now_tex);
+                            replace_pending_prefix_on_line(
+                                &mut self.source_text,
+                                &mut self.cursor_char,
+                                added,
+                            );
+                        } else {
+                            let mut buf = [0u8; 4];
+                            insert_str_at_char(
+                                &mut self.source_text,
+                                &mut self.cursor_char,
+                                ch.encode_utf8(&mut buf),
+                            );
+                        }
+                        if self.editor.history().undo_len() > prev_undo_len {
+                            let origin = self
+                                .pending_origin
+                                .take()
+                                .unwrap_or((prev_source, prev_cursor));
+                            self.record_undo_transition(origin.0, origin.1, prev_undo_len);
+                        }
+                    }
                     Err(err) => {
                         status_effects.push(Effect::Status(StatusMessage {
                             severity: StatusSeverity::Error,
@@ -235,8 +310,20 @@ impl App {
                 emit_focus = true;
             }
             AppCommand::InsertLiteral(text) => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
                 match self.editor.paste_text(&text) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        self.pending_origin = None;
+                        if self.source_text.contains('\n') || text.contains('\n') {
+                            insert_str_at_char(&mut self.source_text, &mut self.cursor_char, &text);
+                        } else {
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                    }
                     Err(err) => {
                         status_effects.push(Effect::Status(StatusMessage {
                             severity: StatusSeverity::Error,
@@ -247,9 +334,48 @@ impl App {
                 emit_render = true;
                 emit_focus = true;
             }
+            AppCommand::InsertNewline => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
+                match self.editor.paste_text("\n") {
+                    Ok(()) => {
+                        self.pending_origin = None;
+                        insert_str_at_char(&mut self.source_text, &mut self.cursor_char, "\n");
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                    }
+                    Err(err) => {
+                        status_effects.push(Effect::Status(StatusMessage {
+                            severity: StatusSeverity::Error,
+                            message: format!("Insert newline error: {err}"),
+                        }));
+                    }
+                }
+                emit_render = true;
+                emit_focus = true;
+            }
             AppCommand::DeleteBackward => {
+                let was_pending = self.editor.has_pending_command();
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
                 match self.editor.delete_backward() {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if self.editor.has_pending_command()
+                            || was_pending
+                            || self.source_text.contains('\n')
+                        {
+                            remove_char_before(&mut self.source_text, &mut self.cursor_char);
+                            if !self.editor.has_pending_command() {
+                                self.pending_origin = None;
+                            }
+                        } else {
+                            self.pending_origin = None;
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                    }
                     Err(err) => {
                         status_effects.push(Effect::Status(StatusMessage {
                             severity: StatusSeverity::Error,
@@ -261,8 +387,19 @@ impl App {
                 emit_focus = true;
             }
             AppCommand::DeleteForward => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
                 match self.editor.delete_forward() {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if self.editor.has_pending_command() || self.source_text.contains('\n') {
+                            remove_char_at(&mut self.source_text, &mut self.cursor_char);
+                        } else {
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                    }
                     Err(err) => {
                         status_effects.push(Effect::Status(StatusMessage {
                             severity: StatusSeverity::Error,
@@ -274,8 +411,27 @@ impl App {
                 emit_focus = true;
             }
             AppCommand::ApplyPaletteCard { command_id } => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
+                let prev_latex = if self.source_text.contains('\n') {
+                    Some(self.editor.to_latex())
+                } else {
+                    None
+                };
                 match self.editor.apply_palette_card(&command_id) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        self.pending_origin = None;
+                        if let Some(prev_tex) = prev_latex {
+                            let now_tex = self.editor.to_latex();
+                            let added = now_tex.strip_prefix(&prev_tex).unwrap_or(&now_tex);
+                            insert_str_at_char(&mut self.source_text, &mut self.cursor_char, added);
+                        } else {
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                    }
                     Err(err) => {
                         status_effects.push(Effect::Status(StatusMessage {
                             severity: StatusSeverity::Error,
@@ -290,24 +446,40 @@ impl App {
                 NavAction::NextSlot => {
                     let moved = self.editor.nav_next();
                     if moved {
+                        if !self.source_text.contains('\n') && !self.editor.has_pending_command() {
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
                         emit_focus = true;
                     }
                 }
                 NavAction::PrevSlot => {
                     let moved = self.editor.nav_prev();
                     if moved {
+                        if !self.source_text.contains('\n') && !self.editor.has_pending_command() {
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
                         emit_focus = true;
                     }
                 }
                 NavAction::StepLeft => {
                     let moved = self.editor.nav_left();
                     if moved {
+                        if !self.source_text.contains('\n') && !self.editor.has_pending_command() {
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        } else if self.cursor_char > 0 {
+                            self.cursor_char -= 1;
+                        }
                         emit_focus = true;
                     }
                 }
                 NavAction::StepRight => {
                     let moved = self.editor.nav_right();
                     if moved {
+                        if !self.source_text.contains('\n') && !self.editor.has_pending_command() {
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        } else if self.cursor_char < self.source_text.chars().count() {
+                            self.cursor_char += 1;
+                        }
                         emit_focus = true;
                     }
                 }
@@ -318,8 +490,20 @@ impl App {
                 emit_render = true;
             }
             AppCommand::CommitIme(text) => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
                 match self.editor.commit_ime(&text) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        self.pending_origin = None;
+                        if self.source_text.contains('\n') || text.contains('\n') {
+                            insert_str_at_char(&mut self.source_text, &mut self.cursor_char, &text);
+                        } else {
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        }
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                    }
                     Err(err) => {
                         status_effects.push(Effect::Status(StatusMessage {
                             severity: StatusSeverity::Error,
@@ -347,6 +531,9 @@ impl App {
             }
             AppCommand::SelectSlot(id) => {
                 if self.editor.nav_to_slot(mathslot_syntax::SlotId(id)) {
+                    if !self.source_text.contains('\n') && !self.editor.has_pending_command() {
+                        self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                    }
                     status_effects.push(Effect::Status(StatusMessage {
                         severity: StatusSeverity::Info,
                         message: format!("Selected slot #{id}"),
@@ -362,6 +549,16 @@ impl App {
             AppCommand::PerformUndo => {
                 let undone = self.editor.undo();
                 if undone {
+                    self.pending_origin = None;
+                    if let Some((prev_src, prev_cur)) = self.source_undo.pop() {
+                        self.source_redo
+                            .push((self.source_text.clone(), self.cursor_char));
+                        self.source_text = prev_src;
+                        self.cursor_char = prev_cur;
+                    } else {
+                        self.source_text = self.editor.to_latex();
+                        self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                    }
                     emit_render = true;
                     emit_focus = true;
                 }
@@ -369,25 +566,45 @@ impl App {
             AppCommand::PerformRedo => {
                 let redone = self.editor.redo();
                 if redone {
+                    self.pending_origin = None;
+                    if let Some((next_src, next_cur)) = self.source_redo.pop() {
+                        self.source_undo
+                            .push((self.source_text.clone(), self.cursor_char));
+                        self.source_text = next_src;
+                        self.cursor_char = next_cur;
+                    } else {
+                        self.source_text = self.editor.to_latex();
+                        self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                    }
                     emit_render = true;
                     emit_focus = true;
                 }
             }
-            AppCommand::ResetDocument => match self.editor.clear() {
-                Ok(changed) => {
-                    self.last_import = None;
-                    if changed {
-                        emit_render = true;
-                        emit_focus = true;
+            AppCommand::ResetDocument => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
+                match self.editor.clear() {
+                    Ok(changed) => {
+                        let had_source = !self.source_text.is_empty();
+                        self.pending_origin = None;
+                        self.last_import = None;
+                        self.source_text.clear();
+                        self.cursor_char = 0;
+                        self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                        if changed || had_source {
+                            emit_render = true;
+                            emit_focus = true;
+                        }
+                    }
+                    Err(err) => {
+                        status_effects.push(Effect::Status(StatusMessage {
+                            severity: StatusSeverity::Error,
+                            message: format!("Clear error: {err}"),
+                        }));
                     }
                 }
-                Err(err) => {
-                    status_effects.push(Effect::Status(StatusMessage {
-                        severity: StatusSeverity::Error,
-                        message: format!("Clear error: {err}"),
-                    }));
-                }
-            },
+            }
             AppCommand::ImportLatex(latex) => {
                 let (_ast, report) = mathslot_latex::convert_latex_with_report(&latex);
                 let blocked = report.has_errors();
@@ -419,8 +636,24 @@ impl App {
                         message: first_summary,
                     }));
                 } else {
+                    let prev_source = self.source_text.clone();
+                    let prev_cursor = self.cursor_char;
+                    let prev_undo_len = self.editor.history().undo_len();
                     match self.editor.import_latex(&latex) {
                         Ok(_) => {
+                            self.pending_origin = None;
+                            self.source_text = self.editor.to_latex();
+                            self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                            if self.editor.history().undo_len() == 0 {
+                                self.source_undo.clear();
+                                self.source_redo.clear();
+                            } else {
+                                self.record_undo_transition(
+                                    prev_source,
+                                    prev_cursor,
+                                    prev_undo_len,
+                                );
+                            }
                             if report.lossless {
                                 status_effects.push(Effect::Status(StatusMessage {
                                     severity: StatusSeverity::Info,
@@ -451,9 +684,21 @@ impl App {
                 self.last_import = None;
             }
             AppCommand::LoadStreamSource(source) => {
+                let prev_source = self.source_text.clone();
+                let prev_cursor = self.cursor_char;
+                let prev_undo_len = self.editor.history().undo_len();
                 let (expanded_latex, stream_errors) = expand_stream_source(&source);
                 match self.editor.import_latex(&expanded_latex) {
                     Ok(diags) => {
+                        self.pending_origin = None;
+                        self.source_text = self.editor.to_latex();
+                        self.cursor_char = compute_cursor_char(&self.editor, &self.source_text);
+                        if self.editor.history().undo_len() == 0 {
+                            self.source_undo.clear();
+                            self.source_redo.clear();
+                        } else {
+                            self.record_undo_transition(prev_source, prev_cursor, prev_undo_len);
+                        }
                         if !stream_errors.is_empty() {
                             status_effects.push(Effect::Status(StatusMessage {
                                 severity: StatusSeverity::Error,
@@ -578,6 +823,12 @@ impl App {
             AppCommand::RequestExportConfig => {
                 host_effects.push(Effect::Host(HostAction::ExportConfig));
             }
+            AppCommand::SaveSnippet => {
+                host_effects.push(Effect::Host(HostAction::SaveSnippet {
+                    source: self.source_text.clone(),
+                    latex: self.editor.to_latex(),
+                }));
+            }
         }
 
         self.sync_state();
@@ -689,6 +940,25 @@ impl App {
                 let last_char = raw.chars().last().unwrap_or('?');
                 self.state = EditorState::InvalidPrefix { key: last_char };
             }
+        }
+    }
+
+    fn record_undo_transition(
+        &mut self,
+        prev_source: String,
+        prev_cursor: usize,
+        prev_undo_len: usize,
+    ) {
+        let new_len = self.editor.history().undo_len();
+        if new_len > prev_undo_len {
+            self.source_undo.push((prev_source, prev_cursor));
+            self.source_redo.clear();
+            if self.source_undo.len() > new_len {
+                let excess = self.source_undo.len() - new_len;
+                self.source_undo.drain(..excess);
+            }
+        } else {
+            self.source_redo.clear();
         }
     }
 
@@ -917,5 +1187,79 @@ fn append_latex_piece(out: &mut String, piece: &str) {
         out.push_str(piece);
     } else {
         *out = mathslot_syntax::Printer::join_latex_without_macro_gluing(out, piece);
+    }
+}
+
+fn compute_cursor_char(editor: &Editor, latex: &str) -> usize {
+    match editor.cursor() {
+        Cursor::AtStart => 0,
+        Cursor::AtEnd | Cursor::AtNode(_) => latex.chars().count(),
+        Cursor::InSlot { slot_id, offset } => editor
+            .doc()
+            .slots
+            .get(*slot_id)
+            .map(|slot| {
+                let mut byte_idx = slot.span.start.min(latex.len());
+                while byte_idx > 0 && !latex.is_char_boundary(byte_idx) {
+                    byte_idx -= 1;
+                }
+                let prefix_chars = latex.get(..byte_idx).unwrap_or("").chars().count();
+                prefix_chars + *offset
+            })
+            .unwrap_or_else(|| latex.chars().count()),
+    }
+}
+
+fn char_to_byte_idx(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(idx, _)| idx)
+        .unwrap_or(s.len())
+}
+
+fn insert_str_at_char(s: &mut String, char_idx: &mut usize, text: &str) {
+    let clamped = (*char_idx).min(s.chars().count());
+    let byte_idx = char_to_byte_idx(s, clamped);
+    s.insert_str(byte_idx, text);
+    *char_idx = clamped + text.chars().count();
+}
+
+fn remove_char_before(s: &mut String, char_idx: &mut usize) -> bool {
+    let clamped = (*char_idx).min(s.chars().count());
+    if clamped == 0 {
+        return false;
+    }
+    let start_byte = char_to_byte_idx(s, clamped - 1);
+    let end_byte = char_to_byte_idx(s, clamped);
+    s.replace_range(start_byte..end_byte, "");
+    *char_idx = clamped - 1;
+    true
+}
+
+fn remove_char_at(s: &mut String, char_idx: &mut usize) -> bool {
+    let total = s.chars().count();
+    let clamped = (*char_idx).min(total);
+    if clamped >= total {
+        return false;
+    }
+    let start_byte = char_to_byte_idx(s, clamped);
+    let end_byte = char_to_byte_idx(s, clamped + 1);
+    s.replace_range(start_byte..end_byte, "");
+    *char_idx = clamped;
+    true
+}
+
+fn replace_pending_prefix_on_line(s: &mut String, char_idx: &mut usize, replacement: &str) {
+    let clamped = (*char_idx).min(s.chars().count());
+    let cursor_byte = char_to_byte_idx(s, clamped);
+    let before = &s[..cursor_byte];
+    let line_start = before.rfind('\n').map(|idx| idx + 1).unwrap_or(0);
+    if let Some(rel_prefix) = before[line_start..].rfind('▸') {
+        let start_byte = line_start + rel_prefix;
+        let prefix_chars = s[..start_byte].chars().count();
+        s.replace_range(start_byte..cursor_byte, replacement);
+        *char_idx = prefix_chars + replacement.chars().count();
+    } else {
+        insert_str_at_char(s, char_idx, replacement);
     }
 }

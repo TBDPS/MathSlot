@@ -191,8 +191,9 @@
     draft = cloneSettings(normalizedPayload);
     lastSyncedPropSnapshot = JSON.stringify(normalizedPayload);
     saveFeedback = 'saved';
-    await onSaveSettings?.(normalizedPayload);
-    if (client) {
+    if (onSaveSettings) {
+      await onSaveSettings(normalizedPayload);
+    } else if (client) {
       await client.dispatch({ UpdateSettings: normalizedPayload });
     }
   }
@@ -206,38 +207,43 @@
     lastSyncedPropSnapshot = JSON.stringify(defaults);
     confirmingResetDefaults = false;
     saveFeedback = 'saved';
-    await onResetDefaults?.(defaults);
-    if (client) {
+    if (onResetDefaults) {
+      await onResetDefaults(defaults);
+    } else if (client) {
       await client.dispatch('ResetSettingsConfirmed');
     }
   }
 
   async function handleRestoreBackup(): Promise<void> {
     const candidate = recovery?.backup_candidate ?? null;
-    await onRestoreBackup?.(candidate);
-    if (client) {
+    if (onRestoreBackup) {
+      await onRestoreBackup(candidate);
+    } else if (client) {
       await client.dispatch('RequestRestoreBackup');
     }
   }
 
   async function handleConfirmResetEmpty(): Promise<void> {
     confirmingResetEmpty = false;
-    await onConfirmResetEmpty?.();
-    if (client) {
+    if (onConfirmResetEmpty) {
+      await onConfirmResetEmpty();
+    } else if (client) {
       await client.dispatch('ConfirmResetEmptyConfig');
     }
   }
 
   async function handleImport(): Promise<void> {
-    await onImportConfig?.();
-    if (client) {
+    if (onImportConfig) {
+      await onImportConfig();
+    } else if (client) {
       await client.dispatch('RequestImportConfig');
     }
   }
 
   async function handleExport(): Promise<void> {
-    await onExportConfig?.();
-    if (client) {
+    if (onExportConfig) {
+      await onExportConfig();
+    } else if (client) {
       await client.dispatch('RequestExportConfig');
     }
   }

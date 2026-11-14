@@ -9,11 +9,12 @@ pub mod state;
 
 pub use app::App;
 pub use command::AppCommand;
-pub use effect::{Effect, FocusTarget, RenderRequest, StatusMessage, StatusSeverity};
+pub use effect::{Effect, FocusTarget, HostAction, RenderRequest, StatusMessage, StatusSeverity};
 pub use event::{AppEvent, EditorAction, Key, NavAction};
 pub use snapshot::{
-    CommandSpan, DiagnosticSnapshot, DispatchResponse, EngineSnapshot, ImportReportSnapshot,
-    SlotSnapshot,
+    AppSettings, CommandSpan, DelimiterStyle, DiagnosticSnapshot, DispatchResponse, EngineSnapshot,
+    ImportReportSnapshot, RecoveryStateSnapshot, RenderBackendPreference, ShortcutSettings,
+    SlotSnapshot, ThemePreference,
 };
 pub use state::EditorState;
 

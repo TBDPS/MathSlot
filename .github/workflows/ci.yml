@@ -32,7 +32,12 @@ jobs:
             libwayland-dev \
             libxkbcommon-dev \
             libx11-dev \
-            libx11-xcb-dev
+            libx11-xcb-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            librsvg2-dev
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -42,8 +47,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install frontend dependencies (packages/ui)
-        run: npm ci --prefix packages/ui
+      - name: Install frontend dependencies (packages/ui & apps/desktop)
+        run: |
+          npm ci --prefix packages/ui
+          npm ci --prefix apps/desktop
+
+      - name: Build shared UI and desktop frontend assets
+        run: |
+          npm run build --prefix packages/ui
+          npm run build --prefix apps/desktop
 
       - name: Install wasm-bindgen-cli 0.2.130
         run: |
@@ -69,6 +81,15 @@ jobs:
           npm test
           npm run check
           npm run build
+
+      - name: Test, typecheck, build, and E2E test Desktop shell (apps/desktop)
+        run: |
+          cd apps/desktop
+          npm test
+          npm run check
+          npm run build
+          npx playwright install chromium
+          npm run test:e2e
 
       - name: Build and smoke-test Obsidian plugin
         run: node obsidian-mathslot/scripts/build.mjs

@@ -203,7 +203,6 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     expect(savedArg.theme).toBe('dark');
     expect(savedArg.delimiter_style).toBe('inline_dollar');
     expect(savedArg.render_backend).toBe('latex-rust');
-    expect(events).toContainEqual({ UpdateSettings: savedArg });
 
     // Import & Export buttons
     target.querySelector<HTMLButtonElement>('[data-testid="settings-import-btn"]')?.click();
@@ -211,8 +210,8 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     await tick();
     expect(onImportConfig).toHaveBeenCalledTimes(1);
     expect(onExportConfig).toHaveBeenCalledTimes(1);
-    expect(events).toContain('RequestImportConfig');
-    expect(events).toContain('RequestExportConfig');
+    // D-129: host callbacks handle action exclusively without duplicate client.dispatch
+    expect(events).toHaveLength(0);
   });
 
   it('highlights shortcut conflicts and blocks saving until resolved (D-118)', async () => {
@@ -308,7 +307,6 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     target.querySelector<HTMLButtonElement>('[data-testid="recovery-restore-btn"]')?.click();
     await tick();
     expect(onRestoreBackup).toHaveBeenCalledWith('/tmp/library.bak-122.json');
-    expect(events).toContain('RequestRestoreBackup');
 
     // Two-step confirmation for empty config reset
     target.querySelector<HTMLButtonElement>('[data-testid="recovery-reset-trigger"]')?.click();
@@ -322,7 +320,6 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     confirmEmptyBtn!.click();
     await tick();
     expect(onConfirmResetEmpty).toHaveBeenCalledTimes(1);
-    expect(events).toContain('ConfirmResetEmptyConfig');
 
     // Two-step confirmation for restoring default settings
     target.querySelector<HTMLButtonElement>('[data-testid="settings-reset-trigger"]')?.click();
@@ -336,6 +333,85 @@ describe('SettingsPanel.svelte (T3.4 / D-117 / D-016 / A-DATA-001)', () => {
     confirmDefaultsBtn!.click();
     await tick();
     expect(onResetDefaults).toHaveBeenCalledTimes(1);
+    expect(events).toHaveLength(0);
+  });
+
+  it('D-129: client-only mode dispatches all Settings & Recovery events directly without host callbacks', async () => {
+    const { client, events } = createMockClient();
+    const recovery: RecoveryStateSnapshot = {
+      corrupt_path: '/tmp/library.corrupt-123.json',
+      backup_candidate: '/tmp/library.bak-122.json',
+      error: 'expected value at line 1 column 1',
+    };
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(SettingsPanel, {
+      target,
+      props: {
+        settings: createDefaultAppSettings(),
+        recovery,
+        client,
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-save-btn"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-import-btn"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-export-btn"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="recovery-restore-btn"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="recovery-reset-trigger"]')?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="recovery-reset-confirm"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-reset-trigger"]')?.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-reset-confirm"]')?.click();
+    await tick();
+
+    expect(events.some((e) => typeof e === 'object' && 'UpdateSettings' in e)).toBe(true);
+    expect(events).toContain('RequestImportConfig');
+    expect(events).toContain('RequestExportConfig');
+    expect(events).toContain('RequestRestoreBackup');
+    expect(events).toContain('ConfirmResetEmptyConfig');
     expect(events).toContain('ResetSettingsConfirmed');
+  });
+
+  it('D-129: single-dispatch deduplication prevents double execution when both callback and client are passed', async () => {
+    const { client, events } = createMockClient();
+    const onSaveSettings = vi.fn();
+    const onImportConfig = vi.fn();
+    const onExportConfig = vi.fn();
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(SettingsPanel, {
+      target,
+      props: {
+        settings: createDefaultAppSettings(),
+        client,
+        onSaveSettings,
+        onImportConfig,
+        onExportConfig,
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-save-btn"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-import-btn"]')?.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="settings-export-btn"]')?.click();
+    await tick();
+
+    expect(onSaveSettings).toHaveBeenCalledTimes(1);
+    expect(onImportConfig).toHaveBeenCalledTimes(1);
+    expect(onExportConfig).toHaveBeenCalledTimes(1);
+    expect(events).toHaveLength(0);
   });
 });

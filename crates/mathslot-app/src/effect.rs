@@ -11,6 +11,7 @@ pub enum HostAction {
     ResetEmptyConfig,
     ImportConfig,
     ExportConfig,
+    SaveSnippet { source: String, latex: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

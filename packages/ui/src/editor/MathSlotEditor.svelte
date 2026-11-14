@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Compartment, EditorState as CmEditorState } from '@codemirror/state';
+  import { Annotation, Compartment, EditorState as CmEditorState } from '@codemirror/state';
   import { EditorView, placeholder as cmPlaceholder } from '@codemirror/view';
   import '../theme/tokens.css';
   import {
@@ -66,6 +66,7 @@
   let view: EditorView | null = null;
   const navCompartment = new Compartment();
   const shortcutsCompartment = new Compartment();
+  const externalSyncAnnotation = Annotation.define<boolean>();
 
   let internalSnapshot = $state<EngineSnapshot>(createEmptySnapshot());
   let docText = $state('');
@@ -94,16 +95,45 @@
   function syncViewWithSnapshot(snap: EngineSnapshot): void {
     if (!view) return;
     const isNav = snap.is_nav_mode || isNavEditorState(snap.state);
-    view.dispatch({
-      effects: [
-        navCompartment.reconfigure(navModeFacet.of(isNav)),
-        setEngineSnapshotEffect.of(snap),
-      ],
-    });
+    const effects = [
+      navCompartment.reconfigure(navModeFacet.of(isNav)),
+      setEngineSnapshotEffect.of(snap),
+    ];
+    if (typeof snap.source === 'string') {
+      const currentDoc = view.state.doc.toString();
+      const targetLen = snap.source.length;
+      const nextAnchor =
+        typeof snap.cursor_char === 'number'
+          ? Math.max(0, Math.min(snap.cursor_char, targetLen))
+          : Math.min(view.state.selection.main.head, targetLen);
+      const needsDocChange = snap.source !== currentDoc;
+      const needsSelChange =
+        !isComposing &&
+        typeof snap.cursor_char === 'number' &&
+        view.state.selection.main.head !== nextAnchor;
+      if (needsDocChange || needsSelChange) {
+        view.dispatch({
+          ...(needsDocChange
+            ? { changes: { from: 0, to: currentDoc.length, insert: snap.source } }
+            : {}),
+          selection: { anchor: nextAnchor },
+          annotations: externalSyncAnnotation.of(true),
+          effects,
+        });
+        return;
+      }
+    }
+    view.dispatch({ effects });
   }
 
+  let dispatchSeq = 0;
+
   function handleEngineEvent(event: AppEvent): void {
+    const seq = ++dispatchSeq;
     void client.dispatch(event).then((resp) => {
+      if (seq !== dispatchSeq) {
+        return;
+      }
       internalSnapshot = resp.snapshot;
       syncViewWithSnapshot(resp.snapshot);
       onSnapshotChange?.(resp.snapshot);
@@ -111,14 +141,18 @@
   }
 
   onMount(() => {
-    docText = initialDoc;
+    const startSnap = externalSnapshot ?? internalSnapshot;
+    const startDoc =
+      typeof startSnap.source === 'string' && startSnap.source.length > 0
+        ? startSnap.source
+        : initialDoc;
+    docText = startDoc;
     if (externalSnapshot) {
       internalSnapshot = externalSnapshot;
     }
 
     if (!hostEl) return;
 
-    const startSnap = externalSnapshot ?? internalSnapshot;
     const isInitialNav = startSnap.is_nav_mode || isNavEditorState(startSnap.state);
 
     const cmTheme = EditorView.theme({
@@ -148,7 +182,7 @@
     });
 
     const state = CmEditorState.create({
-      doc: initialDoc,
+      doc: startDoc,
       extensions: [
         cmTheme,
         cmPlaceholder(placeholderText),
@@ -172,7 +206,11 @@
               }
             },
             onSaveSnippet: () => {
-              onSaveSnippet?.();
+              if (onSaveSnippet) {
+                onSaveSnippet();
+              } else {
+                handleEngineEvent('RequestSaveSnippet');
+              }
             },
             onFocusEditor: () => {
               onFocusEditor?.();

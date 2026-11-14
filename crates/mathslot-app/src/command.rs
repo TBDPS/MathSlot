@@ -6,6 +6,7 @@ pub enum AppCommand {
     Noop,
     TypeChar(char),
     InsertLiteral(String),
+    InsertNewline,
     DeleteBackward,
     DeleteForward,
     ApplyPaletteCard {
@@ -34,4 +35,5 @@ pub enum AppCommand {
     ConfirmResetEmptyConfig,
     RequestImportConfig,
     RequestExportConfig,
+    SaveSnippet,
 }

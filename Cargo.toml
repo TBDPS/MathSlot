@@ -10,6 +10,7 @@ members = [
     "crates/mathslot-app",
     "crates/mathslot-render",
     "crates/mathslot-store",
+    "apps/desktop/src-tauri",
     "xtask",
 ]
 resolver = "2"

@@ -139,7 +139,8 @@ export type AppEvent =
   | 'RequestRestoreBackup'
   | 'ConfirmResetEmptyConfig'
   | 'RequestImportConfig'
-  | 'RequestExportConfig';
+  | 'RequestExportConfig'
+  | 'RequestSaveSnippet';
 
 export type FocusTarget = { Slot: number } | 'End';
 
@@ -170,7 +171,8 @@ export type HostAction =
   | { RestoreBackup: { backup_path: string | null } }
   | 'ResetEmptyConfig'
   | 'ImportConfig'
-  | 'ExportConfig';
+  | 'ExportConfig'
+  | { SaveSnippet: { source: string; latex: string } };
 
 export type Effect =
   | { Render: RenderRequest }
@@ -223,6 +225,8 @@ export interface EngineSnapshot {
   latex: string;
   preview_latex: string;
   copy_text: string;
+  source?: string;
+  cursor_char?: number;
   has_pending_command: boolean;
   is_composing: boolean;
   is_nav_mode: boolean;
