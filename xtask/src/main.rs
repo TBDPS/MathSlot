@@ -27,7 +27,15 @@ fn generate_artifacts(root: &Path) -> Result<Vec<Artifact>, Box<dyn std::error::
     let presets_file: codegen::PresetsFile = serde_json::from_str(&presets_raw)?;
     let presets_ts = codegen::generate_presets_typescript(&presets_file)?;
 
-    Ok(vec![
+    let meta = codegen::load_workspace_metadata(root)?;
+    let metadata_std = codegen::render_metadata_block(&meta, &catalog, &presets_file, false);
+    let metadata_arch = codegen::render_metadata_block(&meta, &catalog, &presets_file, true);
+    let readme_commands = codegen::render_readme_commands_block(&catalog);
+    let help_commands = codegen::render_help_commands_block(&catalog);
+    let presets_block = codegen::render_presets_block(&presets_file);
+    let shortcuts_block = codegen::render_shortcuts_block(&meta);
+
+    let mut artifacts = vec![
         Artifact {
             rel_path: "crates/mathslot-command/src/generated.rs",
             content: codegen::generate_rust(&catalog),
@@ -52,7 +60,46 @@ fn generate_artifacts(root: &Path) -> Result<Vec<Artifact>, Box<dyn std::error::
             rel_path: "schemas/commands.schema.json",
             content: codegen::generate_schema(),
         },
-    ])
+    ];
+
+    let doc_specs: [(&str, Vec<(&str, String)>); 4] = [
+        (
+            "README.md",
+            vec![
+                ("metadata", metadata_std.clone()),
+                ("commands", readme_commands),
+                ("presets", presets_block.clone()),
+                ("shortcuts", shortcuts_block.clone()),
+            ],
+        ),
+        (
+            "HELP.md",
+            vec![
+                ("metadata", metadata_std.clone()),
+                ("commands", help_commands),
+                ("presets", presets_block),
+                ("shortcuts", shortcuts_block.clone()),
+            ],
+        ),
+        (
+            "obsidian-mathslot/README.md",
+            vec![("metadata", metadata_std), ("shortcuts", shortcuts_block)],
+        ),
+        ("docs/ARCHITECTURE.md", vec![("metadata", metadata_arch)]),
+    ];
+
+    for (rel_path, blocks) in doc_specs {
+        let full_path = root.join(rel_path);
+        let existing = fs::read_to_string(&full_path)
+            .map_err(|e| format!("Failed to read managed document '{rel_path}': {e}"))?;
+        let injected = codegen::inject_generated_blocks(rel_path, &existing, &blocks)?;
+        artifacts.push(Artifact {
+            rel_path,
+            content: injected,
+        });
+    }
+
+    Ok(artifacts)
 }
 
 fn cmd_generate(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -129,8 +176,10 @@ fn main() -> ExitCode {
         _ => {
             eprintln!("Usage: cargo run -p xtask -- <command>");
             eprintln!("Commands:");
-            eprintln!("  generate (or codegen)  Generate all 6 catalog and preset artifacts");
-            eprintln!("  check                  Check if generated artifacts are up-to-date");
+            eprintln!("  generate (or codegen)  Generate all 6 artifacts and update 4 active docs");
+            eprintln!(
+                "  check                  Check if generated artifacts and doc blocks are up-to-date"
+            );
             ExitCode::FAILURE
         }
     }

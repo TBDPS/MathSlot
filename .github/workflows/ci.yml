@@ -73,7 +73,10 @@ jobs:
         run: cargo test --workspace
 
       - name: Check generated artifacts
-        run: cargo run -p xtask -- check
+        run: |
+          cargo run -p xtask -- check
+          cargo run -p xtask -- generate
+          git diff --exit-code
 
       - name: Test, typecheck, and build shared UI (packages/ui)
         run: |

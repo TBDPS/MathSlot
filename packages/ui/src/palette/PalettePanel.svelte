@@ -1,8 +1,8 @@
 <script lang="ts">
   import { handleRovingKeydown } from '../a11y';
   import type { DispatchResponse, EngineClient, UserFormulaEntry } from '../client/engine';
-  import type { CommandCategory, CommandEntry } from '../generated/catalog';
-  import type { PresetCategory, PresetEntry } from '../generated/presets';
+  import { COMMANDS, type CommandCategory, type CommandEntry } from '../generated/catalog';
+  import { PRESETS, type PresetCategory, type PresetEntry } from '../generated/presets';
   import {
     COMMAND_CATEGORIES,
     PRESET_CATEGORY_TABS,
@@ -165,7 +165,7 @@
         onclick={() => handleModeSwitch('commands')}
         onkeydown={(evt) => handleModeTabKeydown(evt, 0)}
       >
-        命令目录 (121)
+        命令目录 ({COMMANDS.length})
       </button>
       <button
         type="button"
@@ -179,7 +179,7 @@
         onclick={() => handleModeSwitch('presets')}
         onkeydown={(evt) => handleModeTabKeydown(evt, 1)}
       >
-        预置公式 (88)
+        预置公式 ({PRESETS.length})
       </button>
       <button
         type="button"

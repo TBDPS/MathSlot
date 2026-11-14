@@ -15,6 +15,7 @@ const ARTIFACT_PATHS: &[&str] = &[
     "catalog/catalog.json",
     "docs/commands.md",
     "packages/ui/src/generated/catalog.ts",
+    "packages/ui/src/generated/presets.ts",
     "schemas/commands.schema.json",
 ];
 
@@ -249,5 +250,176 @@ fn test_xtask_check_command() {
     assert!(
         status.success(),
         "'cargo run -p xtask -- check' must succeed with exit code 0"
+    );
+}
+
+fn extract_generated_block<'a>(content: &'a str, block_name: &str) -> Option<&'a str> {
+    let begin_marker = format!("<!-- BEGIN GENERATED: {block_name} -->");
+    let end_marker = format!("<!-- END GENERATED: {block_name} -->");
+    let start = content.find(&begin_marker)?;
+    let after_begin = start + begin_marker.len();
+    let end_rel = content[after_begin..].find(&end_marker)?;
+    Some(&content[after_begin..after_begin + end_rel])
+}
+
+fn strip_generated_block(content: &str, block_name: &str) -> String {
+    let begin_marker = format!("<!-- BEGIN GENERATED: {block_name} -->");
+    let end_marker = format!("<!-- END GENERATED: {block_name} -->");
+    if let (Some(start), Some(end)) = (content.find(&begin_marker), content.find(&end_marker))
+        && end > start
+    {
+        let end_after = end + end_marker.len();
+        return format!("{}{}", &content[..start], &content[end_after..]);
+    }
+    content.to_string()
+}
+
+#[test]
+fn test_active_docs_generated_blocks_and_no_stale_content() {
+    let root = workspace_root();
+    let catalog =
+        CommandCatalog::load_file(root.join("catalog/commands.toml")).expect("load commands.toml");
+
+    let doc_blocks: &[(&str, &[&str])] = &[
+        (
+            "README.md",
+            &["metadata", "commands", "presets", "shortcuts"],
+        ),
+        ("HELP.md", &["metadata", "commands", "presets", "shortcuts"]),
+        ("obsidian-mathslot/README.md", &["metadata", "shortcuts"]),
+        ("docs/ARCHITECTURE.md", &["metadata"]),
+    ];
+
+    for (rel_path, required_blocks) in doc_blocks {
+        let full_path = root.join(rel_path);
+        assert!(
+            full_path.exists(),
+            "Active document '{}' must exist",
+            rel_path
+        );
+        let content = std::fs::read_to_string(&full_path)
+            .unwrap_or_else(|e| panic!("Failed to read '{}': {e}", rel_path));
+        assert!(
+            !content.contains("\r\n"),
+            "Active document '{}' must use LF line endings",
+            rel_path
+        );
+        for block in *required_blocks {
+            let extracted = extract_generated_block(&content, block);
+            assert!(
+                extracted.is_some(),
+                "Active document '{}' missing paired generated block '<!-- BEGIN GENERATED: {} -->' ... '<!-- END GENERATED: {} -->'",
+                rel_path,
+                block,
+                block
+            );
+            assert!(
+                !extracted.unwrap().trim().is_empty(),
+                "Generated block '{}' in '{}' must not be empty",
+                block,
+                rel_path
+            );
+        }
+    }
+
+    // README.md and HELP.md must cover all 121 commands inside the generated commands block,
+    // and must NOT contain handwritten command tables outside the generated commands block.
+    for rel_path in ["README.md", "HELP.md"] {
+        let content = std::fs::read_to_string(root.join(rel_path)).unwrap();
+        let commands_block = extract_generated_block(&content, "commands")
+            .unwrap_or_else(|| panic!("Missing commands generated block in {}", rel_path));
+
+        for cmd in &catalog.commands {
+            let keys_token = format!("`▸{}`", cmd.keys.join(""));
+            assert!(
+                commands_block.contains(&keys_token),
+                "{} generated commands block missing command '{}' ({})",
+                rel_path,
+                cmd.id,
+                keys_token
+            );
+            assert!(
+                commands_block.contains(&cmd.label),
+                "{} generated commands block missing label '{}' for '{}'",
+                rel_path,
+                cmd.label,
+                cmd.id
+            );
+        }
+
+        let mut outside_all_generated = content.clone();
+        for block_name in ["metadata", "commands", "presets", "shortcuts"] {
+            outside_all_generated = strip_generated_block(&outside_all_generated, block_name);
+        }
+        for (idx, line) in outside_all_generated.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('|') && trimmed.contains('▸') {
+                panic!(
+                    "{}:{} contains handwritten command table row outside generated blocks: {}",
+                    rel_path,
+                    idx + 1,
+                    trimmed
+                );
+            }
+        }
+
+        let outside_commands = strip_generated_block(&content, "commands");
+        for (idx, line) in outside_commands.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('|')
+                && trimmed.split('▸').skip(1).any(|after| {
+                    after
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_alphabetic())
+                })
+            {
+                panic!(
+                    "{}:{} contains command entry in table outside <!-- BEGIN GENERATED: commands -->: {}",
+                    rel_path,
+                    idx + 1,
+                    trimmed
+                );
+            }
+        }
+
+        // Guard against stale egui/v0.6 claims & wrong mappings (D-162, D-163, D-166)
+        for forbidden in [
+            "eframe",
+            "egui 0.37",
+            "460px",
+            "📖 示例公式库",
+            "↻ 换一个",
+            "schema_version: 1",
+            "\"schema_version\": 1",
+            "DECISION_ROUND_8",
+            "(LICENSE)",
+            "`▸gx`：$\\Delta$",
+            "`▸gz`：$\\Omega$",
+            "打开/收起帮助参考面板",
+            "`F1`",
+            "[k▸]",
+            "[t▸]",
+        ] {
+            assert!(
+                !content.contains(forbidden),
+                "{} contains stale or incorrect text '{}'",
+                rel_path,
+                forbidden
+            );
+        }
+    }
+
+    // D-166: PalettePanel.svelte must dynamically bind COMMANDS.length and PRESETS.length
+    let palette_src =
+        std::fs::read_to_string(root.join("packages/ui/src/palette/PalettePanel.svelte"))
+            .expect("read PalettePanel.svelte");
+    assert!(
+        palette_src.contains("COMMANDS.length") && palette_src.contains("PRESETS.length"),
+        "PalettePanel.svelte must bind COMMANDS.length and PRESETS.length dynamically"
+    );
+    assert!(
+        !palette_src.contains("命令目录 (121)") && !palette_src.contains("预置公式 (88)"),
+        "PalettePanel.svelte must not hardcode (121) or (88)"
     );
 }

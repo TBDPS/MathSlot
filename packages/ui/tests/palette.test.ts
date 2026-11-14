@@ -292,4 +292,24 @@ describe('PalettePanel & paletteModel (T3.2)', () => {
     expect(events).toContainEqual({ LoadStreamSource: '▸f1;2;' });
     expect(onUserFormulaLoaded).toHaveBeenCalledTimes(1);
   });
+
+  it('D-166: binds command and preset tab counts dynamically from COMMANDS.length and PRESETS.length', async () => {
+    const { client } = createMockClient();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+
+    const app = mount(PalettePanel, {
+      target,
+      props: { client },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    const commandsTab = target.querySelector<HTMLButtonElement>('[data-palette-mode="commands"]');
+    const presetsTab = target.querySelector<HTMLButtonElement>('[data-palette-mode="presets"]');
+    expect(commandsTab?.textContent?.trim()).toBe(`命令目录 (${COMMANDS.length})`);
+    expect(presetsTab?.textContent?.trim()).toBe(`预置公式 (${PRESETS.length})`);
+  });
 });
