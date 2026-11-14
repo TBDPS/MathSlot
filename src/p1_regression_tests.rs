@@ -167,3 +167,396 @@ fn test_p1_d005_config_load_corrupted_json_returns_error_and_preserves_file() {
         eprintln!("Warning: failed to clean temp root: {e}");
     }
 }
+
+fn run_app_frame(
+    ctx: &egui::Context,
+    app: &mut crate::app::MathSlotApp,
+    frame: &mut eframe::Frame,
+    focused: bool,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
+    use eframe::App as _;
+    let raw = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::Vec2::new(1024.0, 720.0),
+        )),
+        focused,
+        events,
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(raw, |ui| {
+        app.ui(ui, frame);
+    });
+    out.textures_delta.clear();
+    out
+}
+
+fn step_app_frame(
+    ctx: &egui::Context,
+    app: &mut crate::app::MathSlotApp,
+    frame: &mut eframe::Frame,
+    focused: bool,
+    events: Vec<egui::Event>,
+) {
+    let _out = run_app_frame(ctx, app, frame, focused, events);
+}
+
+fn find_galley_containing<'a>(
+    output: &'a egui::FullOutput,
+    needle: &str,
+) -> Option<&'a std::sync::Arc<egui::Galley>> {
+    fn visit_shape<'a>(
+        shape: &'a egui::Shape,
+        needle: &str,
+    ) -> Option<&'a std::sync::Arc<egui::Galley>> {
+        match shape {
+            egui::Shape::Text(text_shape) => {
+                if text_shape.galley.text().contains(needle) {
+                    Some(&text_shape.galley)
+                } else {
+                    None
+                }
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| visit_shape(s, needle)),
+            _ => None,
+        }
+    }
+
+    output
+        .shapes
+        .iter()
+        .find_map(|clipped| visit_shape(&clipped.shape, needle))
+}
+
+fn key_event(
+    key: egui::Key,
+    pressed: bool,
+    repeat: bool,
+    modifiers: egui::Modifiers,
+) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed,
+        repeat,
+        modifiers,
+    }
+}
+
+/// D-110 回归测试：稳态输入连续帧不得每帧触发 request_focus / interrupt_ime
+#[test]
+fn test_p1_d110_no_every_frame_request_focus_or_ime_interrupt() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    let mut app = crate::app::MathSlotApp::new(&cc);
+    let mut frame = eframe::Frame::_new_kittest();
+
+    // 第 1 帧完成初始聚焦
+    step_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+
+    // 连续稳态输入帧（含 IME Preedit / Commit 周期），绝不可每帧打断 IME 组合
+    for step in 0..5 {
+        let events = match step {
+            1 => vec![egui::Event::Ime(egui::ImeEvent::Preedit {
+                text: "ni".to_owned(),
+                active_range_chars: Some(0..2),
+            })],
+            2 => vec![
+                egui::Event::Ime(egui::ImeEvent::Preedit {
+                    text: String::new(),
+                    active_range_chars: None,
+                }),
+                egui::Event::Ime(egui::ImeEvent::Commit("你".to_owned())),
+            ],
+            _ => vec![],
+        };
+        let out = run_app_frame(&ctx, &mut app, &mut frame, true, events);
+        let interrupted = out
+            .platform_output
+            .ime
+            .as_ref()
+            .is_some_and(|ime| ime.should_interrupt_composition);
+        assert!(
+            !interrupted,
+            "Steady-state Palette frame {step} must not interrupt IME composition via every-frame request_focus"
+        );
+    }
+}
+
+/// D-110 回归测试：RepeatGuard 阻断 IME/失焦后孤立重复与长按打印字符风暴，同时保留正常键入与 Backspace 长按
+#[test]
+fn test_p1_d110_repeat_guard_blocks_orphan_and_post_ime_wayland_repeats() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    let mut app = crate::app::MathSlotApp::new(&cc);
+    let mut frame = eframe::Frame::_new_kittest();
+
+    step_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+
+    // 1. 正常单次键入 'a'
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![
+            key_event(egui::Key::A, true, false, egui::Modifiers::NONE),
+            egui::Event::Text("a".to_owned()),
+            key_event(egui::Key::A, false, false, egui::Modifiers::NONE),
+        ],
+    );
+
+    // 2. 模拟 Wayland + fcitx5：按下 'x' 未收到 release，随后进入 IME 组合并提交 "中"
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![
+            key_event(egui::Key::X, true, false, egui::Modifiers::NONE),
+            egui::Event::Text("x".to_owned()),
+            egui::Event::Ime(egui::ImeEvent::Preedit {
+                text: String::new(),
+                active_range_chars: None,
+            }),
+            egui::Event::Ime(egui::ImeEvent::Commit("中".to_owned())),
+        ],
+    );
+
+    // 3. 模拟 Wayland calloop 残留定时器在 IME 提交后继续发送孤立 repeat: true 重复
+    let mut last_out = None;
+    for _ in 0..8 {
+        last_out = Some(run_app_frame(
+            &ctx,
+            &mut app,
+            &mut frame,
+            true,
+            vec![
+                key_event(egui::Key::X, true, true, egui::Modifiers::NONE),
+                egui::Event::Text("x".to_owned()),
+            ],
+        ));
+    }
+    let out_after_ime_repeats = last_out.expect("at least one repeat frame");
+    let text_after_ime_repeats = find_galley_containing(&out_after_ime_repeats, "ax中")
+        .map(|g| g.text().to_owned())
+        .unwrap_or_default();
+    assert_eq!(
+        text_after_ime_repeats, "ax中",
+        "Stale Wayland repeat events after IME transition must be blocked instead of repeating 'x', got {text_after_ime_repeats:?}"
+    );
+
+    // 4. 正常按住 Backspace（有前置物理 repeat: false 按下）应能连续删除
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![key_event(
+            egui::Key::Backspace,
+            true,
+            false,
+            egui::Modifiers::NONE,
+        )],
+    );
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![key_event(
+            egui::Key::Backspace,
+            true,
+            true,
+            egui::Modifiers::NONE,
+        )],
+    );
+    let out_after_bs = run_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![key_event(
+            egui::Key::Backspace,
+            false,
+            false,
+            egui::Modifiers::NONE,
+        )],
+    );
+    assert!(
+        find_galley_containing(&out_after_bs, "ax中").is_none(),
+        "Holding Backspace with prior physical press must still delete characters"
+    );
+
+    // 5. 连续打印字符重复风暴（> 20 帧）必须被截断，不能无限注入
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![
+            key_event(egui::Key::Z, true, false, egui::Modifiers::NONE),
+            egui::Event::Text("z".to_owned()),
+        ],
+    );
+    let mut storm_out = None;
+    for _ in 0..30 {
+        storm_out = Some(run_app_frame(
+            &ctx,
+            &mut app,
+            &mut frame,
+            true,
+            vec![
+                key_event(egui::Key::Z, true, true, egui::Modifiers::NONE),
+                egui::Event::Text("z".to_owned()),
+            ],
+        ));
+    }
+    let storm_text = find_galley_containing(storm_out.as_ref().expect("storm output"), "z")
+        .map(|g| g.text().to_owned())
+        .unwrap_or_default();
+    let z_count = storm_text.chars().filter(|&c| c == 'z').count();
+    assert!(
+        z_count <= 21,
+        "Printable key repeat storm must be capped (<= 21 total 'z'), got {z_count} in {storm_text:?}"
+    );
+
+    // 6. 纯 RepeatGuard 状态机直测：无前置物理按下与 WindowFocused(false) 后的孤立 repeat 必须被丢弃
+    let mut guard = crate::app::RepeatGuard::default();
+    let mut orphan = vec![
+        key_event(egui::Key::A, true, true, egui::Modifiers::NONE),
+        egui::Event::Text("a".to_owned()),
+    ];
+    guard.filter_events(&mut orphan, true);
+    assert!(
+        orphan.is_empty(),
+        "Orphan repeat without prior physical press must be dropped: {orphan:?}"
+    );
+
+    let mut focus_loss_seq = vec![
+        key_event(egui::Key::B, true, false, egui::Modifiers::NONE),
+        egui::Event::Text("b".to_owned()),
+        egui::Event::WindowFocused(false),
+        key_event(egui::Key::B, true, true, egui::Modifiers::NONE),
+        egui::Event::Text("b".to_owned()),
+    ];
+    guard.filter_events(&mut focus_loss_seq, true);
+    assert_eq!(
+        focus_loss_seq.len(),
+        3,
+        "WindowFocused(false) must clear active_keys and drop subsequent repeat Key+Text: {focus_loss_seq:?}"
+    );
+    assert!(matches!(
+        focus_loss_seq[0],
+        egui::Event::Key {
+            key: egui::Key::B,
+            repeat: false,
+            ..
+        }
+    ));
+    assert!(matches!(&focus_loss_seq[1], egui::Event::Text(t) if t == "b"));
+    assert!(matches!(
+        focus_loss_seq[2],
+        egui::Event::WindowFocused(false)
+    ));
+
+    let mut unfocused_events = vec![
+        key_event(egui::Key::C, true, false, egui::Modifiers::NONE),
+        egui::Event::Text("c".to_owned()),
+    ];
+    guard.filter_events(&mut unfocused_events, false);
+    assert!(
+        unfocused_events.is_empty(),
+        "Events while window is unfocused must be dropped: {unfocused_events:?}"
+    );
+}
+
+/// D-015 回归测试：单行输入栏不得 lock_focus 锁死焦点，Shift+Tab 移出焦点后不得被后续帧强行抢回
+#[test]
+fn test_p2_d015_singleline_does_not_lock_focus() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    let mut app = crate::app::MathSlotApp::new(&cc);
+    let mut frame = eframe::Frame::_new_kittest();
+
+    step_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+    let input_id = ctx
+        .memory(|m| m.focused())
+        .expect("input field should hold initial focus on frame 1");
+
+    // 按 Shift+Tab 移出焦点
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![
+            key_event(egui::Key::Tab, true, false, egui::Modifiers::SHIFT),
+            key_event(egui::Key::Tab, false, false, egui::Modifiers::SHIFT),
+        ],
+    );
+    // 跑后续稳定帧，确认焦点确实移出且不会再被抢回 input_id
+    step_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+    let out = run_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+
+    let focused_after = ctx.memory(|m| m.focused());
+    assert_ne!(
+        focused_after,
+        Some(input_id),
+        "Shift+Tab must move focus out of singleline input and subsequent frames must not steal it back"
+    );
+    assert!(
+        find_galley_containing(&out, "▸").is_none(),
+        "Shift+Tab must not trigger the Tab command prefix '▸'"
+    );
+
+    // 焦点不在输入框时按普通 Tab，也不得把 '▸' 注入编辑器
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![
+            key_event(egui::Key::Tab, true, false, egui::Modifiers::NONE),
+            key_event(egui::Key::Tab, false, false, egui::Modifiers::NONE),
+        ],
+    );
+    let out_after_tab = run_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+    assert!(
+        find_galley_containing(&out_after_tab, "▸").is_none(),
+        "Tab while input is unfocused must navigate widgets instead of inserting '▸'"
+    );
+}
+
+/// D-009 回归测试：长简码（160 字符）在 singleline 输入栏中必须保持单行布局不折行
+#[test]
+fn test_p2_d009_singleline_layouter_does_not_wrap_long_formula() {
+    let ctx = egui::Context::default();
+    let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+    let mut app = crate::app::MathSlotApp::new(&cc);
+    let mut frame = eframe::Frame::_new_kittest();
+
+    step_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+
+    let long_formula = "x_1+y_2+".repeat(20); // 160 chars
+    assert_eq!(long_formula.chars().count(), 160);
+
+    step_app_frame(
+        &ctx,
+        &mut app,
+        &mut frame,
+        true,
+        vec![egui::Event::Paste(long_formula.clone())],
+    );
+    let out = run_app_frame(&ctx, &mut app, &mut frame, true, vec![]);
+
+    let galley = find_galley_containing(&out, &long_formula)
+        .expect("singleline TextEdit galley with 160-char formula must be rendered");
+    assert_eq!(
+        galley.rows.len(),
+        1,
+        "Singleline TextEdit must not visually wrap 160-char formula (expected 1 row, got {})",
+        galley.rows.len()
+    );
+}

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -62,12 +63,242 @@ enum DelimiterStyle {
 
 use mathslot_core::presets::PRESET_LIBRARY;
 
+const MAX_PRINTABLE_KEY_REPEATS: u32 = 20;
+
+fn is_editing_repeat_allowed_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::Backspace
+            | Key::Delete
+            | Key::ArrowLeft
+            | Key::ArrowRight
+            | Key::ArrowUp
+            | Key::ArrowDown
+            | Key::Home
+            | Key::End
+            | Key::PageUp
+            | Key::PageDown
+    )
+}
+
+fn is_printable_text_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::Space
+            | Key::Colon
+            | Key::Comma
+            | Key::Backslash
+            | Key::Slash
+            | Key::Pipe
+            | Key::Questionmark
+            | Key::Exclamationmark
+            | Key::OpenBracket
+            | Key::CloseBracket
+            | Key::OpenCurlyBracket
+            | Key::CloseCurlyBracket
+            | Key::Backtick
+            | Key::Minus
+            | Key::Period
+            | Key::Plus
+            | Key::Equals
+            | Key::Semicolon
+            | Key::Quote
+            | Key::Num0
+            | Key::Num1
+            | Key::Num2
+            | Key::Num3
+            | Key::Num4
+            | Key::Num5
+            | Key::Num6
+            | Key::Num7
+            | Key::Num8
+            | Key::Num9
+            | Key::A
+            | Key::B
+            | Key::C
+            | Key::D
+            | Key::E
+            | Key::F
+            | Key::G
+            | Key::H
+            | Key::I
+            | Key::J
+            | Key::K
+            | Key::L
+            | Key::M
+            | Key::N
+            | Key::O
+            | Key::P
+            | Key::Q
+            | Key::R
+            | Key::S
+            | Key::T
+            | Key::U
+            | Key::V
+            | Key::W
+            | Key::X
+            | Key::Y
+            | Key::Z
+    )
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct RepeatGuard {
+    active_keys: HashMap<Key, u32>,
+}
+
+impl RepeatGuard {
+    /// 过滤非正常重复按键与孤立 repeat 文本事件：
+    /// - 追踪真实物理按下 (`pressed: true, repeat: false`) 与释放 (`pressed: false`)；
+    /// - `WindowFocused(false)` 或 `Event::Ime(_)` 时清空未决物理按键状态，阻断 Wayland/fcitx5 残留定时器；
+    /// - 丢弃没有前置物理按下的孤立 `repeat: true`、失焦期间文本/按键、以及可打印单字符超过上限 (> 20) 的连击风暴；
+    /// - 保留已有物理按下的 `Backspace`/`Delete`/方向键等正常长按能力。
+    pub(crate) fn filter_events(&mut self, events: &mut Vec<egui::Event>, window_focused: bool) {
+        let mut effective_focused = window_focused;
+        let mut suppress_following_text_for_key: Option<Key> = None;
+        let mut filtered = Vec::with_capacity(events.len());
+
+        for event in events.drain(..) {
+            match &event {
+                egui::Event::WindowFocused(focused) => {
+                    effective_focused = *focused;
+                    if !*focused {
+                        self.active_keys.clear();
+                        suppress_following_text_for_key = None;
+                    }
+                    filtered.push(event);
+                }
+                egui::Event::Ime(_) => {
+                    self.active_keys.clear();
+                    suppress_following_text_for_key = None;
+                    filtered.push(event);
+                }
+                egui::Event::Key {
+                    key,
+                    pressed,
+                    repeat,
+                    ..
+                } => {
+                    if !*pressed {
+                        self.active_keys.remove(key);
+                        if suppress_following_text_for_key == Some(*key) {
+                            suppress_following_text_for_key = None;
+                        }
+                        filtered.push(event);
+                    } else if !effective_focused {
+                        suppress_following_text_for_key = Some(*key);
+                    } else if !*repeat {
+                        self.active_keys.insert(*key, 0);
+                        suppress_following_text_for_key = None;
+                        filtered.push(event);
+                    } else {
+                        let Some(count) = self.active_keys.get_mut(key) else {
+                            suppress_following_text_for_key = Some(*key);
+                            continue;
+                        };
+                        *count = count.saturating_add(1);
+                        if !is_editing_repeat_allowed_key(*key)
+                            && *count > MAX_PRINTABLE_KEY_REPEATS
+                        {
+                            suppress_following_text_for_key = Some(*key);
+                            continue;
+                        }
+                        suppress_following_text_for_key = None;
+                        filtered.push(event);
+                    }
+                }
+                egui::Event::Text(text) => {
+                    if !effective_focused {
+                        continue;
+                    }
+                    if let Some(dropped_key) = suppress_following_text_for_key
+                        && is_printable_text_key(dropped_key)
+                        && text.chars().count() == 1
+                    {
+                        suppress_following_text_for_key = None;
+                        continue;
+                    }
+                    suppress_following_text_for_key = None;
+                    filtered.push(event);
+                }
+                _ => {
+                    filtered.push(event);
+                }
+            }
+        }
+
+        *events = filtered;
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FocusTransition {
+    None,
+    RequestInputFocus,
+    SurrenderInputFocus,
+}
+
+pub(crate) fn decide_input_focus_transition(
+    active_tab: WorkspaceTab,
+    in_esc_nav: bool,
+    request_input_focus: bool,
+    has_input_focus: bool,
+) -> FocusTransition {
+    if in_esc_nav {
+        if has_input_focus {
+            FocusTransition::SurrenderInputFocus
+        } else {
+            FocusTransition::None
+        }
+    } else if request_input_focus && active_tab == WorkspaceTab::Palette && !has_input_focus {
+        FocusTransition::RequestInputFocus
+    } else {
+        FocusTransition::None
+    }
+}
+
+/// 消费非重复按键（`repeat == false`）；同键的 `repeat == true` 一并吞掉但不触发命令。
+fn consume_key_non_repeat(
+    input: &mut egui::InputState,
+    modifiers: Modifiers,
+    logical_key: Key,
+    exact_modifiers: bool,
+) -> bool {
+    let mut triggered = false;
+    input.events.retain(|event| {
+        let is_match = matches!(
+            event,
+            egui::Event::Key {
+                key: ev_key,
+                modifiers: ev_mods,
+                pressed: true,
+                ..
+            } if *ev_key == logical_key
+                && if exact_modifiers {
+                    ev_mods.matches_exact(modifiers)
+                } else {
+                    ev_mods.matches_logically(modifiers)
+                }
+        );
+        if is_match {
+            if matches!(event, egui::Event::Key { repeat: false, .. }) {
+                triggered = true;
+            }
+            false
+        } else {
+            true
+        }
+    });
+    triggered
+}
+
 pub struct MathSlotApp {
     editor: StreamEditor,
     preset_index: usize,
     input_id: Id,
     pending_cursor_sync: Option<usize>,
     request_input_focus: bool,
+    repeat_guard: RepeatGuard,
     last_typing_undo: Instant,
     worker: RenderWorker,
     next_revision: u64,
@@ -142,6 +373,7 @@ impl MathSlotApp {
             preset_index: 0,
             input_id: Id::unique("mathslot-stream-input"),
             request_input_focus: true,
+            repeat_guard: RepeatGuard::default(),
             last_typing_undo: Instant::now() - Duration::from_secs(5),
             worker: RenderWorker::spawn(),
             next_revision: 1,
@@ -260,14 +492,15 @@ impl MathSlotApp {
                 if let egui::Event::Key {
                     key,
                     pressed: is_pressed,
+                    repeat,
                     modifiers,
                     ..
                 } = event
                 {
                     if *key == Key::AltLeft {
-                        if *is_pressed {
+                        if *is_pressed && !*repeat {
                             pressed = true;
-                        } else {
+                        } else if !*is_pressed {
                             released = true;
                         }
                     } else if *is_pressed && modifiers.alt {
@@ -313,6 +546,21 @@ impl MathSlotApp {
         }
         let modifiers = ctx.input(|input| input.modifiers);
         if modifiers.ctrl || modifiers.command || modifiers.alt {
+            return false;
+        }
+        let has_repeat_press = ctx.input(|input| {
+            input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::Key {
+                        pressed: true,
+                        repeat: true,
+                        ..
+                    }
+                )
+            })
+        });
+        if has_repeat_press {
             return false;
         }
         let Some(range) = egui::TextEdit::load_state(ctx, self.input_id)
@@ -375,8 +623,8 @@ impl MathSlotApp {
 
     fn handle_keys_before_ui(&mut self, ctx: &egui::Context) {
         self.update_nav_leader(ctx);
-        // 工作区切换快捷键
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) {
+        // 工作区切换快捷键（忽略 repeat: true，防止长按/卡键无限切换）
+        if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::F1, true)) {
             self.active_tab = if self.active_tab == WorkspaceTab::Help {
                 WorkspaceTab::Palette
             } else {
@@ -389,7 +637,8 @@ impl MathSlotApp {
         }
 
         if ctx.input_mut(|i| {
-            i.consume_key(Modifiers::NONE, Key::F2) || i.consume_key(Modifiers::ALT, Key::Num2)
+            consume_key_non_repeat(i, Modifiers::NONE, Key::F2, true)
+                || consume_key_non_repeat(i, Modifiers::ALT, Key::Num2, true)
         }) {
             self.active_tab = if self.active_tab == WorkspaceTab::Corpus {
                 WorkspaceTab::Palette
@@ -403,7 +652,8 @@ impl MathSlotApp {
         }
 
         if ctx.input_mut(|i| {
-            i.consume_key(Modifiers::NONE, Key::F3) || i.consume_key(Modifiers::ALT, Key::Num3)
+            consume_key_non_repeat(i, Modifiers::NONE, Key::F3, true)
+                || consume_key_non_repeat(i, Modifiers::ALT, Key::Num3, true)
         }) {
             self.active_tab = if self.active_tab == WorkspaceTab::Formats {
                 WorkspaceTab::Palette
@@ -418,7 +668,8 @@ impl MathSlotApp {
         }
 
         if ctx.input_mut(|i| {
-            i.consume_key(Modifiers::NONE, Key::F4) || i.consume_key(Modifiers::ALT, Key::Num4)
+            consume_key_non_repeat(i, Modifiers::NONE, Key::F4, true)
+                || consume_key_non_repeat(i, Modifiers::ALT, Key::Num4, true)
         }) {
             self.active_tab = if self.active_tab == WorkspaceTab::LatexImport {
                 WorkspaceTab::Palette
@@ -432,7 +683,7 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::ALT, Key::Num1)) {
+        if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::ALT, Key::Num1, true)) {
             self.active_tab = WorkspaceTab::Palette;
             self.request_input_focus = true;
             return;
@@ -440,7 +691,7 @@ impl MathSlotApp {
 
         if self.active_tab != WorkspaceTab::Palette {
             self.nav_leader_until = None;
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Escape, true)) {
                 self.active_tab = WorkspaceTab::Palette;
                 self.request_input_focus = true;
                 return;
@@ -453,10 +704,10 @@ impl MathSlotApp {
         }
 
         let copy_shortcut = ctx.input_mut(|i| {
-            i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::C)
-                || i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::C)
-                || i.consume_key(Modifiers::COMMAND, Key::Enter)
-                || i.consume_key(Modifiers::CTRL, Key::Enter)
+            consume_key_non_repeat(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::C, false)
+                || consume_key_non_repeat(i, Modifiers::CTRL | Modifiers::SHIFT, Key::C, false)
+                || consume_key_non_repeat(i, Modifiers::COMMAND, Key::Enter, false)
+                || consume_key_non_repeat(i, Modifiers::CTRL, Key::Enter, false)
         });
         if copy_shortcut {
             self.copy_latex(ctx);
@@ -465,8 +716,8 @@ impl MathSlotApp {
         }
 
         let save_snip_shortcut = ctx.input_mut(|i| {
-            i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S)
-                || i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::S)
+            consume_key_non_repeat(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::S, false)
+                || consume_key_non_repeat(i, Modifiers::CTRL | Modifiers::SHIFT, Key::S, false)
         });
         if save_snip_shortcut {
             self.quick_save_snippet(true);
@@ -474,7 +725,7 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowLeft)) {
+        if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::ALT, Key::ArrowLeft, true)) {
             self.status = self.editor.jump_to_previous_pos();
             self.pending_cursor_sync = Some(self.editor.cursor_char);
             self.request_input_focus = true;
@@ -483,10 +734,10 @@ impl MathSlotApp {
         }
 
         let redo_shortcut = ctx.input_mut(|i| {
-            i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
-                || i.consume_key(Modifiers::CTRL | Modifiers::SHIFT, Key::Z)
-                || i.consume_key(Modifiers::COMMAND, Key::Y)
-                || i.consume_key(Modifiers::CTRL, Key::Y)
+            consume_key_non_repeat(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::Z, false)
+                || consume_key_non_repeat(i, Modifiers::CTRL | Modifiers::SHIFT, Key::Z, false)
+                || consume_key_non_repeat(i, Modifiers::COMMAND, Key::Y, false)
+                || consume_key_non_repeat(i, Modifiers::CTRL, Key::Y, false)
         });
         if redo_shortcut {
             self.status = self.editor.redo();
@@ -497,7 +748,8 @@ impl MathSlotApp {
         }
 
         let undo_shortcut = ctx.input_mut(|i| {
-            i.consume_key(Modifiers::COMMAND, Key::Z) || i.consume_key(Modifiers::CTRL, Key::Z)
+            consume_key_non_repeat(i, Modifiers::COMMAND, Key::Z, false)
+                || consume_key_non_repeat(i, Modifiers::CTRL, Key::Z, false)
         });
         if undo_shortcut {
             self.status = self.editor.undo();
@@ -510,7 +762,7 @@ impl MathSlotApp {
         // Tab j：先按 Tab 形成 `▸` 前缀，再按 j 直接进入导航。
         // 在应用层处理，不依赖 TextEdit 焦点，也不会把 `▸j` 留在公式里。
         if matches!(self.editor.prefix_menu_state(), PrefixMenuState::Root)
-            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::J))
+            && ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::J, true))
         {
             self.consume_text_char(ctx, 'j');
             self.editor.handle_tab();
@@ -522,7 +774,9 @@ impl MathSlotApp {
         }
 
         // Alt 轻按松开后按 j：同样是两个顺序动作，不是 Alt+J 组合键。
-        if self.nav_leader_active() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::J)) {
+        if self.nav_leader_active()
+            && ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::J, true))
+        {
             self.nav_leader_until = None;
             self.consume_text_char(ctx, 'j');
             self.status = self.editor.toggle_esc_jump();
@@ -533,7 +787,7 @@ impl MathSlotApp {
         }
 
         if self.editor.esc_nav.is_some() {
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Escape, true)) {
                 self.editor.esc_nav = None;
                 self.status = "已退出导航模式。".to_owned();
                 self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -541,7 +795,7 @@ impl MathSlotApp {
                 self.mark_dirty();
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Backspace)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Backspace, true)) {
                 self.status = self.editor.esc_backspace();
                 self.pending_cursor_sync = Some(self.editor.cursor_char);
                 self.request_input_focus = true;
@@ -549,8 +803,8 @@ impl MathSlotApp {
                 return;
             }
             if ctx.input_mut(|i| {
-                i.consume_key(Modifiers::NONE, Key::Enter)
-                    || i.consume_key(Modifiers::NONE, Key::Space)
+                consume_key_non_repeat(i, Modifiers::NONE, Key::Enter, true)
+                    || consume_key_non_repeat(i, Modifiers::NONE, Key::Space, true)
             }) {
                 self.status = self.editor.smart_enter();
                 self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -558,7 +812,8 @@ impl MathSlotApp {
                 self.mark_dirty();
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Tab, true)) {
+                ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
                 self.editor.esc_nav = None;
                 self.status = "已退出导航模式。".to_owned();
                 self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -566,21 +821,21 @@ impl MathSlotApp {
                 self.mark_dirty();
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Home)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Home, true)) {
                 self.status = self.editor.jump_to_start();
                 self.pending_cursor_sync = Some(self.editor.cursor_char);
                 self.request_input_focus = true;
                 self.mark_dirty();
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::End)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::End, true)) {
                 self.status = self.editor.jump_to_end();
                 self.pending_cursor_sync = Some(self.editor.cursor_char);
                 self.request_input_focus = true;
                 self.mark_dirty();
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::ArrowUp, true)) {
                 if let Some(msg) = self.editor.arrow_vertical(true) {
                     self.status = msg;
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -589,7 +844,7 @@ impl MathSlotApp {
                 self.request_input_focus = true;
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::ArrowDown, true)) {
                 if let Some(msg) = self.editor.arrow_vertical(false) {
                     self.status = msg;
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -598,7 +853,7 @@ impl MathSlotApp {
                 self.request_input_focus = true;
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowLeft)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::ArrowLeft, true)) {
                 if let Some(msg) = self.editor.arrow_horizontal(true) {
                     self.status = msg;
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -607,7 +862,8 @@ impl MathSlotApp {
                 self.request_input_focus = true;
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowRight)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::ArrowRight, true))
+            {
                 if let Some(msg) = self.editor.arrow_horizontal(false) {
                     self.status = msg;
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -625,8 +881,11 @@ impl MathSlotApp {
             return;
         }
 
-        if matches!(self.editor.prefix_menu_state(), PrefixMenuState::SubMenu(_))
-            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space))
+        let input_has_focus = ctx.memory(|m| m.has_focus(self.input_id));
+
+        if input_has_focus
+            && matches!(self.editor.prefix_menu_state(), PrefixMenuState::SubMenu(_))
+            && ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Space, true))
             && let Some(msg) = self.editor.accept_submenu_default()
         {
             self.status = msg;
@@ -636,8 +895,8 @@ impl MathSlotApp {
             return;
         }
 
-        if matches!(self.editor.prefix_menu_state(), PrefixMenuState::Idle) {
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp)) {
+        if input_has_focus && matches!(self.editor.prefix_menu_state(), PrefixMenuState::Idle) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::ArrowUp, true)) {
                 if let Some(msg) = self.editor.arrow_vertical(true) {
                     self.status = msg;
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -646,7 +905,7 @@ impl MathSlotApp {
                 }
                 return;
             }
-            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown)) {
+            if ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::ArrowDown, true)) {
                 if let Some(msg) = self.editor.arrow_vertical(false) {
                     self.status = msg;
                     self.pending_cursor_sync = Some(self.editor.cursor_char);
@@ -683,7 +942,10 @@ impl MathSlotApp {
             }
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab)) {
+        if input_has_focus
+            && ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Tab, true))
+        {
+            ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
             self.status = self.editor.handle_tab();
             self.pending_cursor_sync = Some(self.editor.cursor_char);
             self.request_input_focus = true;
@@ -691,7 +953,9 @@ impl MathSlotApp {
             return;
         }
 
-        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+        if input_has_focus
+            && ctx.input_mut(|i| consume_key_non_repeat(i, Modifiers::NONE, Key::Enter, true))
+        {
             self.status = self.editor.smart_enter();
             self.pending_cursor_sync = Some(self.editor.cursor_char);
             self.request_input_focus = true;
@@ -1472,31 +1736,40 @@ impl MathSlotApp {
             };
 
             let lib_ref = self.editor.library.clone();
-            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
                 let mut job = highlight_stream_source(text.as_str(), &lib_ref);
-                job.wrap.max_width = wrap_width;
+                job.wrap.max_width = f32::INFINITY;
+                job.keep_trailing_whitespace = true;
                 ui.fonts_mut(|f| f.layout_job(job))
             };
 
-            let mut output = egui::TextEdit::singleline(&mut self.editor.source)
-                .id(self.input_id)
-                .font(FontId::monospace(INPUT_MONO_FONT_SIZE))
-                .text_color(TEXT)
-                .background_color(FIELD)
-                .frame(
-                    egui::Frame::NONE
-                        .fill(FIELD)
-                        .stroke(Stroke::new(1.5, border))
-                        .corner_radius(CornerRadius::same(8))
-                        .inner_margin(Margin::symmetric(12, 9)),
-                )
-                .hint_text("直接键入简码，或点击右侧结构插入…")
-                .interactive(!in_nav)
-                .lock_focus(true)
-                .return_key(None)
-                .desired_width(f32::INFINITY)
-                .layouter(&mut layouter)
-                .show(ui);
+            let mut output = egui::Frame::NONE
+                .fill(FIELD)
+                .stroke(Stroke::new(1.5, border))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(Margin::symmetric(12, 9))
+                .show(ui, |ui| {
+                    egui::ScrollArea::horizontal()
+                        .id_salt("mathslot-stream-input-scroll")
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            egui::TextEdit::singleline(&mut self.editor.source)
+                                .id(self.input_id)
+                                .font(FontId::monospace(INPUT_MONO_FONT_SIZE))
+                                .text_color(TEXT)
+                                .background_color(FIELD)
+                                .frame(egui::Frame::NONE)
+                                .hint_text("直接键入简码，或点击右侧结构插入…")
+                                .interactive(!in_nav)
+                                .clip_text(false)
+                                .return_key(None)
+                                .desired_width(f32::INFINITY)
+                                .layouter(&mut layouter)
+                                .show(ui)
+                        })
+                        .inner
+                })
+                .inner;
 
             if output.response.changed() {
                 let char_delta = prev_snap
@@ -2092,6 +2365,12 @@ impl eframe::App for MathSlotApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
+        let window_focused = ctx.input(|i| i.focused);
+        ctx.input_mut(|i| {
+            self.repeat_guard
+                .filter_events(&mut i.events, window_focused);
+        });
+
         self.handle_keys_before_ui(&ctx);
 
         egui::Panel::bottom("mathslot-status-bar")
@@ -2190,18 +2469,31 @@ impl eframe::App for MathSlotApp {
         }
 
         // 智能焦点管理：
-        // 1. 当处于 Palette 结构网格且非导航模式时，主输入框保持常驻活跃焦点，点击任意卡片均不失焦；
-        // 2. 当处于其他内联工作区（公式库搜索、表单录入、LaTeX 输入等）时，不强行夺取焦点，让用户顺畅键入；
-        // 3. 当点击了“载入”、“追加”或切回 Palette 时，通过 self.request_input_focus 平滑归还主输入框焦点。
+        // 1. 仅在明确请求归还焦点（self.request_input_focus）、处于 Palette、非导航模式且当前未持焦时调用一次 request_focus，
+        //    避免稳态帧反复触发 egui::Memory::interrupt_ime() 打断 Wayland/fcitx5 IME 组合；
+        // 2. 仅在进入导航模式且当前持焦时调用一次 surrender_focus；
+        // 3. 在其他工作区仅当点击了“载入/追加”（request_input_focus 为真）且未持焦时平滑归还一次焦点。
+        let has_input_focus = ctx.memory(|m| m.has_focus(self.input_id));
         if self.active_tab == WorkspaceTab::Palette {
-            if self.editor.esc_nav.is_none() {
-                ctx.memory_mut(|m| m.request_focus(self.input_id));
-            } else {
-                ctx.memory_mut(|m| m.surrender_focus(self.input_id));
+            match decide_input_focus_transition(
+                self.active_tab,
+                self.editor.esc_nav.is_some(),
+                self.request_input_focus,
+                has_input_focus,
+            ) {
+                FocusTransition::RequestInputFocus => {
+                    ctx.memory_mut(|m| m.request_focus(self.input_id));
+                }
+                FocusTransition::SurrenderInputFocus => {
+                    ctx.memory_mut(|m| m.surrender_focus(self.input_id));
+                }
+                FocusTransition::None => {}
             }
             self.request_input_focus = false;
         } else if self.request_input_focus {
-            ctx.memory_mut(|m| m.request_focus(self.input_id));
+            if !has_input_focus && self.editor.esc_nav.is_none() {
+                ctx.memory_mut(|m| m.request_focus(self.input_id));
+            }
             self.request_input_focus = false;
         }
 
@@ -2838,26 +3130,44 @@ fn consume_esc_jump_key(ctx: &egui::Context) -> Option<char> {
         (Key::Num0, '0'),
     ];
     ctx.input_mut(|input| {
+        let had_repeat_key = input.events.iter().any(|ev| {
+            matches!(
+                ev,
+                egui::Event::Key {
+                    pressed: true,
+                    repeat: true,
+                    ..
+                }
+            )
+        });
         // 括号专用锚点：Shift+9 / Shift+0（避免和 0 行首别名冲突）
-        if input.consume_key(Modifiers::SHIFT, Key::Num9) {
+        if consume_key_non_repeat(input, Modifiers::SHIFT, Key::Num9, true) {
             input
                 .events
                 .retain(|ev| !matches!(ev, egui::Event::Text(_)));
             return Some('(');
         }
-        if input.consume_key(Modifiers::SHIFT, Key::Num0) {
+        if consume_key_non_repeat(input, Modifiers::SHIFT, Key::Num0, true) {
             input
                 .events
                 .retain(|ev| !matches!(ev, egui::Event::Text(_)));
             return Some(')');
         }
         for (key, ch) in KEYS {
-            if input.consume_key(Modifiers::NONE, key) || input.consume_key(Modifiers::SHIFT, key) {
+            if consume_key_non_repeat(input, Modifiers::NONE, key, true)
+                || consume_key_non_repeat(input, Modifiers::SHIFT, key, true)
+            {
                 input
                     .events
                     .retain(|ev| !matches!(ev, egui::Event::Text(_)));
                 return Some(ch);
             }
+        }
+        if had_repeat_key {
+            input
+                .events
+                .retain(|ev| !matches!(ev, egui::Event::Text(_)));
+            return None;
         }
         let mut consumed: Option<(usize, char)> = None;
         for (i, ev) in input.events.iter().enumerate() {
@@ -3045,4 +3355,37 @@ fn install_fonts(ctx: &egui::Context) {
     }
 
     ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FocusTransition, WorkspaceTab, decide_input_focus_transition};
+
+    #[test]
+    fn focus_transition_only_requests_when_requested_palette_unfocused_and_not_nav() {
+        assert_eq!(
+            decide_input_focus_transition(WorkspaceTab::Palette, false, true, false),
+            FocusTransition::RequestInputFocus
+        );
+        assert_eq!(
+            decide_input_focus_transition(WorkspaceTab::Palette, false, true, true),
+            FocusTransition::None
+        );
+        assert_eq!(
+            decide_input_focus_transition(WorkspaceTab::Palette, false, false, false),
+            FocusTransition::None
+        );
+        assert_eq!(
+            decide_input_focus_transition(WorkspaceTab::Corpus, false, true, false),
+            FocusTransition::None
+        );
+        assert_eq!(
+            decide_input_focus_transition(WorkspaceTab::Palette, true, true, true),
+            FocusTransition::SurrenderInputFocus
+        );
+        assert_eq!(
+            decide_input_focus_transition(WorkspaceTab::Palette, true, true, false),
+            FocusTransition::None
+        );
+    }
 }
