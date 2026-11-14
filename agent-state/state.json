@@ -78,18 +78,21 @@
       "D-127",
       "D-128",
       "D-129",
-      "D-130"
+      "D-130",
+      "D-131",
+      "D-132",
+      "D-133",
+      "D-134",
+      "D-135",
+      "D-136"
     ]
   },
   "gate": "G3",
   "round": 30,
   "active_task": "T3.7",
-  "next_task": "T3.7",
+  "next_task": "G3-exit",
   "last_verdict": "PASS",
-  "open_p1": [
-    "D-131",
-    "D-132"
-  ],
+  "open_p1": [],
   "new_defects": [
     "D-101",
     "D-102",
