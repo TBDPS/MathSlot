@@ -51,7 +51,8 @@ if [[ $FAST -eq 1 ]]; then
 else
   run_step "cargo clippy -D warnings" cargo clippy --workspace --all-targets -- -D warnings
 fi
-run_step "cargo test --workspace" cargo test --workspace
+run_step "cargo test --workspace" cargo test --workspace --offline
+run_step "xtask 生成物与文档防漂移" cargo run --offline -p xtask -- check
 
 # 调色板一致性在 G0 只是 WARN：D-001 的正式修复属于 G1/T1.3（必须由 catalog 生成），
 # 从 G1 起才作为硬门禁。
