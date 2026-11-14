@@ -80,16 +80,19 @@ impl App {
             .map(|slot| SlotSnapshot::from_slot(slot, active_slot_id))
             .collect();
 
+        let latex = self.editor.to_latex();
+        let preview_latex = self.editor.to_preview_latex_mathjax();
         let diagnostics = self
             .editor
             .diagnostics()
             .iter()
-            .map(DiagnosticSnapshot::from_diagnostic)
+            .map(|diag| DiagnosticSnapshot::from_diagnostic_with_source(diag, &latex))
             .collect();
 
         EngineSnapshot {
             state: self.state.clone(),
-            latex: self.editor.to_latex(),
+            latex,
+            preview_latex,
             copy_text: self.editor.copy_text(),
             has_pending_command: self.editor.has_pending_command(),
             is_composing: self.editor.is_composing(),
@@ -434,17 +437,19 @@ impl App {
 
         self.sync_state();
 
-        // 1. Status effects: append any editor diagnostics
+        // 1. Status effects: append any editor diagnostics with bounded single-line ErrorSummary
         if let Some(first_diag) = self.editor.diagnostics().first() {
+            let source = self.editor.to_latex();
+            let diag_snap = DiagnosticSnapshot::from_diagnostic_with_source(first_diag, &source);
             if first_diag.is_error() {
                 status_effects.push(Effect::Status(StatusMessage {
                     severity: StatusSeverity::Error,
-                    message: format!("{first_diag:?}"),
+                    message: diag_snap.summary,
                 }));
             } else if first_diag.is_pending() {
                 status_effects.push(Effect::Status(StatusMessage {
                     severity: StatusSeverity::Info,
-                    message: format!("{first_diag:?}"),
+                    message: diag_snap.summary,
                 }));
             }
         }
@@ -456,7 +461,9 @@ impl App {
             self.render_seq += 1;
             effects.push(Effect::Render(RenderRequest {
                 request_id: self.render_seq,
+                generation: self.render_seq,
                 latex: self.editor.to_latex(),
+                preview_latex: self.editor.to_preview_latex_mathjax(),
                 has_diagnostics: !self.editor.diagnostics().is_empty(),
             }));
         }

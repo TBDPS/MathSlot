@@ -1,7 +1,7 @@
 use crate::path::AstPath;
 use crate::slot::{Slot, SlotRole, SlotTable};
 use crate::transaction::DocError;
-use mathslot_syntax::{Diagnostic, Expr, SlotId, Span, Spanned, parse, to_latex};
+use mathslot_syntax::{Diagnostic, Expr, Printer, SlotId, Span, Spanned, parse, to_latex};
 use serde::{Deserialize, Serialize};
 
 /// 核心文档状态容器
@@ -45,6 +45,15 @@ impl Document {
 
     pub fn to_latex(&self) -> String {
         to_latex(&self.nodes)
+    }
+
+    /// 只读生成带空槽与活动槽位高亮的 MathJax 3 视觉预览 LaTeX（不改变 `to_latex()` 导出）
+    #[must_use]
+    pub fn to_preview_latex_mathjax(&self, active_slot: Option<SlotId>) -> String {
+        let active_path = active_slot
+            .and_then(|id| self.slots.get(id))
+            .map(|slot| slot.path.as_slice());
+        Printer::to_preview_latex_mathjax_at_path(&self.nodes, active_slot, active_path)
     }
 
     /// 重建槽位表，确保 SlotTable 与当前 AST 拓扑 100% 同步

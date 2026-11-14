@@ -26,6 +26,11 @@ pub fn to_latex(exprs: &[Spanned<Expr>]) -> String {
     Printer::to_canonical_latex(exprs)
 }
 
+/// 只读生成 MathJax 3 视觉预览高亮 LaTeX（保留空槽 `\bbox`+`\square` 与活动槽高亮）
+pub fn to_preview_latex_mathjax(exprs: &[Spanned<Expr>], active_slot: Option<SlotId>) -> String {
+    Printer::to_preview_latex_mathjax(exprs, active_slot)
+}
+
 /// 将 AST 表达式列表导出为 MathSlot 简码流
 pub fn to_source(exprs: &[Spanned<Expr>]) -> String {
     Printer::to_mathslot_source(exprs)

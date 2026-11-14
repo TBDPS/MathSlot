@@ -63,7 +63,9 @@ export type FocusTarget = { Slot: number } | 'End';
 
 export interface RenderRequest {
   request_id: number;
+  generation?: number;
   latex: string;
+  preview_latex?: string;
   has_diagnostics: boolean;
 }
 
@@ -72,12 +74,21 @@ export interface StatusMessage {
   message: string;
 }
 
+export type RawEditorDiagnostic =
+  | { PendingCommand: { prefix: string; message: string } }
+  | { UnknownCommand: { command: string; message: string } }
+  | { Syntax: string };
+
+export type AppError =
+  | { Doc: string }
+  | { StrictExportBlocked: RawEditorDiagnostic[] };
+
 export type Effect =
   | { Render: RenderRequest }
   | { Clipboard: string }
   | { Status: StatusMessage }
   | { Focus: FocusTarget }
-  | { ExportResult: { Ok: [string, unknown[]] } | { Err: unknown } };
+  | { ExportResult: { Ok: [string, RawEditorDiagnostic[]] } | { Err: AppError } };
 
 export interface CommandSpan {
   start: number;
@@ -99,11 +110,18 @@ export interface DiagnosticSnapshot {
   code: string;
   severity: StatusSeverity;
   message: string;
+  summary?: string;
+  source_excerpt?: string;
+  truncated?: boolean;
+  detail?: string;
+  hint?: string | null;
+  span?: CommandSpan | null;
 }
 
 export interface EngineSnapshot {
   state: EditorState;
   latex: string;
+  preview_latex: string;
   copy_text: string;
   has_pending_command: boolean;
   is_composing: boolean;
@@ -134,6 +152,7 @@ export function createEmptySnapshot(): EngineSnapshot {
   return {
     state: 'Idle',
     latex: '',
+    preview_latex: '',
     copy_text: '',
     has_pending_command: false,
     is_composing: false,

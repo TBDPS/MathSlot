@@ -7,6 +7,7 @@ license.workspace = true
 description = "Headless render pipeline contract: MathRenderer trait, deterministic cache, generation cancellation, explicit degradation, error summaries, and viewport fit geometry"
 
 [dependencies]
+latex-rust = "3.0.3"
 mathslot-syntax = { path = "../mathslot-syntax" }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"

@@ -246,6 +246,93 @@ impl Editor {
         self.to_latex()
     }
 
+    /// 只读生成带活动槽位、待决命令与错误高亮的 MathJax 3 视觉预览 LaTeX（`D-114`）
+    #[must_use]
+    pub fn to_preview_latex_mathjax(&self) -> String {
+        let active_slot = match self.cursor {
+            Cursor::InSlot { slot_id, .. } => Some(slot_id),
+            Cursor::AtStart | Cursor::AtNode(_) | Cursor::AtEnd => None,
+        };
+        let base = self.doc.to_preview_latex_mathjax(active_slot);
+        let escape_text = |raw: &str| -> String {
+            let mut out = String::with_capacity(raw.len());
+            for ch in raw.chars() {
+                match ch {
+                    '\\' => out.push_str(r"\textbackslash{}"),
+                    '{' => out.push_str(r"\{"),
+                    '}' => out.push_str(r"\}"),
+                    '$' => out.push_str(r"\$"),
+                    '%' => out.push_str(r"\%"),
+                    '#' => out.push_str(r"\#"),
+                    '&' => out.push_str(r"\&"),
+                    '_' => out.push_str(r"\_"),
+                    '^' => out.push_str(r"\^{}"),
+                    '~' => out.push_str(r"\~{}"),
+                    other => out.push(other),
+                }
+            }
+            out
+        };
+        let join_base = |badge: String| -> String {
+            if base.is_empty() {
+                badge
+            } else {
+                format!("{base} {badge}")
+            }
+        };
+
+        match &self.stream_state {
+            StreamState::Idle => {
+                if let Some(comp) = &self.ime_composition {
+                    let escaped = escape_text(comp);
+                    let badge = format!(
+                        r"\bbox[#fae8ff,2px,border:1px solid #a21caf]{{{{\color{{#86198f}}\text{{{escaped}}}}}}}"
+                    );
+                    join_base(badge)
+                } else {
+                    base
+                }
+            }
+            StreamState::PrefixPending { prefix } => {
+                let raw = if prefix.is_empty() {
+                    "▸".to_string()
+                } else {
+                    format!("▸{prefix}")
+                };
+                let escaped = escape_text(&raw);
+                let badge = format!(
+                    r"\bbox[#fffbeb,2px,border:1.25px solid #d97706]{{{{\color{{#b45309}}\text{{{escaped}}}}}}}"
+                );
+                join_base(badge)
+            }
+            StreamState::ParamCapture {
+                command_id,
+                collected_params,
+                buffer,
+                ..
+            } => {
+                let mut raw = format!("▸{command_id}");
+                for p in collected_params {
+                    raw.push_str(p);
+                    raw.push(';');
+                }
+                raw.push_str(buffer);
+                let escaped = escape_text(&raw);
+                let badge = format!(
+                    r"\bbox[#fffbeb,2px,border:1.25px solid #d97706]{{{{\color{{#b45309}}\text{{{escaped}}}}}}}"
+                );
+                join_base(badge)
+            }
+            StreamState::UnknownCommand { raw } => {
+                let escaped = escape_text(raw);
+                let badge = format!(
+                    r"\bbox[#fef2f2,2px,border:1.25px solid #ef4444]{{{{\color{{#dc2626}}\text{{{escaped}}}}}}}"
+                );
+                join_base(badge)
+            }
+        }
+    }
+
     /// 导出 LaTeX 及所有编辑态诊断报告 (T1.6, D-004)
     /// 包含未决命令 (PendingCommand) 与未知命令 (UnknownCommand) 等诊断信息。
     pub fn export_latex_with_diagnostics(&self) -> (String, Vec<EditorDiagnostic>) {

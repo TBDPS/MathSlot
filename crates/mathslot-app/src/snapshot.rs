@@ -1,4 +1,5 @@
 use mathslot_doc::{EditorDiagnostic as Diagnostic, Slot, SlotRole};
+use mathslot_render::ErrorSummary;
 use serde::{Deserialize, Serialize};
 
 use crate::effect::{Effect, StatusSeverity};
@@ -54,27 +55,63 @@ pub struct DiagnosticSnapshot {
     pub code: String,
     pub severity: StatusSeverity,
     pub message: String,
+    pub summary: String,
+    pub source_excerpt: String,
+    pub truncated: bool,
+    pub detail: String,
+    pub hint: Option<String>,
+    pub span: Option<CommandSpan>,
 }
 
 impl DiagnosticSnapshot {
     #[must_use]
     pub fn from_diagnostic(diag: &Diagnostic) -> Self {
-        match diag {
-            Diagnostic::PendingCommand { message, .. } => Self {
-                code: "PENDING_COMMAND".to_string(),
-                severity: StatusSeverity::Info,
-                message: message.clone(),
-            },
-            Diagnostic::UnknownCommand { message, .. } => Self {
-                code: "UNKNOWN_COMMAND".to_string(),
-                severity: StatusSeverity::Error,
-                message: message.clone(),
-            },
-            Diagnostic::Syntax(message) => Self {
-                code: "SYNTAX_ERROR".to_string(),
-                severity: StatusSeverity::Error,
-                message: message.clone(),
-            },
+        Self::from_diagnostic_with_source(diag, "")
+    }
+
+    #[must_use]
+    pub fn from_diagnostic_with_source(diag: &Diagnostic, source: &str) -> Self {
+        let (code, severity, message, fallback_source, hint) = match diag {
+            Diagnostic::PendingCommand { prefix, message } => (
+                "PENDING_COMMAND",
+                StatusSeverity::Info,
+                message.clone(),
+                format!("▸{prefix}"),
+                Some(format!("继续输入命令字符或按 Esc 取消未决前缀 ▸{prefix}")),
+            ),
+            Diagnostic::UnknownCommand { command, message } => (
+                "UNKNOWN_COMMAND",
+                StatusSeverity::Error,
+                message.clone(),
+                command.clone(),
+                Some(format!("检查命令拼写或从命令面板选择有效命令：{command}")),
+            ),
+            Diagnostic::Syntax(message) => (
+                "SYNTAX_ERROR",
+                StatusSeverity::Error,
+                message.clone(),
+                String::new(),
+                Some("检查括号/花括号配对及命令参数是否完整".to_string()),
+            ),
+        };
+
+        let effective_source = if source.is_empty() {
+            fallback_source.as_str()
+        } else {
+            source
+        };
+        let err_summary = ErrorSummary::from_error(code, &message, effective_source);
+
+        Self {
+            code: err_summary.code,
+            severity,
+            message,
+            summary: err_summary.header_summary,
+            source_excerpt: err_summary.source_excerpt,
+            truncated: err_summary.truncated,
+            detail: err_summary.full_detail,
+            hint,
+            span: None,
         }
     }
 }
@@ -83,6 +120,7 @@ impl DiagnosticSnapshot {
 pub struct EngineSnapshot {
     pub state: EditorState,
     pub latex: String,
+    pub preview_latex: String,
     pub copy_text: String,
     pub has_pending_command: bool,
     pub is_composing: bool,

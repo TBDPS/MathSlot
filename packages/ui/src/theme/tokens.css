@@ -63,6 +63,15 @@
   --ms-mode-ime-bg: #fae8ff;
   --ms-mode-ime-fg: #86198f;
 
+  --ms-preview-bg: #ffffff;
+  --ms-preview-fg: #0f172a;
+  --ms-preview-border: #cbd5e1;
+  --ms-badge-degraded-bg: #fffbeb;
+  --ms-badge-degraded-border: #d97706;
+  --ms-badge-degraded-fg: #92400e;
+  --ms-diag-code-bg: #f1f5f9;
+  --ms-diag-code-fg: #0f172a;
+
   --ms-radius-sm: 6px;
   --ms-radius-md: 10px;
   --ms-radius-pill: 999px;
@@ -130,6 +139,15 @@
   --ms-mode-ime-bg: rgba(192, 38, 211, 0.25);
   --ms-mode-ime-fg: #f5d0fe;
 
+  --ms-preview-bg: #0f172a;
+  --ms-preview-fg: #f8fafc;
+  --ms-preview-border: #334155;
+  --ms-badge-degraded-bg: rgba(217, 119, 6, 0.2);
+  --ms-badge-degraded-border: #f59e0b;
+  --ms-badge-degraded-fg: #fde68a;
+  --ms-diag-code-bg: #1e293b;
+  --ms-diag-code-fg: #e2e8f0;
+
   --ms-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
@@ -194,6 +212,15 @@
     --ms-mode-nav-fg: #bbf7d0;
     --ms-mode-ime-bg: rgba(192, 38, 211, 0.25);
     --ms-mode-ime-fg: #f5d0fe;
+
+    --ms-preview-bg: #0f172a;
+    --ms-preview-fg: #f8fafc;
+    --ms-preview-border: #334155;
+    --ms-badge-degraded-bg: rgba(217, 119, 6, 0.2);
+    --ms-badge-degraded-border: #f59e0b;
+    --ms-badge-degraded-fg: #fde68a;
+    --ms-diag-code-bg: #1e293b;
+    --ms-diag-code-fg: #e2e8f0;
 
     --ms-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
   }

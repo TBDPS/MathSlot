@@ -1413,6 +1413,7 @@ dependencies = [
 name = "mathslot-render"
 version = "0.7.0"
 dependencies = [
+ "latex-rust",
  "mathslot-syntax",
  "serde",
  "thiserror 2.0.21",

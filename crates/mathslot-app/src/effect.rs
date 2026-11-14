@@ -15,7 +15,9 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderRequest {
     pub request_id: u64,
+    pub generation: u64,
     pub latex: String,
+    pub preview_latex: String,
     pub has_diagnostics: bool,
 }
 
