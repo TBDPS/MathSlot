@@ -110,7 +110,11 @@
   "active_task": "T4.3",
   "next_task": "T4.3",
   "last_verdict": "PASS",
-  "open_p1": [],
+  "open_p1": [
+    "D-152",
+    "D-153",
+    "D-154"
+  ],
   "new_defects": [
     "D-101",
     "D-102",
@@ -161,7 +165,11 @@
     "D-148",
     "D-149",
     "D-150",
-    "D-151"
+    "D-151",
+    "D-152",
+    "D-153",
+    "D-154",
+    "D-155"
   ],
   "no_progress_rounds": 0,
   "reopened": {
