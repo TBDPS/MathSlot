@@ -38,9 +38,19 @@
 
 - 上述两项完成后，由独立 `mathslot-verifier` 对 Gate G4 进行最终退出全景验收（覆盖 `acceptance.sh` 全绿、全部 Rust/UI/Desktop/Obsidian 单元与双端 E2E、`build.mjs`、`package-desktop-local.sh` 及全部 `A-*` / `S-001..007` 证据索引），产出 `VER-38.md`；随后检查是否可用 `scripts/agent/supervise.sh --final`（若外部 `opencode` 可用则执行最终监督审查；若不可用则据实记录真实退出状态）。
 
+### 2.4 收口阻断修复（`VER-38` FAIL 闭环，Round 39）
+
+针对 [VER-38.md](../verify/VER-38.md) 指出的 `obsidian-mathslot/main.js` 产物滞后与 `xtask/src` 口径对齐需求：
+
+1. **`xtask/src/codegen.rs` 收口清零**：将 `xtask/src/codegen.rs:134, 258, 265, 271` 的 1 处 `let _ =` 与 3 处 `serde_json::to_string(...).unwrap()` 改写为显式 Result/错误处理（`expect`/返回 `Result`），使 `xtask/src` 同步达到 `let _ =`: 0、`.unwrap()`: 0。
+2. **同步重建 Obsidian 内联 WASM 产物**：重新运行 `node obsidian-mathslot/scripts/build.mjs` 将最新 `mathslot-doc` -> `mathslot-wasm` 编译写入 `obsidian-mathslot/main.js` 与 `apps/obsidian/src/wasm-pkg/`，确保再次运行 `node obsidian-mathslot/scripts/build.mjs && git diff --exit-code -- obsidian-mathslot/` 为 0 漂移。
+3. **工具链同步**：coordinator 在单独工具链提交中将 `"xtask/src"` 纳入 `scripts/agent/acceptance.sh` `active_dirs`（合计 10 个活跃 Rust 源码目录全部严格 `0 / 0 / 0`）。
+
 ---
 
 ## 3. 允许写入范围
 
-- **代码提交（`mathslot-implementer`）**：仅 `crates/mathslot-doc/**`，commit message 含 `GATE-G4`。
+- **代码提交（`mathslot-implementer`）**：
+  - Round 38：`crates/mathslot-doc/**`（已完成 `8dbd8c0`）
+  - Round 39 修复：`xtask/src/codegen.rs` 与 `obsidian-mathslot/**` / `apps/obsidian/src/wasm-pkg/**`（经 `node obsidian-mathslot/scripts/build.mjs` 同步生成），commit message 含 `GATE-G4`。
 - **工具链提交（`coordinator`，独立提交）**：仅 `scripts/agent/acceptance.sh`，commit message 注明 `ADR-0038`。
