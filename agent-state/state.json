@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-14",
+  "updated": "2026-11-15",
   "repo": "/home/mat/Projects/mathslot-next",
   "branch": "refactor/v1",
   "frozen": {
@@ -9,7 +9,7 @@
     "readonly_copy": "/home/mat/Projects/mathslot-freeze-20261112"
   },
   "baseline": {
-    "tests_passed": 247,
+    "tests_passed": 273,
     "tests_ignored": 0,
     "clippy": "PASS",
     "fmt": "PASS",
@@ -112,18 +112,20 @@
       "D-158",
       "D-159",
       "D-160",
-      "D-161"
+      "D-161",
+      "D-162",
+      "D-163",
+      "D-164",
+      "D-165",
+      "D-166"
     ]
   },
   "gate": "G4",
-  "round": 36,
-  "active_task": "T4.5",
-  "next_task": "T4.5",
-  "last_verdict": "BLOCK",
-  "open_p1": [
-    "D-162",
-    "D-163"
-  ],
+  "round": 37,
+  "active_task": "T4.6",
+  "next_task": "T4.6",
+  "last_verdict": "PASS",
+  "open_p1": [],
   "new_defects": [
     "D-101",
     "D-102",
