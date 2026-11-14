@@ -2,20 +2,18 @@
 
 ## 当前
 
-- 轮次：26
+- 轮次：27
 - Gate：G3
-- 当前任务：`T3.6`（`apps/obsidian` Obsidian 壳 + 共享 `packages/ui` + `crates/mathslot-wasm` `wasm-bindgen` 接入；注：`T3.6` 依赖 `T3.1-T3.4`，宿主机缺少 `webkit2gtk4.1-devel` 等 RPM，故先完成可无 root 验证的 `T3.6`，再推进 `T3.5`/`T3.7`）
-- 下一步：审计 `AUD-25.md` → `ADR-0029` → `implementer`（TDD 先红后绿）→ `verifier`（`VER-26.md`）
+- 当前任务：`T3.6` 回炉修复（`VER-26.md` 判定 `FAIL`：修复 `apps/obsidian/src/styles.css` 5 处未定义 `--ms-*` 令牌断链、阅读视图 `plugin.ts` 代码块宿主主题/适配器接入与 `recovery-restore-btn` 测试覆盖）
+- 下一步：按 `ADR-0029` 与 `VER-26.md` 派 `implementer`（TDD 先红后绿）→ `verifier`（`VER-27.md`）
 
-## 本轮（Round 25）做过什么
+## 本轮（Round 26）做过什么
 
-- `T3.4`（commit `558e994`，`VER-25.md` **PASS**）：
-  - `crates/mathslot-store` 为 `Settings` 兼容扩展 `theme`（`light`/`dark`/`system`）、`render_backend`（`mathjax`/`latex-rust`）与 `shortcuts`，并修复 `LibraryFile::from_user_library_with_settings` 保存不覆盖设置（修复 `D-116`）。
-  - `crates/mathslot-app` 接入 `AppSettings`、`UpdateSettings`、`ResetSettingsConfirmed`、`SetRecoveryState`、导出定界符包装（`none`/`inline_dollar`/`block_dollar`/`code_fence`）且错误诊断仍阻断导出；Rust 工作区测试 `236 passed; 0 failed; 0 ignored`。
-  - `packages/ui` 完成 `[data-theme='light']` 显式令牌作用域、`PreviewPanel` `auto` 主题实时跟随 `prefers-color-scheme`（修复 `D-119`）、`settings/shortcuts.ts` 快捷键规范化与保留键/跨动作冲突拦截 + `keymap.ts` 注入（修复 `D-118`/`D-015`）及 `SettingsPanel.svelte` 设置与损坏隔离恢复向导 UI（修复 `D-117`/`D-016`/`A-DATA-001`）；Vitest `27 passed (6 files)`、`svelte-check` 0 errors 0 warnings、`vite build` 通过、`acceptance.sh` PASS。
+- `T3.6` 初版实现（commit `ec9de58`）：完成 `mathslot-wasm` `#[wasm_bindgen]` + `#![forbid(unsafe_code)]`、`crates/mathslot-app` `ImportLatex` `ImportReportSnapshot` + Error 阻断、修复 `D-126` 3 条预置并保 `mathslot-store` 迁移 `stripped_builtin_count == 87`、`packages/ui` `ImportModal.svelte` + Obsidian 变量适配 + 480px 断点，以及 `apps/obsidian` 与 `node obsidian-mathslot/scripts/build.mjs` 单文件内联打包（Rust `241 passed`、`packages/ui` `29 passed`、`apps/obsidian` `7 passed`、`acceptance.sh` PASS）。
+- 独立验收 `VER-26.md` 判定 **`FAIL`**（第 1 次回炉）：`apps/obsidian/src/styles.css`（及打包产物 `obsidian-mathslot/styles.css`）引用 5 个未在 `tokens.css` 定义的 `--ms-*` 变量（`--ms-text` / `--ms-text-muted` / `--ms-surface-2` / `--ms-on-accent` / `--ms-warn`），导致主按钮前景与告警徽章丢色，且 `apps/obsidian/tests/obsidian.test.ts` 未检测 CSS 令牌存在性。
 
 ## 证据在哪
 
-- `agent-state/audits/AUD-24.md`
-- `agent-state/decisions/ADR-0028-t3-4-settings-themes-shortcuts-and-recovery.md`
-- `agent-state/verify/VER-25.md`（PASS）
+- `agent-state/audits/AUD-25.md`
+- `agent-state/decisions/ADR-0029-t3-6-obsidian-shell-wasm-bindgen-and-shared-ui.md`
+- `agent-state/verify/VER-26.md`（FAIL）
