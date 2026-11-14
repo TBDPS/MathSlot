@@ -8,7 +8,7 @@
   gap: 10px;
   padding: 12px;
   background: var(--ms-bg);
-  color: var(--ms-text);
+  color: var(--ms-fg);
   font-family: var(--font-text, var(--ms-font-sans, sans-serif));
   box-sizing: border-box;
   width: 100%;
@@ -35,7 +35,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 700;
-  color: var(--ms-text);
+  color: var(--ms-fg);
 }
 
 .ms-obsidian-badge {
@@ -45,8 +45,8 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: var(--ms-surface-2);
-  color: var(--ms-text-muted);
+  background: var(--ms-surface-elevated);
+  color: var(--ms-fg-muted);
   border: 1px solid var(--ms-border);
 }
 
@@ -66,7 +66,7 @@
   border-radius: var(--ms-radius-sm, 6px);
   border: 1px solid var(--ms-border);
   background: var(--ms-surface);
-  color: var(--ms-text);
+  color: var(--ms-fg);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -74,13 +74,13 @@
 
 .ms-obsidian-btn:hover {
   border-color: var(--ms-accent);
-  background: var(--ms-surface-2);
+  background: var(--ms-surface-elevated);
 }
 
 .ms-obsidian-btn.is-primary {
   background: var(--ms-accent);
   border-color: var(--ms-accent);
-  color: var(--ms-on-accent);
+  color: var(--ms-accent-contrast);
 }
 
 .ms-obsidian-btn.is-active {
@@ -90,7 +90,7 @@
 
 .ms-obsidian-status {
   font-size: 12px;
-  color: var(--ms-text-muted);
+  color: var(--ms-fg-muted);
   min-height: 18px;
 }
 
@@ -130,9 +130,9 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  border: 1px solid var(--ms-warn);
-  color: var(--ms-warn);
-  background: var(--ms-surface-2);
+  border: 1px solid var(--ms-badge-degraded-border);
+  color: var(--ms-badge-degraded-fg);
+  background: var(--ms-badge-degraded-bg);
 }
 
 @media (max-width: 480px) {

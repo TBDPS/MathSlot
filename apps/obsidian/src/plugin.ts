@@ -13,10 +13,13 @@ import {
   type Editor,
 } from 'obsidian';
 import {
-  createMathJaxSvgAdapter,
   type AppSettings,
   type DelimiterStyle,
 } from '@mathslot/ui';
+import {
+  createObsidianHostRenderAdapter,
+  type ObsidianManagedRenderer,
+} from './hostRenderAdapter';
 import { MathSlotModal } from './MathSlotModal';
 import {
   loadAndValidateLibrary,
@@ -27,6 +30,19 @@ import {
 import { WasmEngineClient } from './wasmClient';
 
 const MATHSLOT_RIBBON_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4H6l6 8-6 8h12"/></svg>`;
+
+function detectObsidianTheme(): 'light' | 'dark' {
+  if (typeof document !== 'undefined' && document.body?.classList.contains('theme-dark')) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+function sanitizeCodeBlockMarkup(raw: string): string {
+  return raw
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+}
 
 class MathSlotSettingTab extends PluginSettingTab {
   private readonly pluginInstance: MathSlotPlugin;
@@ -54,8 +70,20 @@ class MathSlotSettingTab extends PluginSettingTab {
 
 export default class MathSlotPlugin extends Plugin {
   private client: WasmEngineClient | null = null;
+  private codeBlockRenderer: ObsidianManagedRenderer | null = null;
+  private codeBlockRenderGen = 0;
   private persisted: PluginPersistedData = {};
   private lastRecoveryBanner = '';
+
+  private ensureCodeBlockRenderer(): ObsidianManagedRenderer {
+    if (!this.codeBlockRenderer) {
+      this.codeBlockRenderer = createObsidianHostRenderAdapter({
+        renderMath,
+        finishRenderMath,
+      });
+    }
+    return this.codeBlockRenderer;
+  }
 
   private async savePersisted(next: PluginPersistedData): Promise<void> {
     this.persisted = next;
@@ -178,32 +206,52 @@ export default class MathSlotPlugin extends Plugin {
 
     this.registerMarkdownCodeBlockProcessor('mathslot', async (source, el) => {
       el.replaceChildren();
+      const theme = detectObsidianTheme();
       const wrapper = document.createElement('div');
       wrapper.className = 'ms-obsidian-codeblock';
+      wrapper.setAttribute('data-host', 'obsidian');
+      wrapper.setAttribute('data-theme', theme);
       el.appendChild(wrapper);
+
       const trimmed = source.trim();
+      this.codeBlockRenderGen += 1;
+      const renderer = this.ensureCodeBlockRenderer();
+
       try {
-        const rendered = renderMath(trimmed, true);
-        await finishRenderMath();
-        wrapper.appendChild(rendered);
+        const result = await renderer.renderNow({
+          generation: this.codeBlockRenderGen,
+          latex: trimmed,
+          previewLatex: trimmed,
+          theme,
+          display: true,
+        });
+
+        if (!result) {
+          return;
+        }
+
+        const hasMerror = /<mjx-merror\b/i.test(result.svg);
+        if (result.degraded || hasMerror) {
+          const badge = document.createElement('div');
+          badge.className = 'ms-obsidian-degraded-badge';
+          badge.setAttribute('data-mathslot-degraded', 'true');
+          const summary =
+            result.errorSummary?.summary ??
+            result.diagnostics[0]?.summary ??
+            '宿主 renderMath 返回错误节点';
+          badge.textContent = `降级预览 (${summary})`;
+          wrapper.appendChild(badge);
+        }
+
+        const svgHost = document.createElement('div');
+        svgHost.innerHTML = sanitizeCodeBlockMarkup(result.svg);
+        wrapper.appendChild(svgHost);
       } catch (err) {
         const badge = document.createElement('div');
         badge.className = 'ms-obsidian-degraded-badge';
         badge.setAttribute('data-mathslot-degraded', 'true');
         badge.textContent = `降级预览 (${err instanceof Error ? err.message : '宿主 renderMath 不可用'})`;
         wrapper.appendChild(badge);
-
-        const fallback = createMathJaxSvgAdapter();
-        const fbOut = await fallback.render({
-          generation: 1,
-          latex: trimmed,
-          previewLatex: trimmed,
-          theme: 'light',
-          display: true,
-        });
-        const svgHost = document.createElement('div');
-        svgHost.innerHTML = fbOut.svg;
-        wrapper.appendChild(svgHost);
       }
     });
 
@@ -211,6 +259,8 @@ export default class MathSlotPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this.codeBlockRenderer?.dispose();
+    this.codeBlockRenderer = null;
     this.client?.dispose();
     this.client = null;
   }

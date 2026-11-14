@@ -2,8 +2,64 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
+
+const obsidianMockState = vi.hoisted(() => ({
+  processors: new Map<string, (source: string, el: HTMLElement, ctx: unknown) => void | Promise<void>>(),
+  renderMathHandler: null as null | ((tex: string, display: boolean) => Promise<HTMLElement>),
+}));
+
+vi.mock('obsidian', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./mocks/obsidian')>();
+  class PluginWithProcessors extends original.Plugin {
+    override registerMarkdownCodeBlockProcessor(
+      lang: string,
+      handler: (source: string, el: HTMLElement, ctx: unknown) => void | Promise<void>,
+    ): void {
+      obsidianMockState.processors.set(lang, handler);
+    }
+    addSettingTab(_tab: unknown): void {}
+  }
+  class PluginSettingTab {
+    app: unknown;
+    plugin: unknown;
+    containerEl = document.createElement('div');
+    constructor(app: unknown, plugin: unknown) {
+      this.app = app;
+      this.plugin = plugin;
+    }
+    display(): void {}
+  }
+  class Setting {
+    constructor(_el: HTMLElement) {}
+    setName(): this {
+      return this;
+    }
+    setDesc(): this {
+      return this;
+    }
+    addButton(cb: (btn: { setButtonText: (t: string) => void; onClick: (fn: () => void) => void }) => void): this {
+      cb({ setButtonText: () => {}, onClick: () => {} });
+      return this;
+    }
+  }
+  return {
+    ...original,
+    Plugin: PluginWithProcessors,
+    PluginSettingTab,
+    Setting,
+    addIcon: () => {},
+    renderMath: async (tex: string, display: boolean) => {
+      if (obsidianMockState.renderMathHandler) {
+        return obsidianMockState.renderMathHandler(tex, display);
+      }
+      return original.renderMath(tex, display);
+    },
+  };
+});
+
 import AppShell from '../src/AppShell.svelte';
 import { createObsidianHostRenderAdapter } from '../src/hostRenderAdapter';
+import MathSlotPlugin from '../src/plugin';
 import {
   loadAndValidateLibrary,
   resetEmptyLibrary,
@@ -24,6 +80,8 @@ afterEach(() => {
     unmount(mounted);
     mounted = null;
   }
+  obsidianMockState.renderMathHandler = null;
+  document.body.className = '';
   document.body.innerHTML = '';
 });
 
@@ -292,5 +350,154 @@ describe('apps/obsidian WASM & shared UI integration (T3.6)', () => {
     expect(out?.diagnostics.length).toBeGreaterThan(0);
     expect(out?.errorSummary?.code).toBe('PRIMARY_RENDER_FAILED');
     expect(out?.svg).toContain('<svg');
+  });
+
+  it('A-OBS-001 / D-124: every --ms-* token referenced in apps/obsidian/src/styles.css and obsidian-mathslot/styles.css is defined in tokens.css', () => {
+    const tokensCss = readFileSync(
+      resolve(import.meta.dirname, '../../../packages/ui/src/theme/tokens.css'),
+      'utf8',
+    );
+    const obsidianStyles = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8');
+    const bundledStyles = readFileSync(
+      resolve(import.meta.dirname, '../../../obsidian-mathslot/styles.css'),
+      'utf8',
+    );
+
+    const definedTokens = new Set(
+      Array.from(tokensCss.matchAll(/(--ms-[a-z0-9-]+)\s*:/g), (m) => m[1]),
+    );
+
+    // Every var(--ms-...) in apps/obsidian/src/styles.css must exist in tokens.css
+    const obsidianRefs = Array.from(
+      new Set(Array.from(obsidianStyles.matchAll(/var\((--ms-[a-z0-9-]+)/g), (m) => m[1])),
+    ).sort();
+    const missingInObsidian = obsidianRefs.filter((token) => !definedTokens.has(token));
+    expect(missingInObsidian).toEqual([]);
+
+    // Zero hardcoded hex or rgba() colors in apps/obsidian/src/styles.css
+    expect(obsidianStyles).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    expect(obsidianStyles).not.toMatch(/rgba?\(/i);
+
+    // Every non-fallback var(--ms-...) in bundled obsidian-mathslot/styles.css must exist in tokens.css
+    const bundledNoFallbackRefs = Array.from(
+      new Set(Array.from(bundledStyles.matchAll(/var\((--ms-[a-z0-9-]+)\)/g), (m) => m[1])),
+    ).sort();
+    const missingInBundled = bundledNoFallbackRefs.filter((token) => !definedTokens.has(token));
+    expect(missingInBundled).toEqual([]);
+  });
+
+  it('A-OBS-002 / D-122: clicking recovery-restore-btn ("从最近备份恢复") restores backed-up library intact and clears recovery', async () => {
+    const wasmBytes = loadRealWasmBytes();
+    const client = await WasmEngineClient.create({ wasmBytes });
+
+    const backupPayload = JSON.stringify({
+      schema_version: 3,
+      customFormats: [{ id: 'fmt-1', name: 'BoldVec', template: '\\mathbf{?}', slotCount: 1 }],
+      snippets: [{ id: 'snip-1', name: 'Quad', latex: 'x^2 + 1' }],
+    });
+    const corruptPayload = '{"schema_version": 3, "customFormats": [ CORRUPT';
+    const data: PluginPersistedData = {
+      libraryJson: corruptPayload,
+      lastValidLibraryJson: backupPayload,
+    };
+    const saveData = vi.fn(async (_next: PluginPersistedData) => {});
+
+    const validation = await loadAndValidateLibrary(data, saveData);
+    expect(validation.ok).toBe(false);
+    expect(validation.recovery).not.toBeNull();
+    if (validation.recovery) {
+      await client.dispatch({ SetRecoveryState: validation.recovery });
+    }
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    mounted = mount(AppShell, {
+      target,
+      props: {
+        client,
+        initialSettingsOpen: true,
+        onRestoreBackup: async () => {
+          await restoreFromBackup(data, saveData);
+          await client.dispatch({ SetRecoveryState: null });
+        },
+        onResetEmptyConfig: async () => {
+          await resetEmptyLibrary(data, saveData);
+          await client.dispatch({ SetRecoveryState: null });
+        },
+      },
+    });
+    await tick();
+    await tick();
+
+    const restoreBtn = target.querySelector(
+      '[data-testid="recovery-restore-btn"]',
+    ) as HTMLButtonElement | null;
+    expect(restoreBtn).not.toBeNull();
+    expect(restoreBtn?.textContent).toContain('从最近备份恢复');
+    expect(restoreBtn?.disabled).toBe(false);
+
+    restoreBtn?.click();
+    await new Promise((resolveFn) => setTimeout(resolveFn, 20));
+    await tick();
+    await tick();
+
+    expect(data.libraryJson).toBe(backupPayload);
+    expect(data.backupJson?.[0]?.rawLibraryJson).toBe(corruptPayload);
+    const snapAfter = await client.snapshot();
+    expect(snapAfter.recovery ?? null).toBeNull();
+    expect(target.querySelector('[data-testid="recovery-wizard"]')).toBeNull();
+
+    client.dispose();
+  });
+
+  it('D-121 / OPEN-002: codeblock processor detects dark theme and degrades visibly on <mjx-merror> or renderMath failure', async () => {
+    obsidianMockState.processors.clear();
+    const mockApp: import('obsidian').App = {
+      workspace: {
+        getActiveViewOfType: () => null,
+      },
+    };
+    const plugin = new MathSlotPlugin(mockApp, {
+      id: 'mathslot',
+      name: 'MathSlot',
+      version: '0.7.0',
+    });
+    await plugin.onload();
+
+    const processor = obsidianMockState.processors.get('mathslot');
+    expect(processor).toBeDefined();
+
+    // 1) Dark theme detection + silent <mjx-merror> host render failure
+    document.body.classList.add('theme-dark');
+    obsidianMockState.renderMathHandler = async () => {
+      const span = document.createElement('span');
+      span.innerHTML =
+        '<mjx-container><mjx-merror data-mjx-error="Undefined control sequence \\badcmd">\\badcmd</mjx-merror></mjx-container>';
+      return span;
+    };
+
+    const elDarkMerror = document.createElement('div');
+    await processor?.('\\badcmd', elDarkMerror, { addChild: () => {} });
+
+    const wrapperDark = elDarkMerror.querySelector('.ms-obsidian-codeblock');
+    expect(wrapperDark?.getAttribute('data-host')).toBe('obsidian');
+    expect(wrapperDark?.getAttribute('data-theme')).toBe('dark');
+    const badgeDark = elDarkMerror.querySelector('[data-mathslot-degraded="true"]');
+    expect(badgeDark).not.toBeNull();
+    expect(badgeDark?.classList.contains('ms-obsidian-degraded-badge')).toBe(true);
+    expect(badgeDark?.textContent).toContain('降级预览');
+
+    // 2) Thrown host renderMath error degrades cleanly with fallback SVG in dark theme
+    obsidianMockState.renderMathHandler = async () => {
+      throw new Error('Host renderMath unavailable');
+    };
+    const elDarkFallback = document.createElement('div');
+    await processor?.('\\frac{a}{b}', elDarkFallback, { addChild: () => {} });
+    const wrapperFallback = elDarkFallback.querySelector('.ms-obsidian-codeblock');
+    expect(wrapperFallback?.getAttribute('data-theme')).toBe('dark');
+    expect(elDarkFallback.querySelector('[data-mathslot-degraded="true"]')).not.toBeNull();
+    expect(elDarkFallback.innerHTML).toContain('<svg');
+
+    plugin.onunload();
   });
 });
