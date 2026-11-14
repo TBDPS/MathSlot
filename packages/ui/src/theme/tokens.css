@@ -25,6 +25,11 @@
   --ms-cmd-border: #60a5fa;
   --ms-cmd-fg: #1e40af;
 
+  --ms-kbd-bg: #f1f5f9;
+  --ms-kbd-border: #cbd5e1;
+  --ms-kbd-fg: #1e293b;
+  --ms-card-hover-bg: #f8fafc;
+
   --ms-slot-empty-bg: #fefce8;
   --ms-slot-empty-border: #ca8a04;
   --ms-slot-empty-fg: #713f12;
@@ -87,6 +92,11 @@
   --ms-cmd-border: #60a5fa;
   --ms-cmd-fg: #bfdbfe;
 
+  --ms-kbd-bg: #1e293b;
+  --ms-kbd-border: #475569;
+  --ms-kbd-fg: #e2e8f0;
+  --ms-card-hover-bg: #1e293b;
+
   --ms-slot-empty-bg: rgba(202, 138, 4, 0.18);
   --ms-slot-empty-border: #eab308;
   --ms-slot-empty-fg: #fef08a;
@@ -146,6 +156,11 @@
     --ms-cmd-bg: rgba(37, 99, 235, 0.2);
     --ms-cmd-border: #60a5fa;
     --ms-cmd-fg: #bfdbfe;
+
+    --ms-kbd-bg: #1e293b;
+    --ms-kbd-border: #475569;
+    --ms-kbd-fg: #e2e8f0;
+    --ms-card-hover-bg: #1e293b;
 
     --ms-slot-empty-bg: rgba(202, 138, 4, 0.18);
     --ms-slot-empty-border: #eab308;

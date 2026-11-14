@@ -178,8 +178,10 @@ impl App {
                 NavAction::ExitNav => AppCommand::ExitNav,
                 other => AppCommand::MoveCursor(other),
             },
+            AppEvent::SelectSlot(id) => AppCommand::SelectSlot(id),
             AppEvent::Clear => AppCommand::ResetDocument,
             AppEvent::ImportLatex(latex) => AppCommand::ImportLatex(latex),
+            AppEvent::LoadStreamSource(source) => AppCommand::LoadStreamSource(source),
         }
     }
 
@@ -315,6 +317,20 @@ impl App {
                     message: "Exited navigation mode".to_string(),
                 }));
             }
+            AppCommand::SelectSlot(id) => {
+                if self.editor.nav_to_slot(mathslot_syntax::SlotId(id)) {
+                    status_effects.push(Effect::Status(StatusMessage {
+                        severity: StatusSeverity::Info,
+                        message: format!("Selected slot #{id}"),
+                    }));
+                    emit_focus = true;
+                } else {
+                    status_effects.push(Effect::Status(StatusMessage {
+                        severity: StatusSeverity::Warning,
+                        message: format!("Slot #{id} not found"),
+                    }));
+                }
+            }
             AppCommand::PerformUndo => {
                 let undone = self.editor.undo();
                 if undone {
@@ -349,6 +365,43 @@ impl App {
                         severity: StatusSeverity::Error,
                         message: format!("Import error: {err}"),
                     }));
+                }
+                emit_render = true;
+                emit_focus = true;
+            }
+            AppCommand::LoadStreamSource(source) => {
+                let (expanded_latex, stream_errors) = expand_stream_source(&source);
+                match self.editor.import_latex(&expanded_latex) {
+                    Ok(diags) => {
+                        if !stream_errors.is_empty() {
+                            status_effects.push(Effect::Status(StatusMessage {
+                                severity: StatusSeverity::Error,
+                                message: format!(
+                                    "Unknown or incomplete stream command: {}",
+                                    stream_errors.join(", ")
+                                ),
+                            }));
+                        } else if !diags.is_empty() {
+                            status_effects.push(Effect::Status(StatusMessage {
+                                severity: StatusSeverity::Warning,
+                                message: format!(
+                                    "Loaded stream source with {} diagnostic(s)",
+                                    diags.len()
+                                ),
+                            }));
+                        } else {
+                            status_effects.push(Effect::Status(StatusMessage {
+                                severity: StatusSeverity::Info,
+                                message: "Loaded stream source".to_string(),
+                            }));
+                        }
+                    }
+                    Err(err) => {
+                        status_effects.push(Effect::Status(StatusMessage {
+                            severity: StatusSeverity::Error,
+                            message: format!("Load stream source error: {err}"),
+                        }));
+                    }
                 }
                 emit_render = true;
                 emit_focus = true;
@@ -428,7 +481,39 @@ impl App {
 
     fn sync_state(&mut self) {
         if self.editor.is_nav_mode() {
-            self.state = EditorState::Nav { path: Vec::new() };
+            let path = match self.editor.cursor() {
+                Cursor::InSlot { slot_id, .. } => self
+                    .editor
+                    .doc()
+                    .slots
+                    .get(*slot_id)
+                    .map(|slot| {
+                        if slot.path.is_root() {
+                            vec![format!("#{}", slot_id.0)]
+                        } else {
+                            slot.path
+                                .as_slice()
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect()
+                        }
+                    })
+                    .unwrap_or_else(|| vec![format!("#{}", slot_id.0)]),
+                Cursor::AtNode(ast_path) => {
+                    if ast_path.is_root() {
+                        vec!["root".to_string()]
+                    } else {
+                        ast_path
+                            .as_slice()
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect()
+                    }
+                }
+                Cursor::AtStart => vec!["start".to_string()],
+                Cursor::AtEnd => vec!["end".to_string()],
+            };
+            self.state = EditorState::Nav { path };
             return;
         }
 
@@ -522,5 +607,144 @@ impl App {
     #[must_use]
     pub fn doc(&self) -> &Document {
         self.editor.doc()
+    }
+}
+
+fn expand_stream_source(source: &str) -> (String, Vec<String>) {
+    let chars: Vec<char> = source.chars().collect();
+    let mut pos = 0;
+    let mut errors = Vec::new();
+    let expanded = expand_stream_seq(&chars, &mut pos, false, &mut errors);
+    (expanded, errors)
+}
+
+fn expand_stream_seq(
+    chars: &[char],
+    pos: &mut usize,
+    stop_on_semi: bool,
+    errors: &mut Vec<String>,
+) -> String {
+    let mut out = String::new();
+    while *pos < chars.len() {
+        let ch = chars[*pos];
+        if ch == ';' {
+            *pos += 1;
+            if stop_on_semi {
+                return out;
+            }
+            continue;
+        }
+        if ch == '▸' {
+            let piece = expand_stream_command(chars, pos, errors);
+            append_latex_piece(&mut out, &piece);
+            continue;
+        }
+
+        let mut buf = String::new();
+        while *pos < chars.len() {
+            let c = chars[*pos];
+            if c == '▸' || c == ';' {
+                break;
+            }
+            buf.push(c);
+            *pos += 1;
+        }
+        append_latex_piece(&mut out, &buf);
+    }
+    out
+}
+
+fn expand_stream_command(chars: &[char], pos: &mut usize, errors: &mut Vec<String>) -> String {
+    *pos += 1; // consume '▸'
+    let Some(&c1) = chars.get(*pos) else {
+        errors.push("▸".to_string());
+        return r"\text{▸}".to_string();
+    };
+
+    let k1 = c1.to_string();
+    if let Some(cmd) = mathslot_command::generated::find_by_keys(&[k1.as_str()]) {
+        *pos += 1;
+        return expand_matched_command(cmd, chars, pos, errors);
+    }
+
+    let has_two_key_prefix = mathslot_command::generated::GENERATED_COMMANDS
+        .iter()
+        .any(|cmd| cmd.keys.len() > 1 && cmd.keys[0] == k1);
+
+    if has_two_key_prefix && let Some(&c2) = chars.get(*pos + 1) {
+        let k2 = c2.to_string();
+        if let Some(cmd) = mathslot_command::generated::find_by_keys(&[k1.as_str(), k2.as_str()]) {
+            *pos += 2;
+            return expand_matched_command(cmd, chars, pos, errors);
+        }
+        *pos += 2;
+        let raw = format!("▸{c1}{c2}");
+        errors.push(raw.clone());
+        return format!(r"\text{{{raw}}}");
+    }
+
+    *pos += 1;
+    let raw = format!("▸{c1}");
+    errors.push(raw.clone());
+    format!(r"\text{{{raw}}}")
+}
+
+fn expand_matched_command(
+    cmd: &mathslot_command::generated::StaticCommand,
+    chars: &[char],
+    pos: &mut usize,
+    errors: &mut Vec<String>,
+) -> String {
+    if cmd.slots.is_empty() {
+        return cmd.latex.to_string();
+    }
+
+    let mut params = Vec::with_capacity(cmd.slots.len());
+    for _ in 0..cmd.slots.len() {
+        let arg = expand_stream_seq(chars, pos, true, errors);
+        params.push(arg);
+    }
+    substitute_template(cmd.latex, &params)
+}
+
+fn substitute_template(template: &str, params: &[String]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            let mut digits = String::new();
+            while let Some(&next_ch) = chars.peek() {
+                if next_ch.is_ascii_digit() {
+                    digits.push(next_ch);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if !digits.is_empty()
+                && let Ok(one_based) = digits.parse::<usize>()
+                && one_based >= 1
+                && let Some(param) = params.get(one_based - 1)
+            {
+                out.push_str(param);
+            } else {
+                out.push('$');
+                out.push_str(&digits);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn append_latex_piece(out: &mut String, piece: &str) {
+    if piece.is_empty() {
+        return;
+    }
+    if out.is_empty() {
+        out.push_str(piece);
+    } else {
+        *out = mathslot_syntax::Printer::join_latex_without_macro_gluing(out, piece);
     }
 }

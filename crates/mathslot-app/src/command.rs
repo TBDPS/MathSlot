@@ -15,6 +15,7 @@ pub enum AppCommand {
     CommitIme(String),
     EnterNav,
     ExitNav,
+    SelectSlot(u32),
     PerformUndo,
     PerformRedo,
     ExecuteExport {
@@ -23,4 +24,5 @@ pub enum AppCommand {
     },
     ResetDocument,
     ImportLatex(String),
+    LoadStreamSource(String),
 }

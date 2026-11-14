@@ -54,8 +54,10 @@ export type AppEvent =
   | 'EnterNavMode'
   | 'ExitNavMode'
   | { Navigate: NavAction }
+  | { SelectSlot: number }
   | 'Clear'
-  | { ImportLatex: string };
+  | { ImportLatex: string }
+  | { LoadStreamSource: string };
 
 export type FocusTarget = { Slot: number } | 'End';
 
@@ -89,6 +91,8 @@ export interface SlotSnapshot {
   is_empty: boolean;
   is_active: boolean;
   span: CommandSpan;
+  path?: number[];
+  depth?: number;
 }
 
 export interface DiagnosticSnapshot {

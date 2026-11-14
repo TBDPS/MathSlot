@@ -18,6 +18,8 @@ pub struct SlotSnapshot {
     pub is_empty: bool,
     pub is_active: bool,
     pub span: CommandSpan,
+    pub path: Vec<usize>,
+    pub depth: usize,
 }
 
 impl SlotSnapshot {
@@ -41,6 +43,8 @@ impl SlotSnapshot {
                 start: slot.span.start,
                 end: slot.span.end,
             },
+            path: slot.path.as_slice().to_vec(),
+            depth: slot.path.depth(),
         }
     }
 }

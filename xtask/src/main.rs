@@ -22,6 +22,11 @@ fn generate_artifacts(root: &Path) -> Result<Vec<Artifact>, Box<dyn std::error::
     let toml_path = root.join("catalog/commands.toml");
     let catalog = CommandCatalog::load_file(&toml_path)?;
 
+    let presets_path = root.join("catalog/presets.json");
+    let presets_raw = fs::read_to_string(&presets_path)?;
+    let presets_file: codegen::PresetsFile = serde_json::from_str(&presets_raw)?;
+    let presets_ts = codegen::generate_presets_typescript(&presets_file)?;
+
     Ok(vec![
         Artifact {
             rel_path: "crates/mathslot-command/src/generated.rs",
@@ -40,6 +45,10 @@ fn generate_artifacts(root: &Path) -> Result<Vec<Artifact>, Box<dyn std::error::
             content: codegen::generate_typescript(&catalog),
         },
         Artifact {
+            rel_path: "packages/ui/src/generated/presets.ts",
+            content: presets_ts,
+        },
+        Artifact {
             rel_path: "schemas/commands.schema.json",
             content: codegen::generate_schema(),
         },
@@ -48,6 +57,7 @@ fn generate_artifacts(root: &Path) -> Result<Vec<Artifact>, Box<dyn std::error::
 
 fn cmd_generate(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = generate_artifacts(root)?;
+    let count = artifacts.len();
     for art in artifacts {
         let target_path = root.join(art.rel_path);
         if let Some(parent) = target_path.parent() {
@@ -56,12 +66,13 @@ fn cmd_generate(root: &Path) -> Result<(), Box<dyn std::error::Error>> {
         fs::write(&target_path, &art.content)?;
         println!("[xtask] Generated: {}", art.rel_path);
     }
-    println!("[xtask] All 5 artifacts generated successfully.");
+    println!("[xtask] All {count} artifacts generated successfully.");
     Ok(())
 }
 
 fn cmd_check(root: &Path) -> Result<bool, Box<dyn std::error::Error>> {
     let artifacts = generate_artifacts(root)?;
+    let count = artifacts.len();
     let mut has_diff = false;
 
     for art in artifacts {
@@ -88,7 +99,7 @@ fn cmd_check(root: &Path) -> Result<bool, Box<dyn std::error::Error>> {
     if has_diff {
         Ok(false)
     } else {
-        println!("[xtask] Check PASSED: All 5 artifacts are up-to-date and clean.");
+        println!("[xtask] Check PASSED: All {count} artifacts are up-to-date and clean.");
         Ok(true)
     }
 }
@@ -118,7 +129,7 @@ fn main() -> ExitCode {
         _ => {
             eprintln!("Usage: cargo run -p xtask -- <command>");
             eprintln!("Commands:");
-            eprintln!("  generate (or codegen)  Generate all 5 catalog artifacts");
+            eprintln!("  generate (or codegen)  Generate all 6 catalog and preset artifacts");
             eprintln!("  check                  Check if generated artifacts are up-to-date");
             ExitCode::FAILURE
         }
