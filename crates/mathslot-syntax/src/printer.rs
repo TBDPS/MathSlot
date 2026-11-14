@@ -11,11 +11,8 @@ impl Printer {
         for (i, expr) in exprs.iter().enumerate() {
             let s = Self::expr_to_canonical_latex(&expr.node);
             // 避免反斜杠宏命令与紧随的字母标识符无空格粘连
-            if i > 0 {
-                let prev = &exprs[i - 1].node;
-                if Self::ends_with_macro_name(prev) && Self::starts_with_letter(&expr.node) {
-                    out.push(' ');
-                }
+            if i > 0 && Self::ends_with_control_word(&out) && Self::starts_with_ascii_letter(&s) {
+                out.push(' ');
             }
             out.push_str(&s);
         }
@@ -73,7 +70,14 @@ impl Printer {
                 if *auto_scale {
                     format!(r"\left{open_str} {body_str} \right{close_str}")
                 } else {
-                    format!("{open_str}{body_str}{close_str}")
+                    let sep = if Self::ends_with_control_word(open_str)
+                        && Self::starts_with_ascii_letter(&body_str)
+                    {
+                        " "
+                    } else {
+                        ""
+                    };
+                    format!("{open_str}{sep}{body_str}{close_str}")
                 }
             }
 
@@ -251,17 +255,28 @@ impl Printer {
         }
     }
 
-    fn ends_with_macro_name(expr: &Expr) -> bool {
-        match expr {
-            Expr::Symbol(sym) => sym.latex_str().starts_with('\\'),
-            _ => false,
+    pub fn ends_with_control_word(s: &str) -> bool {
+        let trimmed_letters = s.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+        if trimmed_letters.len() == s.len() {
+            return false;
         }
+        let backslashes = trimmed_letters
+            .chars()
+            .rev()
+            .take_while(|&c| c == '\\')
+            .count();
+        backslashes % 2 == 1
     }
 
-    fn starts_with_letter(expr: &Expr) -> bool {
-        match expr {
-            Expr::Text(s) => s.starts_with(|c: char| c.is_ascii_alphabetic()),
-            _ => false,
+    pub fn starts_with_ascii_letter(s: &str) -> bool {
+        s.starts_with(|c: char| c.is_ascii_alphabetic())
+    }
+
+    pub fn join_latex_without_macro_gluing(left: &str, right: &str) -> String {
+        if Self::ends_with_control_word(left) && Self::starts_with_ascii_letter(right) {
+            format!("{left} {right}")
+        } else {
+            format!("{left}{right}")
         }
     }
 }

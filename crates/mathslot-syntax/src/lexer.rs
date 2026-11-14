@@ -184,8 +184,13 @@ impl<'a> Lexer<'a> {
                             "lim" => Token::CmdLim,
 
                             // 定界符命令
+                            "Vert" => Token::DoublePipe,
                             "langle" => Token::AngleOpen,
                             "rangle" => Token::AngleClose,
+                            "lfloor" => Token::FloorOpen,
+                            "rfloor" => Token::FloorClose,
+                            "lceil" => Token::CeilOpen,
+                            "rceil" => Token::CeilClose,
 
                             // 关系符 (明确区分 left 与 le/leq)
                             "le" | "leq" => Token::Symbol(SymbolKind::Relation(r"\le".into())),

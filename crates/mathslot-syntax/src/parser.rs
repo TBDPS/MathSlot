@@ -350,6 +350,11 @@ impl<'a> Parser<'a> {
             Token::LParen => Some(self.parse_bare_delimited(Delim::Paren, &Token::RParen)),
             Token::LBracket => Some(self.parse_bare_delimited(Delim::Bracket, &Token::RBracket)),
             Token::Pipe => Some(self.parse_bare_delimited(Delim::Pipe, &Token::Pipe)),
+            Token::DoublePipe => {
+                Some(self.parse_bare_delimited(Delim::DoublePipe, &Token::DoublePipe))
+            }
+            Token::FloorOpen => Some(self.parse_bare_delimited(Delim::Floor, &Token::FloorClose)),
+            Token::CeilOpen => Some(self.parse_bare_delimited(Delim::Ceil, &Token::CeilClose)),
             Token::CmdFrac => Some(self.parse_fraction()),
             Token::CmdSqrt => Some(self.parse_sqrt()),
             Token::CmdSum => Some(self.parse_big_operator(BigOpKind::Sum, tok_spanned.span)),
@@ -524,6 +529,8 @@ impl<'a> Parser<'a> {
                 Token::Pipe => Delim::Pipe,
                 Token::DoublePipe => Delim::DoublePipe,
                 Token::AngleOpen | Token::AngleClose => Delim::Angle,
+                Token::FloorOpen | Token::FloorClose => Delim::Floor,
+                Token::CeilOpen | Token::CeilClose => Delim::Ceil,
                 Token::Dot => Delim::Empty,
                 _ => Delim::Empty,
             };
@@ -578,6 +585,8 @@ impl<'a> Parser<'a> {
                     | Token::RParen
                     | Token::RBracket
                     | Token::RBrace
+                    | Token::FloorClose
+                    | Token::CeilClose
                     | Token::Ampersand
                     | Token::DoubleBackslash
                     | Token::CmdRight => break,

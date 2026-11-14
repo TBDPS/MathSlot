@@ -213,7 +213,7 @@ fn test_parity_matrix_and_delimiter_structures() {
             input: "▸afx;",
             expected_slots: 1,
             expected_env: None,
-            expected_delim: Some((Delim::Empty, Delim::Empty)),
+            expected_delim: Some((Delim::DoublePipe, Delim::DoublePipe)),
             rows: 0,
             cols: 0,
         },

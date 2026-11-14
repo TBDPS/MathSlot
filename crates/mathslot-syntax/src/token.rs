@@ -20,6 +20,10 @@ pub enum Token<'a> {
     EscapedRBrace, // \}
     AngleOpen,     // \langle
     AngleClose,    // \rangle
+    FloorOpen,     // \lfloor
+    FloorClose,    // \rfloor
+    CeilOpen,      // \lceil
+    CeilClose,     // \rceil
 
     Caret,           // ^
     Underscore,      // _

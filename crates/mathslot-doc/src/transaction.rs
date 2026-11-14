@@ -1,7 +1,7 @@
 use crate::cursor::{Cursor, Selection};
 use crate::document::Document;
 use crate::path::AstPath;
-use mathslot_syntax::{Delim, Expr, SlotId, Span, Spanned, parse, to_latex};
+use mathslot_syntax::{Delim, Expr, Printer, SlotId, Span, Spanned, parse, to_latex};
 use serde::{Deserialize, Serialize};
 
 /// 文档操作错误枚举
@@ -212,12 +212,21 @@ impl Transaction {
                     to_latex(&old_nodes)
                 };
 
-                let mut chars: Vec<char> = current_str.chars().collect();
+                let chars: Vec<char> = current_str.chars().collect();
                 let insert_idx = (*offset).min(chars.len());
-                for (i, c) in text.chars().enumerate() {
-                    chars.insert(insert_idx + i, c);
-                }
-                let new_str: String = chars.into_iter().collect();
+                let prefix: String = chars[..insert_idx].iter().collect();
+                let suffix: String = chars[insert_idx..].iter().collect();
+                let joined_left = if prefix.is_empty() {
+                    text.to_string()
+                } else {
+                    Printer::join_latex_without_macro_gluing(&prefix, text)
+                };
+                let new_cursor_offset = joined_left.chars().count();
+                let new_str = if suffix.is_empty() {
+                    joined_left
+                } else {
+                    Printer::join_latex_without_macro_gluing(&joined_left, &suffix)
+                };
 
                 let (new_nodes, _) = parse(&new_str);
                 doc.replace_slot(*slot_id, new_nodes)?;
@@ -229,7 +238,7 @@ impl Transaction {
                     },
                     new_cursor: Cursor::InSlot {
                         slot_id: *slot_id,
-                        offset: insert_idx + text.chars().count(),
+                        offset: new_cursor_offset,
                     },
                     breaks_word_or_line: breaks,
                 })
@@ -238,7 +247,11 @@ impl Transaction {
             Cursor::AtStart => {
                 let old_all = doc.nodes.clone();
                 let current_latex = doc.to_latex();
-                let new_latex = format!("{text}{current_latex}");
+                let new_latex = if current_latex.is_empty() {
+                    text.to_string()
+                } else {
+                    Printer::join_latex_without_macro_gluing(text, &current_latex)
+                };
                 let (new_nodes, _) = parse(&new_latex);
                 doc.nodes = new_nodes;
                 doc.version += 1;
@@ -257,14 +270,7 @@ impl Transaction {
                 let new_latex = if current_latex.is_empty() {
                     text.to_string()
                 } else {
-                    let last_word = current_latex.split_whitespace().last().unwrap_or("");
-                    let needs_space = last_word.starts_with('\\')
-                        && text.chars().next().is_some_and(|c| c.is_alphabetic());
-                    if needs_space {
-                        format!("{current_latex} {text}")
-                    } else {
-                        format!("{current_latex}{text}")
-                    }
+                    Printer::join_latex_without_macro_gluing(&current_latex, text)
                 };
                 let (new_nodes, _) = parse(&new_latex);
                 doc.nodes = new_nodes;

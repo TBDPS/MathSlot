@@ -20,6 +20,10 @@ pub enum Delim {
     DoublePipe,
     /// \langle ... \rangle
     Angle,
+    /// \lfloor ... \rfloor
+    Floor,
+    /// \lceil ... \rceil
+    Ceil,
     /// . (空定界符，用于 \left. 或 \right.)
     Empty,
 }
@@ -39,6 +43,8 @@ impl Delim {
             Self::Pipe => "|",
             Self::DoublePipe => r"\|",
             Self::Angle => r"\langle ",
+            Self::Floor => r"\lfloor",
+            Self::Ceil => r"\lceil",
             Self::Empty => ".",
         }
     }
@@ -52,6 +58,8 @@ impl Delim {
             Self::Pipe => "|",
             Self::DoublePipe => r"\|",
             Self::Angle => r"\rangle ",
+            Self::Floor => r"\rfloor",
+            Self::Ceil => r"\rceil",
             Self::Empty => ".",
         }
     }
