@@ -118,6 +118,7 @@ active_dirs = [
     "crates/mathslot-render/src",
     "crates/mathslot-wasm/src",
     "apps/desktop/src-tauri/src",
+    "xtask/src",
 ]
 
 def strip_cfg_tests(src: str) -> str:
