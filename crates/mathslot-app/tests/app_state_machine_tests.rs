@@ -366,6 +366,7 @@ fn test_effect_ordering_deterministic() {
             Effect::Focus(_) => kind_order.push("Focus"),
             Effect::Clipboard(_) => kind_order.push("Clipboard"),
             Effect::ExportResult(_) => kind_order.push("ExportResult"),
+            Effect::Host(_) => kind_order.push("Host"),
         }
     }
 
@@ -388,6 +389,7 @@ fn test_effect_ordering_deterministic() {
             Effect::Focus(_) => "Focus",
             Effect::Clipboard(_) => "Clipboard",
             Effect::ExportResult(_) => "ExportResult",
+            Effect::Host(_) => "Host",
         })
         .collect();
 

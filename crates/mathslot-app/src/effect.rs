@@ -2,6 +2,16 @@ use mathslot_doc::EditorDiagnostic as Diagnostic;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppError;
+use crate::snapshot::AppSettings;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostAction {
+    PersistSettings(Box<AppSettings>),
+    RestoreBackup { backup_path: Option<String> },
+    ResetEmptyConfig,
+    ImportConfig,
+    ExportConfig,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Effect {
@@ -10,6 +20,7 @@ pub enum Effect {
     Status(StatusMessage),
     Focus(FocusTarget),
     ExportResult(Result<(String, Vec<Diagnostic>), AppError>),
+    Host(HostAction),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,5 +1,6 @@
-:root {
-  color-scheme: light dark;
+:root,
+[data-theme='light'] {
+  color-scheme: light;
 
   --ms-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ms-font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -17,9 +18,15 @@
   --ms-fg-subtle: #64748b;
 
   --ms-accent: #1d4ed8;
+  --ms-accent-hover: #1e40af;
+  --ms-accent-contrast: #ffffff;
   --ms-accent-soft: #dbeafe;
   --ms-accent-fg: #1e3a8a;
   --ms-focus-ring: #2563eb;
+
+  --ms-danger-bg: #dc2626;
+  --ms-danger-hover-bg: #b91c1c;
+  --ms-danger-fg: #ffffff;
 
   --ms-cmd-bg: #eff6ff;
   --ms-cmd-border: #60a5fa;
@@ -45,6 +52,10 @@
   --ms-status-info-bg: #eff6ff;
   --ms-status-info-border: #3b82f6;
   --ms-status-info-fg: #1e40af;
+
+  --ms-status-success-bg: #f0fdf4;
+  --ms-status-success-border: #16a34a;
+  --ms-status-success-fg: #166534;
 
   --ms-status-warn-bg: #fffbeb;
   --ms-status-warn-border: #d97706;
@@ -78,6 +89,10 @@
   --ms-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
+:root {
+  color-scheme: light dark;
+}
+
 [data-theme='dark'] {
   color-scheme: dark;
 
@@ -93,9 +108,15 @@
   --ms-fg-subtle: #94a3b8;
 
   --ms-accent: #60a5fa;
+  --ms-accent-hover: #3b82f6;
+  --ms-accent-contrast: #0f172a;
   --ms-accent-soft: #1e3a8a;
   --ms-accent-fg: #dbeafe;
   --ms-focus-ring: #93c5fd;
+
+  --ms-danger-bg: #dc2626;
+  --ms-danger-hover-bg: #b91c1c;
+  --ms-danger-fg: #ffffff;
 
   --ms-cmd-bg: rgba(37, 99, 235, 0.2);
   --ms-cmd-border: #60a5fa;
@@ -121,6 +142,10 @@
   --ms-status-info-bg: rgba(37, 99, 235, 0.18);
   --ms-status-info-border: #60a5fa;
   --ms-status-info-fg: #bfdbfe;
+
+  --ms-status-success-bg: rgba(22, 163, 74, 0.2);
+  --ms-status-success-border: #4ade80;
+  --ms-status-success-fg: #bbf7d0;
 
   --ms-status-warn-bg: rgba(217, 119, 6, 0.2);
   --ms-status-warn-border: #f59e0b;
@@ -167,9 +192,15 @@
     --ms-fg-subtle: #94a3b8;
 
     --ms-accent: #60a5fa;
+    --ms-accent-hover: #3b82f6;
+    --ms-accent-contrast: #0f172a;
     --ms-accent-soft: #1e3a8a;
     --ms-accent-fg: #dbeafe;
     --ms-focus-ring: #93c5fd;
+
+    --ms-danger-bg: #dc2626;
+    --ms-danger-hover-bg: #b91c1c;
+    --ms-danger-fg: #ffffff;
 
     --ms-cmd-bg: rgba(37, 99, 235, 0.2);
     --ms-cmd-border: #60a5fa;
@@ -195,6 +226,10 @@
     --ms-status-info-bg: rgba(37, 99, 235, 0.18);
     --ms-status-info-border: #60a5fa;
     --ms-status-info-fg: #bfdbfe;
+
+    --ms-status-success-bg: rgba(22, 163, 74, 0.2);
+    --ms-status-success-border: #4ade80;
+    --ms-status-success-fg: #bbf7d0;
 
     --ms-status-warn-bg: rgba(217, 119, 6, 0.2);
     --ms-status-warn-border: #f59e0b;

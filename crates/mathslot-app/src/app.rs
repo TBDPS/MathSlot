@@ -2,9 +2,14 @@ use mathslot_doc::{Cursor, Document, Editor, EditorDiagnostic as Diagnostic, His
 use serde::{Deserialize, Serialize};
 
 use crate::command::AppCommand;
-use crate::effect::{Effect, FocusTarget, RenderRequest, StatusMessage, StatusSeverity};
+use crate::effect::{
+    Effect, FocusTarget, HostAction, RenderRequest, StatusMessage, StatusSeverity,
+};
 use crate::event::{AppEvent, EditorAction, Key, NavAction};
-use crate::snapshot::{DiagnosticSnapshot, DispatchResponse, EngineSnapshot, SlotSnapshot};
+use crate::snapshot::{
+    AppSettings, DiagnosticSnapshot, DispatchResponse, EngineSnapshot, RecoveryStateSnapshot,
+    SlotSnapshot,
+};
 use crate::state::EditorState;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
@@ -20,6 +25,8 @@ pub struct App {
     editor: Editor,
     state: EditorState,
     render_seq: u64,
+    settings: AppSettings,
+    recovery: Option<RecoveryStateSnapshot>,
 }
 
 impl Default for App {
@@ -40,6 +47,8 @@ impl App {
             editor: Editor::new(doc),
             state: EditorState::Idle,
             render_seq: 0,
+            settings: AppSettings::default(),
+            recovery: None,
         }
     }
 
@@ -93,7 +102,10 @@ impl App {
             state: self.state.clone(),
             latex,
             preview_latex,
-            copy_text: self.editor.copy_text(),
+            copy_text: self
+                .settings
+                .delimiter_style
+                .format_latex(&self.editor.copy_text()),
             has_pending_command: self.editor.has_pending_command(),
             is_composing: self.editor.is_composing(),
             is_nav_mode: self.is_nav_mode(),
@@ -102,6 +114,8 @@ impl App {
             slots,
             diagnostics,
             active_slot_id,
+            settings: self.settings.clone(),
+            recovery: self.recovery.clone(),
         }
     }
 
@@ -185,6 +199,13 @@ impl App {
             AppEvent::Clear => AppCommand::ResetDocument,
             AppEvent::ImportLatex(latex) => AppCommand::ImportLatex(latex),
             AppEvent::LoadStreamSource(source) => AppCommand::LoadStreamSource(source),
+            AppEvent::UpdateSettings(settings) => AppCommand::UpdateSettings(settings),
+            AppEvent::ResetSettingsConfirmed => AppCommand::ResetSettingsConfirmed,
+            AppEvent::SetRecoveryState(recovery) => AppCommand::SetRecoveryState(recovery),
+            AppEvent::RequestRestoreBackup => AppCommand::RequestRestoreBackup,
+            AppEvent::ConfirmResetEmptyConfig => AppCommand::ConfirmResetEmptyConfig,
+            AppEvent::RequestImportConfig => AppCommand::RequestImportConfig,
+            AppEvent::RequestExportConfig => AppCommand::RequestExportConfig,
         }
     }
 
@@ -413,14 +434,14 @@ impl App {
                 strict,
                 copy_to_clipboard,
             } => {
-                if copy_to_clipboard {
-                    host_effects.push(Effect::Clipboard(self.editor.copy_text()));
-                }
-
                 if strict {
                     match self.editor.export_latex_strict() {
                         Ok(latex) => {
-                            host_effects.push(Effect::ExportResult(Ok((latex, Vec::new()))));
+                            let formatted = self.settings.delimiter_style.format_latex(&latex);
+                            if copy_to_clipboard {
+                                host_effects.push(Effect::Clipboard(formatted.clone()));
+                            }
+                            host_effects.push(Effect::ExportResult(Ok((formatted, Vec::new()))));
                         }
                         Err(diags) => {
                             host_effects.push(Effect::ExportResult(Err(
@@ -429,9 +450,76 @@ impl App {
                         }
                     }
                 } else {
+                    if copy_to_clipboard {
+                        let formatted_copy = self
+                            .settings
+                            .delimiter_style
+                            .format_latex(&self.editor.copy_text());
+                        host_effects.push(Effect::Clipboard(formatted_copy));
+                    }
                     let (latex, diags) = self.editor.export_latex_with_diagnostics();
-                    host_effects.push(Effect::ExportResult(Ok((latex, diags))));
+                    let formatted = self.settings.delimiter_style.format_latex(&latex);
+                    host_effects.push(Effect::ExportResult(Ok((formatted, diags))));
                 }
+            }
+            AppCommand::UpdateSettings(settings) => {
+                self.settings = settings.clone();
+                status_effects.push(Effect::Status(StatusMessage {
+                    severity: StatusSeverity::Info,
+                    message: "设置已保存".to_string(),
+                }));
+                host_effects.push(Effect::Host(HostAction::PersistSettings(Box::new(
+                    settings,
+                ))));
+            }
+            AppCommand::ResetSettingsConfirmed => {
+                let preserved_path = self.settings.config_path.clone();
+                self.settings = AppSettings {
+                    config_path: preserved_path,
+                    ..AppSettings::default()
+                };
+                status_effects.push(Effect::Status(StatusMessage {
+                    severity: StatusSeverity::Info,
+                    message: "已恢复默认设置".to_string(),
+                }));
+                host_effects.push(Effect::Host(HostAction::PersistSettings(Box::new(
+                    self.settings.clone(),
+                ))));
+            }
+            AppCommand::SetRecoveryState(recovery) => {
+                if let Some(rec) = &recovery {
+                    status_effects.push(Effect::Status(StatusMessage {
+                        severity: StatusSeverity::Warning,
+                        message: format!("检测到损坏配置已隔离至 {}", rec.corrupt_path),
+                    }));
+                }
+                self.recovery = recovery;
+            }
+            AppCommand::RequestRestoreBackup => {
+                let backup_path = self
+                    .recovery
+                    .as_ref()
+                    .and_then(|r| r.backup_candidate.clone());
+                host_effects.push(Effect::Host(HostAction::RestoreBackup { backup_path }));
+            }
+            AppCommand::ConfirmResetEmptyConfig => {
+                let preserved_path = self.settings.config_path.clone();
+                self.recovery = None;
+                self.settings = AppSettings {
+                    config_path: preserved_path,
+                    ..AppSettings::default()
+                };
+                status_effects.push(Effect::Status(StatusMessage {
+                    severity: StatusSeverity::Info,
+                    message: "已确认重置为空配置".to_string(),
+                }));
+                host_effects.push(Effect::Host(HostAction::ResetEmptyConfig));
+            }
+            AppCommand::RequestImportConfig => {
+                host_effects.push(Effect::Host(HostAction::ImportConfig));
+            }
+            AppCommand::RequestExportConfig => {
+                host_effects.push(Effect::Host(HostAction::ExportConfig));
             }
         }
 
@@ -559,12 +647,26 @@ impl App {
 
     #[must_use]
     pub fn export_latex(&self) -> String {
-        self.editor.export_latex()
+        self.settings
+            .delimiter_style
+            .format_latex(&self.editor.export_latex())
     }
 
     #[must_use]
     pub fn copy_text(&self) -> String {
-        self.editor.copy_text()
+        self.settings
+            .delimiter_style
+            .format_latex(&self.editor.copy_text())
+    }
+
+    #[must_use]
+    pub fn settings(&self) -> &AppSettings {
+        &self.settings
+    }
+
+    #[must_use]
+    pub fn recovery(&self) -> Option<&RecoveryStateSnapshot> {
+        self.recovery.as_ref()
     }
 
     #[must_use]

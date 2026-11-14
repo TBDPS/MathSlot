@@ -33,6 +33,80 @@ export type NavAction =
   | 'StepLeft'
   | 'StepRight';
 
+export type ThemePreference = 'light' | 'dark' | 'system';
+
+export type DelimiterStyle = 'none' | 'inline_dollar' | 'block_dollar' | 'code_fence';
+
+export type RenderBackendPreference = 'mathjax' | 'latex-rust';
+
+export interface ShortcutSettings {
+  nav_next_slot: string;
+  nav_prev_slot: string;
+  nav_parent: string;
+  nav_first_child: string;
+  copy_latex: string;
+  save_snippet: string;
+  focus_editor: string;
+  toggle_nav: string;
+  open_settings: string;
+}
+
+export interface RecoveryStateSnapshot {
+  corrupt_path: string;
+  backup_candidate?: string | null;
+  error: string;
+}
+
+export interface AppSettings {
+  theme: ThemePreference;
+  delimiter_style: DelimiterStyle;
+  render_backend: RenderBackendPreference;
+  shortcuts: ShortcutSettings;
+  config_path?: string | null;
+  preview_scale_pct?: number | null;
+}
+
+export function createDefaultShortcuts(): ShortcutSettings {
+  return {
+    nav_next_slot: 'j',
+    nav_prev_slot: 'k',
+    nav_parent: 'h',
+    nav_first_child: 'l',
+    copy_latex: 'Mod+Shift+C',
+    save_snippet: 'Mod+Shift+S',
+    focus_editor: 'Mod+E',
+    toggle_nav: 'Mod+J',
+    open_settings: 'Mod+,',
+  };
+}
+
+export function createDefaultAppSettings(): AppSettings {
+  return {
+    theme: 'system',
+    delimiter_style: 'none',
+    render_backend: 'mathjax',
+    shortcuts: createDefaultShortcuts(),
+    config_path: null,
+    preview_scale_pct: null,
+  };
+}
+
+export function formatLatexWithDelimiter(latex: string, style: DelimiterStyle): string {
+  if (!latex) {
+    return '';
+  }
+  switch (style) {
+    case 'none':
+      return latex;
+    case 'inline_dollar':
+      return `$${latex}$`;
+    case 'block_dollar':
+      return `$$\n${latex}\n$$`;
+    case 'code_fence':
+      return `\`\`\`latex\n${latex}\n\`\`\``;
+  }
+}
+
 export type AppEvent =
   | { KeyInput: string }
   | { KeyDown: Key }
@@ -57,7 +131,14 @@ export type AppEvent =
   | { SelectSlot: number }
   | 'Clear'
   | { ImportLatex: string }
-  | { LoadStreamSource: string };
+  | { LoadStreamSource: string }
+  | { UpdateSettings: AppSettings }
+  | 'ResetSettingsConfirmed'
+  | { SetRecoveryState: RecoveryStateSnapshot | null }
+  | 'RequestRestoreBackup'
+  | 'ConfirmResetEmptyConfig'
+  | 'RequestImportConfig'
+  | 'RequestExportConfig';
 
 export type FocusTarget = { Slot: number } | 'End';
 
@@ -83,12 +164,20 @@ export type AppError =
   | { Doc: string }
   | { StrictExportBlocked: RawEditorDiagnostic[] };
 
+export type HostAction =
+  | { PersistSettings: AppSettings }
+  | { RestoreBackup: { backup_path: string | null } }
+  | 'ResetEmptyConfig'
+  | 'ImportConfig'
+  | 'ExportConfig';
+
 export type Effect =
   | { Render: RenderRequest }
   | { Clipboard: string }
   | { Status: StatusMessage }
   | { Focus: FocusTarget }
-  | { ExportResult: { Ok: [string, RawEditorDiagnostic[]] } | { Err: AppError } };
+  | { ExportResult: { Ok: [string, RawEditorDiagnostic[]] } | { Err: AppError } }
+  | { Host: HostAction };
 
 export interface CommandSpan {
   start: number;
@@ -131,6 +220,8 @@ export interface EngineSnapshot {
   slots: SlotSnapshot[];
   diagnostics: DiagnosticSnapshot[];
   active_slot_id: number | null;
+  settings?: AppSettings;
+  recovery?: RecoveryStateSnapshot | null;
 }
 
 export interface DispatchResponse {
@@ -162,5 +253,7 @@ export function createEmptySnapshot(): EngineSnapshot {
     slots: [],
     diagnostics: [],
     active_slot_id: null,
+    settings: createDefaultAppSettings(),
+    recovery: null,
   };
 }

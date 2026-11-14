@@ -376,4 +376,76 @@ describe('MathSlotEditor (T3.1)', () => {
     expect(cmdDecor).not.toBeNull();
     expect(cmdDecor!.getAttribute('aria-label')).toContain(frac!.label);
   });
+
+  it('D-118 / D-015: invokes configured copy_latex & focus_editor shortcuts while Tab/Shift+Tab/Escape remain untrapped', async () => {
+    const { client, events } = createMockClient();
+    const onCopyLatex = vi.fn();
+    const onFocusEditor = vi.fn();
+    const onFocusEscape = vi.fn();
+
+    const wrapper = document.createElement('div');
+    const externalBtn = document.createElement('button');
+    externalBtn.textContent = 'External';
+    const editorHost = document.createElement('div');
+    wrapper.append(externalBtn, editorHost);
+    document.body.appendChild(wrapper);
+
+    let editorView: { contentDOM: HTMLElement; focus: () => void } | null = null;
+    const app = mount(MathSlotEditor, {
+      target: editorHost,
+      props: {
+        client,
+        shortcuts: {
+          copy_latex: 'Mod+Alt+C',
+          focus_editor: 'Alt+I',
+        },
+        onCopyLatex,
+        onFocusEditor,
+        onFocusEscape,
+        onViewReady: (view) => {
+          editorView = view;
+        },
+      },
+    });
+    cleanups.push(() => {
+      void unmount(app);
+    });
+    await tick();
+
+    // Custom copy_latex shortcut triggers callback when editor focused
+    editorView!.focus();
+    const copyEvt = new KeyboardEvent('keydown', {
+      key: 'c',
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(copyEvt);
+    expect(copyEvt.defaultPrevented).toBe(true);
+    expect(onCopyLatex).toHaveBeenCalledTimes(1);
+
+    // Tab still escapes focus forward
+    const tabEvt = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    editorView!.contentDOM.dispatchEvent(tabEvt);
+    expect(onFocusEscape).toHaveBeenCalledWith('forward');
+
+    // Focus external button, then press configured focus_editor ('Alt+I') to return focus to editor
+    externalBtn.focus();
+    expect(document.activeElement).toBe(externalBtn);
+    const focusEvt = new KeyboardEvent('keydown', {
+      key: 'i',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(focusEvt);
+    await tick();
+    expect(onFocusEditor).toHaveBeenCalledTimes(1);
+    expect(events).not.toContainEqual({ KeyInput: 'i' });
+  });
 });

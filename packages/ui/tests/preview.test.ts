@@ -222,4 +222,98 @@ describe('RenderAdapter & PreviewPanel (T3.3)', () => {
     const zoomReadout = target.querySelector('[data-testid="zoom-percent"]');
     expect(zoomReadout?.textContent).toContain('100%');
   });
+
+  it('D-119: PreviewPanel with theme="auto" resolves system prefers-color-scheme: dark dynamically and tokens.css defines [data-theme="light"]', async () => {
+    const fsMod = 'node:fs';
+    const pathMod = 'node:path';
+    const fs = (await import(/* @vite-ignore */ fsMod)) as {
+      readFileSync: (path: string, encoding: 'utf8') => string;
+    };
+    const path = (await import(/* @vite-ignore */ pathMod)) as {
+      resolve: (...segments: string[]) => string;
+    };
+    const dir = (import.meta as ImportMeta & { dirname?: string }).dirname ?? '.';
+    const tokensCss = fs.readFileSync(path.resolve(dir, '../src/theme/tokens.css'), 'utf8');
+    expect(tokensCss).toMatch(/\[data-theme=['"]light['"]\]/);
+
+    let isDark = true;
+    const changeListeners = new Set<(e: MediaQueryListEvent) => void>();
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: vi.fn((query: string) => ({
+        matches: query.includes('prefers-color-scheme: dark') ? isDark : false,
+        media: query,
+        onchange: null,
+        addEventListener: (_type: string, cb: (e: MediaQueryListEvent) => void) => {
+          changeListeners.add(cb);
+        },
+        removeEventListener: (_type: string, cb: (e: MediaQueryListEvent) => void) => {
+          changeListeners.delete(cb);
+        },
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    try {
+      const seenThemes: string[] = [];
+      const mockAdapter: RenderAdapter = {
+        kind: 'mathjax',
+        render: vi.fn(async (req: PreviewRenderRequest): Promise<PreviewRenderResult> => {
+          seenThemes.push(req.theme);
+          return {
+            generation: req.generation,
+            backend: 'mathjax',
+            svg: `<svg data-theme="${req.theme}"></svg>`,
+            degraded: false,
+            diagnostics: [],
+            cacheHit: false,
+          };
+        }),
+      };
+
+      const target = document.createElement('div');
+      document.body.appendChild(target);
+
+      const app = mount(PreviewPanel, {
+        target,
+        props: {
+          latex: 'x^2',
+          theme: 'auto',
+          generation: 1,
+          renderer: mockAdapter,
+        },
+      });
+      cleanups.push(() => {
+        void unmount(app);
+      });
+
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      expect(seenThemes).toContain('dark');
+      expect(seenThemes[0]).toBe('dark');
+
+      // Dynamically flip OS preference to light
+      isDark = false;
+      for (const cb of changeListeners) {
+        cb({ matches: false, media: '(prefers-color-scheme: dark)' } as MediaQueryListEvent);
+      }
+      await tick();
+      await new Promise((r) => setTimeout(r, 20));
+      await tick();
+
+      expect(seenThemes[seenThemes.length - 1]).toBe('light');
+    } finally {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
 });

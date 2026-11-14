@@ -1,4 +1,5 @@
 use crate::event::NavAction;
+use crate::snapshot::{AppSettings, RecoveryStateSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppCommand {
@@ -25,4 +26,11 @@ pub enum AppCommand {
     ResetDocument,
     ImportLatex(String),
     LoadStreamSource(String),
+    UpdateSettings(AppSettings),
+    ResetSettingsConfirmed,
+    SetRecoveryState(Option<RecoveryStateSnapshot>),
+    RequestRestoreBackup,
+    ConfirmResetEmptyConfig,
+    RequestImportConfig,
+    RequestExportConfig,
 }

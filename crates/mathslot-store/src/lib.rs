@@ -133,12 +133,110 @@ pub struct PresetOverride {
     pub tags: Option<Vec<String>>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemePreference {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RenderBackendPreference {
+    #[default]
+    #[serde(rename = "mathjax")]
+    MathJax,
+    #[serde(rename = "latex-rust")]
+    LatexRust,
+}
+
+fn default_nav_next_slot() -> String {
+    "j".to_owned()
+}
+
+fn default_nav_prev_slot() -> String {
+    "k".to_owned()
+}
+
+fn default_nav_parent() -> String {
+    "h".to_owned()
+}
+
+fn default_nav_first_child() -> String {
+    "l".to_owned()
+}
+
+fn default_copy_latex() -> String {
+    "Mod+Shift+C".to_owned()
+}
+
+fn default_save_snippet() -> String {
+    "Mod+Shift+S".to_owned()
+}
+
+fn default_focus_editor() -> String {
+    "Mod+E".to_owned()
+}
+
+fn default_toggle_nav() -> String {
+    "Mod+J".to_owned()
+}
+
+fn default_open_settings() -> String {
+    "Mod+,".to_owned()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShortcutSettings {
+    #[serde(default = "default_nav_next_slot")]
+    pub nav_next_slot: String,
+    #[serde(default = "default_nav_prev_slot")]
+    pub nav_prev_slot: String,
+    #[serde(default = "default_nav_parent")]
+    pub nav_parent: String,
+    #[serde(default = "default_nav_first_child")]
+    pub nav_first_child: String,
+    #[serde(default = "default_copy_latex")]
+    pub copy_latex: String,
+    #[serde(default = "default_save_snippet")]
+    pub save_snippet: String,
+    #[serde(default = "default_focus_editor")]
+    pub focus_editor: String,
+    #[serde(default = "default_toggle_nav")]
+    pub toggle_nav: String,
+    #[serde(default = "default_open_settings")]
+    pub open_settings: String,
+}
+
+impl Default for ShortcutSettings {
+    fn default() -> Self {
+        Self {
+            nav_next_slot: default_nav_next_slot(),
+            nav_prev_slot: default_nav_prev_slot(),
+            nav_parent: default_nav_parent(),
+            nav_first_child: default_nav_first_child(),
+            copy_latex: default_copy_latex(),
+            save_snippet: default_save_snippet(),
+            focus_editor: default_focus_editor(),
+            toggle_nav: default_toggle_nav(),
+            open_settings: default_open_settings(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delimiter_style: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview_scale_pct: Option<u16>,
+    #[serde(default)]
+    pub theme: ThemePreference,
+    #[serde(default)]
+    pub render_backend: RenderBackendPreference,
+    #[serde(default)]
+    pub shortcuts: ShortcutSettings,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,6 +267,14 @@ impl LibraryFile {
     }
 
     pub fn from_user_library(lib: &UserLibrary, catalog: &Catalog) -> Self {
+        Self::from_user_library_with_settings(lib, catalog, Settings::default())
+    }
+
+    pub fn from_user_library_with_settings(
+        lib: &UserLibrary,
+        catalog: &Catalog,
+        settings: Settings,
+    ) -> Self {
         let mut custom_formats: Vec<CustomFormatRecord> = lib
             .custom_formats
             .iter()
@@ -276,7 +382,7 @@ impl LibraryFile {
             snippets,
             user_formulas,
             overrides,
-            settings: Settings::default(),
+            settings,
         }
     }
 
@@ -831,4 +937,86 @@ where
     sync_dir(parent)?;
 
     Ok(compute_revision(path, &payload))
+}
+
+#[derive(Clone, Debug)]
+pub struct Store {
+    path: PathBuf,
+    settings: Settings,
+    last_revision: Option<FileRevision>,
+}
+
+impl Store {
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            settings: Settings::default(),
+            last_revision: None,
+        }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    #[must_use]
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.settings = settings;
+    }
+
+    #[must_use]
+    pub fn last_revision(&self) -> Option<&FileRevision> {
+        self.last_revision.as_ref()
+    }
+
+    pub fn load(&mut self, catalog: &Catalog) -> Result<LoadOutcome, StoreError> {
+        let outcome = load_or_recover_with_catalog(&self.path, catalog)?;
+        match &outcome {
+            LoadOutcome::NotFound { file } => {
+                self.settings = file.settings.clone();
+                self.last_revision = None;
+            }
+            LoadOutcome::Loaded { file, revision, .. } => {
+                self.settings = file.settings.clone();
+                self.last_revision = Some(revision.clone());
+            }
+            LoadOutcome::CorruptQuarantined { .. } => {
+                self.last_revision = None;
+            }
+        }
+        Ok(outcome)
+    }
+
+    pub fn save_user_library(
+        &mut self,
+        lib: &UserLibrary,
+        catalog: &Catalog,
+    ) -> Result<FileRevision, StoreError> {
+        let file =
+            LibraryFile::from_user_library_with_settings(lib, catalog, self.settings.clone());
+        let rev = save_atomic(
+            &self.path,
+            &file,
+            WriteCondition::IfUnmodified(self.last_revision.clone()),
+        )?;
+        self.last_revision = Some(rev.clone());
+        Ok(rev)
+    }
+
+    pub fn save_file(&mut self, file: &LibraryFile) -> Result<FileRevision, StoreError> {
+        let rev = save_atomic(
+            &self.path,
+            file,
+            WriteCondition::IfUnmodified(self.last_revision.clone()),
+        )?;
+        self.settings = file.settings.clone();
+        self.last_revision = Some(rev.clone());
+        Ok(rev)
+    }
 }

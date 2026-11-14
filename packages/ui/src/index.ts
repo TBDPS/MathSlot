@@ -2,11 +2,16 @@ export { default as MathSlotEditor } from './editor/MathSlotEditor.svelte';
 export type { MathSlotEditorProps } from './editor/MathSlotEditor.svelte';
 
 export {
+  createDefaultAppSettings,
+  createDefaultShortcuts,
   createEmptySnapshot,
+  formatLatexWithDelimiter,
   isNavEditorState,
   type AppError,
   type AppEvent,
+  type AppSettings,
   type CommandSpan,
+  type DelimiterStyle,
   type DiagnosticSnapshot,
   type DispatchResponse,
   type EditorAction,
@@ -15,13 +20,18 @@ export {
   type EngineClient,
   type EngineSnapshot,
   type FocusTarget,
+  type HostAction,
   type Key,
   type NavAction,
   type RawEditorDiagnostic,
+  type RecoveryStateSnapshot,
+  type RenderBackendPreference,
   type RenderRequest,
+  type ShortcutSettings,
   type SlotSnapshot,
   type StatusMessage,
   type StatusSeverity,
+  type ThemePreference,
 } from './client/engine';
 
 export {
@@ -37,7 +47,10 @@ export {
 export {
   createMathSlotKeymapExtension,
   navModeFacet,
+  resolveShortcutSettings,
+  shortcutsFacet,
   type KeymapExtensionOptions,
+  type ShortcutCallbacks,
 } from './editor/keymap';
 
 export {
@@ -109,3 +122,23 @@ export {
 
 export { default as DiagnosticsPanel } from './diagnostics/DiagnosticsPanel.svelte';
 export type { DiagnosticsPanelProps } from './diagnostics/DiagnosticsPanel.svelte';
+
+export { default as SettingsPanel } from './settings/SettingsPanel.svelte';
+export type { SettingsPanelProps } from './settings/SettingsPanel.svelte';
+
+export {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_ACTIONS,
+  formatKeyboardEventToShortcut,
+  isReservedShortcut,
+  matchesShortcut,
+  normalizeShortcut,
+  parseShortcut,
+  validateShortcuts,
+  type ParsedShortcut,
+  type ShortcutActionId,
+  type ShortcutActionMeta,
+  type ShortcutScope,
+  type ShortcutValidationIssue,
+  type ShortcutValidationResult,
+} from './settings/shortcuts';

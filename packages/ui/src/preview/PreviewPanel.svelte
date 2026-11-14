@@ -44,10 +44,18 @@
 
   type FitMode = 'fit-to-width' | 'actual';
 
+  function readSystemPrefersDark(): boolean {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false;
+    }
+    return Boolean(window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
   let fitMode = $state<FitMode>('fit-to-width');
   let zoomScale = $state(1.0);
   let renderResult = $state<PreviewRenderResult | null>(null);
   let renderPending = $state(false);
+  let systemPrefersDark = $state(readSystemPrefersDark());
   let internalGenCounter = 0;
   let latestAppliedGen = 0;
 
@@ -55,7 +63,28 @@
   let lastPrimaryRef: RenderAdapter | ManagedRenderer | undefined = undefined;
 
   const resolvedThemeAttr = $derived(theme === 'auto' ? undefined : theme);
-  const renderTheme = $derived<RenderTheme>(theme === 'dark' ? 'dark' : 'light');
+  const renderTheme = $derived<RenderTheme>(
+    theme === 'dark' ? 'dark' : theme === 'light' ? 'light' : systemPrefersDark ? 'dark' : 'light',
+  );
+
+  $effect(() => {
+    if (theme !== 'auto' || typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return;
+    }
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    systemPrefersDark = Boolean(mql.matches);
+    const onChange = (event: MediaQueryListEvent) => {
+      systemPrefersDark = Boolean(event.matches);
+    };
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+      return () => mql.removeEventListener('change', onChange);
+    }
+    if (typeof mql.addListener === 'function') {
+      mql.addListener(onChange);
+      return () => mql.removeListener(onChange);
+    }
+  });
   const effectiveLatex = $derived(latex ?? snapshot?.latex ?? '');
   const effectivePreviewLatex = $derived(previewLatex ?? snapshot?.preview_latex ?? '');
   const snapshotDiagnostics = $derived(snapshot?.diagnostics ?? []);

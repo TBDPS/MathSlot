@@ -9,6 +9,7 @@
     type AppEvent,
     type EngineClient,
     type EngineSnapshot,
+    type ShortcutSettings,
   } from '../client/engine';
   import {
     createCommandDecorationsExtension,
@@ -17,7 +18,13 @@
     resolveActiveCommand,
     setEngineSnapshotEffect,
   } from './decorations';
-  import { createMathSlotKeymapExtension, navModeFacet } from './keymap';
+  import {
+    createMathSlotKeymapExtension,
+    navModeFacet,
+    resolveShortcutSettings,
+    shortcutsFacet,
+  } from './keymap';
+  import { matchesShortcut } from '../settings/shortcuts';
 
   export interface MathSlotEditorProps {
     client: EngineClient;
@@ -26,9 +33,15 @@
     theme?: 'light' | 'dark' | 'auto';
     ariaLabel?: string;
     placeholderText?: string;
+    shortcuts?: Partial<ShortcutSettings>;
     onFocusEscape?: (direction: 'forward' | 'backward') => void;
     onViewReady?: (view: EditorView) => void;
     onSnapshotChange?: (snapshot: EngineSnapshot) => void;
+    onCopyLatex?: () => void;
+    onSaveSnippet?: () => void;
+    onFocusEditor?: () => void;
+    onToggleNav?: () => void;
+    onOpenSettings?: () => void;
   }
 
   let {
@@ -38,14 +51,21 @@
     theme = 'auto',
     ariaLabel = 'MathSlot 公式编辑器',
     placeholderText = '输入公式，或按 ▸ 触发命令（支持多行换行）…',
+    shortcuts,
     onFocusEscape,
     onViewReady,
     onSnapshotChange,
+    onCopyLatex,
+    onSaveSnippet,
+    onFocusEditor,
+    onToggleNav,
+    onOpenSettings,
   }: MathSlotEditorProps = $props();
 
   let hostEl: HTMLDivElement | null = null;
   let view: EditorView | null = null;
   const navCompartment = new Compartment();
+  const shortcutsCompartment = new Compartment();
 
   let internalSnapshot = $state<EngineSnapshot>(createEmptySnapshot());
   let docText = $state('');
@@ -53,9 +73,16 @@
   let lineCount = $state(1);
 
   const activeSnapshot = $derived(externalSnapshot ?? internalSnapshot);
+  const resolvedShortcuts = $derived(
+    resolveShortcutSettings(shortcuts ?? activeSnapshot.settings?.shortcuts),
+  );
   const modeInfo = $derived(describeEditorMode(activeSnapshot.state, isComposing));
   const activeCommand = $derived(resolveActiveCommand(activeSnapshot, docText));
   const resolvedThemeAttr = $derived(theme === 'auto' ? undefined : theme);
+
+  export function focus(): void {
+    view?.focus();
+  }
 
   export function setSnapshot(next: EngineSnapshot): void {
     internalSnapshot = next;
@@ -133,7 +160,30 @@
             isComposing = composing;
           },
           navCompartment,
+          shortcutsCompartment,
           initialNavMode: isInitialNav,
+          shortcuts: resolvedShortcuts,
+          shortcutCallbacks: {
+            onCopyLatex: () => {
+              if (onCopyLatex) {
+                onCopyLatex();
+              } else {
+                handleEngineEvent('RequestCopy');
+              }
+            },
+            onSaveSnippet: () => {
+              onSaveSnippet?.();
+            },
+            onFocusEditor: () => {
+              onFocusEditor?.();
+            },
+            onToggleNav: () => {
+              onToggleNav?.();
+            },
+            onOpenSettings: () => {
+              onOpenSettings?.();
+            },
+          },
         }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
@@ -156,12 +206,43 @@
 
     syncViewWithSnapshot(startSnap);
     onViewReady?.(view);
+
+    const handleWindowKeydown = (evt: KeyboardEvent) => {
+      if (!view || evt.defaultPrevented || evt.isComposing || isComposing) {
+        return;
+      }
+      if (evt.key === 'Tab' || evt.key === 'Escape') {
+        return;
+      }
+      const activeEl = document.activeElement;
+      if (activeEl && view.dom.contains(activeEl)) {
+        return;
+      }
+      if (matchesShortcut(evt, resolvedShortcuts.focus_editor)) {
+        evt.preventDefault();
+        view.focus();
+        onFocusEditor?.();
+      }
+    };
+
+    window.addEventListener('keydown', handleWindowKeydown);
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeydown);
+    };
   });
 
   $effect(() => {
     if (externalSnapshot) {
       syncViewWithSnapshot(externalSnapshot);
     }
+  });
+
+  $effect(() => {
+    const nextShortcuts = resolvedShortcuts;
+    if (!view) return;
+    view.dispatch({
+      effects: [shortcutsCompartment.reconfigure(shortcutsFacet.of(nextShortcuts))],
+    });
   });
 
   onDestroy(() => {

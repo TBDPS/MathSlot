@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::snapshot::{AppSettings, RecoveryStateSnapshot};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AppEvent {
     KeyInput(char),
@@ -31,6 +33,13 @@ pub enum AppEvent {
     Clear,
     ImportLatex(String),
     LoadStreamSource(String),
+    UpdateSettings(AppSettings),
+    ResetSettingsConfirmed,
+    SetRecoveryState(Option<RecoveryStateSnapshot>),
+    RequestRestoreBackup,
+    ConfirmResetEmptyConfig,
+    RequestImportConfig,
+    RequestExportConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

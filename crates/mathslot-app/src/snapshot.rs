@@ -116,6 +116,150 @@ impl DiagnosticSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemePreference {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DelimiterStyle {
+    #[default]
+    None,
+    #[serde(alias = "inline")]
+    InlineDollar,
+    #[serde(alias = "display")]
+    BlockDollar,
+    #[serde(alias = "markdown_code")]
+    CodeFence,
+}
+
+impl DelimiterStyle {
+    #[must_use]
+    pub fn format_latex(self, raw: &str) -> String {
+        if raw.is_empty() {
+            return String::new();
+        }
+        match self {
+            Self::None => raw.to_owned(),
+            Self::InlineDollar => format!("${raw}$"),
+            Self::BlockDollar => format!("$$\n{raw}\n$$"),
+            Self::CodeFence => format!("```latex\n{raw}\n```"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RenderBackendPreference {
+    #[default]
+    #[serde(rename = "mathjax")]
+    MathJax,
+    #[serde(rename = "latex-rust")]
+    LatexRust,
+}
+
+fn default_nav_next_slot() -> String {
+    "j".to_owned()
+}
+
+fn default_nav_prev_slot() -> String {
+    "k".to_owned()
+}
+
+fn default_nav_parent() -> String {
+    "h".to_owned()
+}
+
+fn default_nav_first_child() -> String {
+    "l".to_owned()
+}
+
+fn default_copy_latex() -> String {
+    "Mod+Shift+C".to_owned()
+}
+
+fn default_save_snippet() -> String {
+    "Mod+Shift+S".to_owned()
+}
+
+fn default_focus_editor() -> String {
+    "Mod+E".to_owned()
+}
+
+fn default_toggle_nav() -> String {
+    "Mod+J".to_owned()
+}
+
+fn default_open_settings() -> String {
+    "Mod+,".to_owned()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShortcutSettings {
+    #[serde(default = "default_nav_next_slot")]
+    pub nav_next_slot: String,
+    #[serde(default = "default_nav_prev_slot")]
+    pub nav_prev_slot: String,
+    #[serde(default = "default_nav_parent")]
+    pub nav_parent: String,
+    #[serde(default = "default_nav_first_child")]
+    pub nav_first_child: String,
+    #[serde(default = "default_copy_latex")]
+    pub copy_latex: String,
+    #[serde(default = "default_save_snippet")]
+    pub save_snippet: String,
+    #[serde(default = "default_focus_editor")]
+    pub focus_editor: String,
+    #[serde(default = "default_toggle_nav")]
+    pub toggle_nav: String,
+    #[serde(default = "default_open_settings")]
+    pub open_settings: String,
+}
+
+impl Default for ShortcutSettings {
+    fn default() -> Self {
+        Self {
+            nav_next_slot: default_nav_next_slot(),
+            nav_prev_slot: default_nav_prev_slot(),
+            nav_parent: default_nav_parent(),
+            nav_first_child: default_nav_first_child(),
+            copy_latex: default_copy_latex(),
+            save_snippet: default_save_snippet(),
+            focus_editor: default_focus_editor(),
+            toggle_nav: default_toggle_nav(),
+            open_settings: default_open_settings(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoveryStateSnapshot {
+    pub corrupt_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_candidate: Option<String>,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppSettings {
+    #[serde(default)]
+    pub theme: ThemePreference,
+    #[serde(default)]
+    pub delimiter_style: DelimiterStyle,
+    #[serde(default)]
+    pub render_backend: RenderBackendPreference,
+    #[serde(default)]
+    pub shortcuts: ShortcutSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_scale_pct: Option<u16>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EngineSnapshot {
     pub state: EditorState,
@@ -130,6 +274,10 @@ pub struct EngineSnapshot {
     pub slots: Vec<SlotSnapshot>,
     pub diagnostics: Vec<DiagnosticSnapshot>,
     pub active_slot_id: Option<u32>,
+    #[serde(default)]
+    pub settings: AppSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<RecoveryStateSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,11 +1,24 @@
 import { Compartment, Facet, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import type { AppEvent, NavAction } from '../client/engine';
+import type { AppEvent, NavAction, ShortcutSettings } from '../client/engine';
+import { DEFAULT_SHORTCUTS, matchesShortcut } from '../settings/shortcuts';
 
 export const navModeFacet = Facet.define<boolean, boolean>({
   combine: (values) => values[values.length - 1] ?? false,
 });
+
+export const shortcutsFacet = Facet.define<ShortcutSettings, ShortcutSettings>({
+  combine: (values) => values[values.length - 1] ?? DEFAULT_SHORTCUTS,
+});
+
+export interface ShortcutCallbacks {
+  onCopyLatex?: () => void;
+  onSaveSnippet?: () => void;
+  onFocusEditor?: () => void;
+  onToggleNav?: () => void;
+  onOpenSettings?: () => void;
+}
 
 export interface KeymapExtensionOptions {
   dispatchEvent: (event: AppEvent) => void;
@@ -13,21 +26,24 @@ export interface KeymapExtensionOptions {
   onCompositionChange?: (composing: boolean) => void;
   tabMovesFocus?: boolean;
   navCompartment?: Compartment;
+  shortcutsCompartment?: Compartment;
   initialNavMode?: boolean;
+  shortcuts?: Partial<ShortcutSettings>;
+  shortcutCallbacks?: ShortcutCallbacks;
 }
 
-const NAV_KEY_MAP: Readonly<Record<string, NavAction>> = {
-  j: 'NextSlot',
-  n: 'NextSlot',
-  k: 'PrevSlot',
-  p: 'PrevSlot',
-  h: 'StepLeft',
-  l: 'StepRight',
-};
+export function resolveShortcutSettings(partial?: Partial<ShortcutSettings>): ShortcutSettings {
+  return {
+    ...DEFAULT_SHORTCUTS,
+    ...partial,
+  };
+}
 
 export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): Extension {
   const navCompartment = options.navCompartment ?? new Compartment();
+  const shortcutsCompartment = options.shortcutsCompartment ?? new Compartment();
   const tabMovesFocus = options.tabMovesFocus ?? true;
+  const initialShortcuts = resolveShortcutSettings(options.shortcuts);
   let composing = false;
 
   const setComposing = (next: boolean) => {
@@ -82,19 +98,71 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
         }
       }
 
+      const activeShortcuts = view.state.facet(shortcutsFacet);
       const isNavMode = view.state.facet(navModeFacet);
+
+      // Configurable global action shortcuts (D-118)
+      if (event.key !== 'Escape') {
+        if (matchesShortcut(event, activeShortcuts.toggle_nav)) {
+          event.preventDefault();
+          options.dispatchEvent(isNavMode ? 'ExitNavMode' : 'EnterNavMode');
+          options.shortcutCallbacks?.onToggleNav?.();
+          return true;
+        }
+        if (matchesShortcut(event, activeShortcuts.copy_latex)) {
+          event.preventDefault();
+          if (options.shortcutCallbacks?.onCopyLatex) {
+            options.shortcutCallbacks.onCopyLatex();
+          } else {
+            options.dispatchEvent('RequestCopy');
+          }
+          return true;
+        }
+        if (matchesShortcut(event, activeShortcuts.save_snippet)) {
+          event.preventDefault();
+          options.shortcutCallbacks?.onSaveSnippet?.();
+          return true;
+        }
+        if (matchesShortcut(event, activeShortcuts.open_settings)) {
+          event.preventDefault();
+          options.shortcutCallbacks?.onOpenSettings?.();
+          return true;
+        }
+        if (matchesShortcut(event, activeShortcuts.focus_editor)) {
+          event.preventDefault();
+          view.focus();
+          options.shortcutCallbacks?.onFocusEditor?.();
+          return true;
+        }
+      }
+
       if (isNavMode) {
         if (event.key === 'Escape') {
           event.preventDefault();
           options.dispatchEvent('ExitNavMode');
           return true;
         }
-        const navAction = NAV_KEY_MAP[event.key];
-        if (navAction && !event.ctrlKey && !event.metaKey && !event.altKey) {
+
+        let navAction: NavAction | null = null;
+        if (matchesShortcut(event, activeShortcuts.nav_next_slot)) {
+          navAction = 'NextSlot';
+        } else if (matchesShortcut(event, activeShortcuts.nav_prev_slot)) {
+          navAction = 'PrevSlot';
+        } else if (matchesShortcut(event, activeShortcuts.nav_parent)) {
+          navAction = 'StepLeft';
+        } else if (matchesShortcut(event, activeShortcuts.nav_first_child)) {
+          navAction = 'StepRight';
+        } else if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+          if (event.key === 'n') navAction = 'NextSlot';
+          else if (event.key === 'p') navAction = 'PrevSlot';
+        }
+
+        if (navAction) {
           event.preventDefault();
           options.dispatchEvent({ Navigate: navAction });
           return true;
         }
+
         if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
           event.preventDefault();
           return true;
@@ -116,6 +184,7 @@ export function createMathSlotKeymapExtension(options: KeymapExtensionOptions): 
 
   return [
     navCompartment.of(navModeFacet.of(options.initialNavMode ?? false)),
+    shortcutsCompartment.of(shortcutsFacet.of(initialShortcuts)),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     domHandlers,
