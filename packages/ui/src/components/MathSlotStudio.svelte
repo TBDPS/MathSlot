@@ -337,7 +337,8 @@
 
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      engine.moveUp();
+      if (e.altKey || mod) engine.escapeLevel();
+      else engine.moveUp();
       sync();
       return;
     }
@@ -422,11 +423,20 @@
 
     <div class="breadcrumb-area">
       {#if snapshot.breadcrumbs.length > 0}
-        <nav class="breadcrumbs" aria-label="当前槽位">
-          {#each snapshot.breadcrumbs as crumb, idx (crumb.slotId)}
-            {#if idx > 0}
-              <span class="crumb-sep">/</span>
-            {/if}
+        <nav class="breadcrumbs" aria-label="当前层级">
+          <button
+            type="button"
+            class="crumb-btn"
+            onclick={() => {
+              engine.setCursor(snapshot.doc.root.id, snapshot.doc.root.children.length);
+              sync();
+              canvasRef?.focus();
+            }}
+          >
+            公式
+          </button>
+          {#each snapshot.breadcrumbs as crumb (crumb.slotId)}
+            <span class="crumb-sep">›</span>
             <button
               type="button"
               class="crumb-btn"
@@ -436,9 +446,22 @@
                 canvasRef?.focus();
               }}
             >
-              {crumb.commandLabel} · {crumb.slotLabel}
+              {crumb.commandLabel}·{crumb.slotLabel}
             </button>
           {/each}
+          <button
+            type="button"
+            class="crumb-up"
+            title="跳出当前层级 (Alt+↑)"
+            aria-label="跳出当前层级"
+            onclick={() => {
+              engine.escapeLevel();
+              sync();
+              canvasRef?.focus();
+            }}
+          >
+            ↑
+          </button>
         </nav>
       {/if}
     </div>
@@ -797,6 +820,27 @@
   .crumb-sep {
     color: var(--ms-fg-faint);
     font-size: 11px;
+  }
+
+  .crumb-up {
+    border: 1px solid var(--ms-border);
+    background: var(--ms-surface);
+    color: var(--ms-fg-muted);
+    font-size: 11px;
+    width: 20px;
+    height: 18px;
+    margin-left: 3px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .crumb-up:hover {
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
   }
 
   .toolbar {

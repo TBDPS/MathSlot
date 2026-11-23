@@ -216,18 +216,67 @@ export function isStructEmpty(node: StructNode): boolean {
 
 const JUMP_ALPHABET = 'asdfghjklqwertyuiopzxcvbnm';
 
-export function buildJumpTargets(root: SlotNode): JumpTarget[] {
-  const slots = listAllSlots(root);
-  const targets: SlotNode[] = slots.length > 1 ? slots.slice(1) : slots;
-  const includeRoot = slots.length > 1;
-  const ordered = includeRoot ? [...targets, root] : targets;
+function getSlotPlacement(commandId: string, slotIndex: number): 'top' | 'bottom' {
+  if (
+    (commandId === 'frac' || commandId === 'partial_frac' || commandId === 'total_frac' || commandId === 'binom') &&
+    slotIndex === 1
+  ) {
+    return 'bottom';
+  }
+  if (
+    (commandId === 'integral' || commandId === 'sum' || commandId === 'product' || commandId === 'limit') &&
+    slotIndex === 0
+  ) {
+    return 'bottom';
+  }
+  if (commandId === 'limit' && slotIndex === 1) {
+    return 'bottom';
+  }
+  if ((commandId === 'sub' || commandId === 'subsup') && slotIndex === 1) {
+    return 'bottom';
+  }
+  return 'top';
+}
 
-  const labels = generateLabels(ordered.length);
-  return ordered.map((slot, idx) => ({
+export function buildJumpTargets(root: SlotNode): JumpTarget[] {
+  const entries: { slot: SlotNode; placement: 'top' | 'bottom' }[] = [];
+
+  const walk = (slot: SlotNode) => {
+    for (const child of slot.children) {
+      if (child.type === 'struct') {
+        const isScript =
+          child.commandId === 'sub' ||
+          child.commandId === 'sup' ||
+          child.commandId === 'subsup';
+        for (let sIdx = 0; sIdx < child.slots.length; sIdx += 1) {
+          const sub = child.slots[sIdx];
+          // Avoid stacking a redundant badge on a simple 1-atom script base (e.g. `a` in `a_n`)
+          const skipSimpleBase =
+            isScript &&
+            sIdx === 0 &&
+            sub.children.length === 1 &&
+            sub.children[0].type !== 'struct';
+          if (!skipSimpleBase) {
+            entries.push({
+              slot: sub,
+              placement: getSlotPlacement(child.commandId, sIdx),
+            });
+          }
+          walk(sub);
+        }
+      }
+    }
+  };
+  walk(root);
+  entries.push({ slot: root, placement: 'top' });
+
+  const labels = generateLabels(entries.length);
+  return entries.map((entry, idx) => ({
     label: labels[idx],
-    slotId: slot.id,
-    offset: slot.children.length,
-    slotLabel: slot.label,
+    slotId: entry.slot.id,
+    offset: entry.slot.children.length,
+    slotLabel: entry.slot.label,
+    placement: entry.placement,
   }));
 }
 

@@ -195,6 +195,15 @@
       </label>
 
       <label class="toggle-row">
+        <span>空格自动跳出上下标（如 a_n + 空格）</span>
+        <input
+          type="checkbox"
+          checked={settings.spaceExitsScript}
+          onchange={(e) => onUpdate({ spaceExitsScript: (e.currentTarget as HTMLInputElement).checked })}
+        />
+      </label>
+
+      <label class="toggle-row">
         <span>分号 `;` 跳转下一槽位</span>
         <input
           type="checkbox"

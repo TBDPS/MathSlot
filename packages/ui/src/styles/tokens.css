@@ -97,6 +97,12 @@
   padding: 1px 3px;
 }
 
+.ms-studio .ms-parent-struct {
+  border-radius: 5px;
+  outline: 1px dashed var(--ms-border);
+  outline-offset: 2px;
+}
+
 .ms-studio .ms-atom {
   cursor: text;
   border-radius: 3px;

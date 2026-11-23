@@ -96,6 +96,8 @@ export interface JumpTarget {
   slotId: string;
   offset: number;
   slotLabel: string;
+  /** Visual anchor hint so numerator/upper badges go above and denominator/lower badges go below */
+  placement?: 'top' | 'bottom';
 }
 
 export type EditorMode =
@@ -116,6 +118,7 @@ export interface AppSettings {
   semicolonNextSlot: boolean;
   naturalScripts: boolean;
   naturalFraction: boolean;
+  spaceExitsScript: boolean;
   autoShorthands: boolean;
   showLatexDock: boolean;
   slotOrderPreset: SlotOrderPreset;
@@ -178,6 +181,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   semicolonNextSlot: true,
   naturalScripts: true,
   naturalFraction: true,
+  spaceExitsScript: true,
   autoShorthands: true,
   showLatexDock: true,
   slotOrderPreset: 'standard',

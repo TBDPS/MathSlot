@@ -67,13 +67,18 @@
         ) as HTMLElement | null;
         if (el) {
           const r = el.getBoundingClientRect();
-          let left = Math.max(8, r.left - stageRect.left - 4);
-          let top = Math.max(8, r.top - stageRect.top - 16);
-          // Avoid overlapping badges on nested slots
-          for (const prev of next) {
-            if (Math.abs(prev.left - left) < 22 && Math.abs(prev.top - top) < 20) {
-              top = Math.max(6, top - 22);
-            }
+          const isBottom = target.placement === 'bottom';
+          let left = Math.max(8, r.left - stageRect.left + r.width / 2 - 10);
+          let top = isBottom
+            ? Math.min(stageRect.height - 26, r.bottom - stageRect.top + 3)
+            : Math.max(8, r.top - stageRect.top - 22);
+          // De-collide nearby badges cleanly along x or y
+          for (let tries = 0; tries < 6; tries += 1) {
+            const clash = next.find(
+              (prev) => Math.abs(prev.left - left) < 22 && Math.abs(prev.top - top) < 22,
+            );
+            if (!clash) break;
+            left += 22;
           }
           next.push({ ...target, left, top });
         }

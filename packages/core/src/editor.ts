@@ -11,7 +11,6 @@ import {
   findSlotPath,
   getBreadcrumbs,
   isStructEmpty,
-  listAllSlots,
   textToCharNodes,
 } from './ast';
 import { COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS } from './catalog';
@@ -357,9 +356,12 @@ export class MathSlotEngine {
         this.insertNaturalFraction();
         return;
       }
-      // Inline `\alpha ` completion when typing space after `\macro`
+      // Inline `\alpha ` completion or Space-exits-script (e.g. `a_n ` exits subscript cleanly!)
       if (ch === ' ') {
         if (this.tryExpandInlineMacro()) {
+          return;
+        }
+        if (this.settings.spaceExitsScript && this.trySpaceExitScript()) {
           return;
         }
       }
@@ -441,6 +443,34 @@ export class MathSlotEngine {
     slot.children.splice(this.cursor.offset, 0, struct);
     const firstEmpty = struct.slots.find((s) => s.children.length === 0) ?? struct.slots[0];
     this.cursor = { slotId: firstEmpty.id, offset: 0 };
+  }
+
+  private trySpaceExitScript(): boolean {
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct;
+    const parentSlot = cur.parentSlot;
+    if (!parentStruct || !parentSlot) return false;
+    if (cur.slot.children.length === 0 || this.cursor.offset !== cur.slot.children.length) {
+      return false;
+    }
+
+    const cmdId = parentStruct.commandId;
+    const sIdx = cur.slotIndexInStruct;
+    // Exit tight script slot (exponent/subscript) cleanly on Space at end!
+    const isScriptEnd =
+      ((cmdId === 'sup' || cmdId === 'sub') && sIdx === 1) ||
+      (cmdId === 'subsup' && (sIdx === 1 || sIdx === 2));
+
+    if (!isScriptEnd) return false;
+
+    if (cmdId === 'subsup' && sIdx === 1 && parentStruct.slots[2].children.length === 0) {
+      this.cursor = { slotId: parentStruct.slots[2].id, offset: 0 };
+      return true;
+    }
+    this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent + 1 };
+    return true;
   }
 
   private tryExpandInlineMacro(): boolean {
@@ -916,26 +946,156 @@ export class MathSlotEngine {
     }
   }
 
+  public escapeLevel(): boolean {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+    const cur = path[path.length - 1];
+    if (!cur.parentSlot) return false;
+    this.cursor = { slotId: cur.parentSlot.id, offset: cur.nodeIndexInParent + 1 };
+    return true;
+  }
+
   public moveUp(): void {
     this.mode = { kind: 'edit' };
     this.selection = null;
-    const slots = listAllSlots(this.doc.root);
-    const idx = slots.findIndex((s) => s.id === this.cursor.slotId);
-    if (idx > 0) {
-      const target = slots[idx - 1];
-      this.cursor = { slotId: target.id, offset: target.children.length };
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return;
+
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const cmdId = parentStruct.commandId;
+    const sIdx = cur.slotIndexInStruct;
+
+    // Spatial vertical navigation inside structured math nodes
+    if (
+      (cmdId === 'frac' || cmdId === 'partial_frac' || cmdId === 'total_frac' || cmdId === 'binom') &&
+      sIdx === 1
+    ) {
+      const num = parentStruct.slots[0];
+      this.cursor = { slotId: num.id, offset: num.children.length };
+      return;
     }
+    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && (sIdx === 0 || sIdx === 2)) {
+      const upper = parentStruct.slots[1];
+      this.cursor = { slotId: upper.id, offset: upper.children.length };
+      return;
+    }
+    if (cmdId === 'subsup' && (sIdx === 1 || sIdx === 0)) {
+      const sup = parentStruct.slots[2];
+      this.cursor = { slotId: sup.id, offset: sup.children.length };
+      return;
+    }
+    if (cmdId === 'sup' && sIdx === 0) {
+      const exp = parentStruct.slots[1];
+      this.cursor = { slotId: exp.id, offset: exp.children.length };
+      return;
+    }
+    if (cmdId === 'sub' && sIdx === 1) {
+      const base = parentStruct.slots[0];
+      this.cursor = { slotId: base.id, offset: base.children.length };
+      return;
+    }
+    if (cmdId === 'limit' && (sIdx === 0 || sIdx === 1)) {
+      const body = parentStruct.slots[2];
+      this.cursor = { slotId: body.id, offset: 0 };
+      return;
+    }
+    // 2-column grids (2x2 matrices & cases)
+    if (
+      (cmdId === 'matrix_2x2' ||
+        cmdId === 'bmatrix_2x2' ||
+        cmdId === 'det_2x2' ||
+        cmdId === 'cases_2' ||
+        cmdId === 'cases_3') &&
+      sIdx >= 2
+    ) {
+      const above = parentStruct.slots[sIdx - 2];
+      this.cursor = { slotId: above.id, offset: above.children.length };
+      return;
+    }
+    // 3-column grids (3x3 matrices)
+    if (
+      (cmdId === 'matrix_3x3' || cmdId === 'bmatrix_3x3' || cmdId === 'det_3x3') &&
+      sIdx >= 3
+    ) {
+      const above = parentStruct.slots[sIdx - 3];
+      this.cursor = { slotId: above.id, offset: above.children.length };
+      return;
+    }
+
+    // Otherwise step cleanly out one level to parent slot
+    this.escapeLevel();
   }
 
   public moveDown(): void {
     this.mode = { kind: 'edit' };
     this.selection = null;
-    const slots = listAllSlots(this.doc.root);
-    const idx = slots.findIndex((s) => s.id === this.cursor.slotId);
-    if (idx >= 0 && idx + 1 < slots.length) {
-      const target = slots[idx + 1];
-      this.cursor = { slotId: target.id, offset: 0 };
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return;
+
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const cmdId = parentStruct.commandId;
+    const sIdx = cur.slotIndexInStruct;
+
+    if (
+      (cmdId === 'frac' || cmdId === 'partial_frac' || cmdId === 'total_frac' || cmdId === 'binom') &&
+      sIdx === 0
+    ) {
+      const den = parentStruct.slots[1];
+      this.cursor = { slotId: den.id, offset: den.children.length };
+      return;
     }
+    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && (sIdx === 1 || sIdx === 2)) {
+      const lower = parentStruct.slots[0];
+      this.cursor = { slotId: lower.id, offset: lower.children.length };
+      return;
+    }
+    if (cmdId === 'subsup' && (sIdx === 2 || sIdx === 0)) {
+      const sub = parentStruct.slots[1];
+      this.cursor = { slotId: sub.id, offset: sub.children.length };
+      return;
+    }
+    if (cmdId === 'sup' && sIdx === 1) {
+      const base = parentStruct.slots[0];
+      this.cursor = { slotId: base.id, offset: base.children.length };
+      return;
+    }
+    if (cmdId === 'sub' && sIdx === 0) {
+      const sub = parentStruct.slots[1];
+      this.cursor = { slotId: sub.id, offset: sub.children.length };
+      return;
+    }
+    if (cmdId === 'limit' && sIdx === 2) {
+      const varSlot = parentStruct.slots[0];
+      this.cursor = { slotId: varSlot.id, offset: varSlot.children.length };
+      return;
+    }
+    if (
+      (cmdId === 'matrix_2x2' ||
+        cmdId === 'bmatrix_2x2' ||
+        cmdId === 'det_2x2' ||
+        cmdId === 'cases_2' ||
+        cmdId === 'cases_3') &&
+      sIdx + 2 < parentStruct.slots.length
+    ) {
+      const below = parentStruct.slots[sIdx + 2];
+      this.cursor = { slotId: below.id, offset: below.children.length };
+      return;
+    }
+    if (
+      (cmdId === 'matrix_3x3' || cmdId === 'bmatrix_3x3' || cmdId === 'det_3x3') &&
+      sIdx + 3 < parentStruct.slots.length
+    ) {
+      const below = parentStruct.slots[sIdx + 3];
+      this.cursor = { slotId: below.id, offset: below.children.length };
+      return;
+    }
+
+    // Otherwise step cleanly out after current structure
+    this.escapeLevel();
   }
 
   public moveHome(extendSelection = false): void {
