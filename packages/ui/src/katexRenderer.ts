@@ -39,6 +39,7 @@ export function renderLatexInteractive(latex: string): RenderResult {
 }
 
 const previewCache = new Map<string, string>();
+const MAX_PREVIEW_CACHE = 2000;
 
 export function renderLatexPreview(latex: string, displayMode = false): string {
   const key = `${displayMode ? 'D' : 'I'}:${latex}`;
@@ -52,7 +53,10 @@ export function renderLatexPreview(latex: string, displayMode = false): string {
       trust: false,
       output: 'html',
     });
-    if (previewCache.size > 400) previewCache.clear();
+    if (previewCache.size >= MAX_PREVIEW_CACHE) {
+      const oldestKey = previewCache.keys().next().value;
+      if (oldestKey !== undefined) previewCache.delete(oldestKey);
+    }
     previewCache.set(key, html);
     return html;
   } catch {

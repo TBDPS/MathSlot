@@ -338,9 +338,10 @@
 <style>
   .ribbon-wrap {
     position: relative;
+    container-type: inline-size;
     display: flex;
     justify-content: center;
-    padding: 0 12px 14px;
+    padding: 0 10px 12px;
     flex-shrink: 0;
     z-index: 20;
   }
@@ -348,15 +349,14 @@
   .ribbon-bar {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 7px;
     max-width: 100%;
-    overflow-x: auto;
     padding: 7px 9px;
     border-radius: 14px;
     background: var(--ms-surface);
     border: 1px solid var(--ms-border);
     box-shadow: var(--ms-shadow-sm);
-    scrollbar-width: none;
     transition: border-color 110ms ease, box-shadow 110ms ease;
   }
 
@@ -365,14 +365,12 @@
     box-shadow: 0 0 0 2px var(--ms-accent-ring), var(--ms-shadow-md);
   }
 
-  .ribbon-bar::-webkit-scrollbar {
-    display: none;
-  }
-
   .ribbon-group {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
+    flex-wrap: wrap;
   }
 
   .ribbon-sep {
@@ -381,6 +379,30 @@
     background: var(--ms-border);
     margin: 0 3px;
     flex-shrink: 0;
+  }
+
+  @container (max-width: 860px) {
+    .ribbon-bar {
+      flex-direction: column;
+      gap: 5px;
+      padding: 6px 8px;
+      width: 100%;
+    }
+
+    .ribbon-sep {
+      display: none;
+    }
+
+    .ribbon-btn {
+      height: 46px;
+      min-width: 38px;
+      padding: 4px 5px;
+    }
+
+    .btn-glyph {
+      min-height: 20px;
+      font-size: 14.5px;
+    }
   }
 
   .ribbon-btn {
@@ -452,7 +474,7 @@
     bottom: calc(100% + 6px);
     left: 50%;
     transform: translateX(-50%);
-    width: min(700px, calc(100vw - 24px));
+    width: min(680px, calc(100% - 16px));
     max-height: 274px;
     display: flex;
     flex-direction: column;

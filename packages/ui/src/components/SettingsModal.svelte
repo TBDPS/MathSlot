@@ -288,8 +288,7 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.32);
-    backdrop-filter: blur(4px);
+    background: rgba(15, 23, 42, 0.34);
     display: flex;
     align-items: center;
     justify-content: center;

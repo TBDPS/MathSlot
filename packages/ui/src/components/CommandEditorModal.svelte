@@ -170,7 +170,6 @@
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.36);
-    backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;

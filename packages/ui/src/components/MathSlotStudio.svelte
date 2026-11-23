@@ -35,6 +35,7 @@
   import PresetEditorModal from './PresetEditorModal.svelte';
   import CommandEditorModal from './CommandEditorModal.svelte';
   import SettingsModal from './SettingsModal.svelte';
+  import HelpModal from './HelpModal.svelte';
 
   interface Props {
     host: HostAdapter;
@@ -74,6 +75,9 @@
   let commandModalOpen = $state(false);
   let editingCommand = $state<CommandDef | null>(null);
   let settingsOpen = $state(false);
+  let helpOpen = $state(false);
+  let moreMenuOpen = $state(false);
+  let moreMenuWrapEl: HTMLDivElement | null = $state(null);
   let ribbonPopoverOpen = $state(false);
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -605,8 +609,20 @@
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'k') {
       e.preventDefault();
+      moreMenuOpen = false;
       drawerTab = 'commands';
       drawerOpen = !drawerOpen;
+      return;
+    }
+    if (e.key === 'Escape' && moreMenuOpen) {
+      moreMenuOpen = false;
+    }
+  }
+
+  function handleWindowPointerDown(e: PointerEvent): void {
+    if (!moreMenuOpen || !moreMenuWrapEl) return;
+    if (!moreMenuWrapEl.contains(e.target as Node)) {
+      moreMenuOpen = false;
     }
   }
 
@@ -657,7 +673,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleWindowKeyDown} />
+<svelte:window onkeydown={handleWindowKeyDown} onpointerdown={handleWindowPointerDown} />
 
 <div class="ms-studio studio-shell" data-theme={resolvedTheme}>
   <header class="topbar">
@@ -746,31 +762,14 @@
         title="命令与公式库 (Ctrl+K)"
         aria-label="命令与公式库"
         onclick={() => {
+          moreMenuOpen = false;
           drawerTab = 'commands';
           drawerOpen = true;
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-3.5-3.5" />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        class="icon-btn"
-        title="预置公式"
-        aria-label="预置公式"
-        onclick={() => {
-          drawerTab = 'presets';
-          drawerOpen = true;
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-          <rect x="3" y="3" width="7" height="7" rx="1.5" />
-          <rect x="14" y="3" width="7" height="7" rx="1.5" />
-          <rect x="3" y="14" width="7" height="7" rx="1.5" />
-          <rect x="14" y="14" width="7" height="7" rx="1.5" />
         </svg>
       </button>
 
@@ -779,139 +778,206 @@
         class="text-btn"
         title="导入 LaTeX"
         aria-label="导入 LaTeX"
-        onclick={() => (importOpen = true)}
+        onclick={() => {
+          moreMenuOpen = false;
+          importOpen = true;
+        }}
       >
-        导入 LaTeX
+        导入
       </button>
 
       <button
         type="button"
         class="icon-btn"
-        class:active={settings.showHierarchyBoxes}
-        title="始终显示层级虚线框"
-        aria-label="切换层级虚线框"
+        title="使用文档与快速开始"
+        aria-label="使用文档"
         onclick={() => {
-          updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
-          canvasRef?.focus();
+          moreMenuOpen = false;
+          helpOpen = true;
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2">
-          <rect x="3" y="3" width="18" height="18" rx="3" />
-          <rect x="7" y="7" width="10" height="10" rx="2" stroke-dasharray="none" />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        class="icon-btn"
-        class:active={snapshot.mode.kind === 'jump'}
-        title="槽位跳转 (Esc)"
-        aria-label="槽位跳转"
-        disabled={snapshot.isEmpty}
-        onclick={() => {
-          if (snapshot.mode.kind === 'jump') engine.exitMode();
-          else engine.enterJumpMode();
-          sync();
-          canvasRef?.focus();
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-          <circle cx="12" cy="12" r="8" />
-          <circle cx="12" cy="12" r="2.2" />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        class="icon-btn"
-        title="历史记录"
-        aria-label="历史记录"
-        onclick={() => {
-          drawerTab = 'history';
-          drawerOpen = true;
-        }}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <circle cx="12" cy="17" r="0.6" fill="currentColor" />
         </svg>
       </button>
 
-      <button
-        type="button"
-        class="icon-btn"
-        title="清空"
-        aria-label="清空"
-        disabled={snapshot.isEmpty}
-        onclick={() => {
-          recordHistory(snapshot.latex);
-          engine.clear();
-          sync();
-          canvasRef?.focus();
-        }}
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-          <path d="M3 6h18" />
-          <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-        </svg>
-      </button>
-
-      {#if host.setAlwaysOnTop}
+      <div class="more-wrap" bind:this={moreMenuWrapEl}>
         <button
           type="button"
           class="icon-btn"
-          class:active={pinned}
-          title={pinned ? '取消窗口置顶' : '窗口置顶'}
-          aria-label="窗口置顶"
-          onclick={() => void togglePin()}
+          class:active={moreMenuOpen}
+          title="更多功能与设置"
+          aria-label="更多功能"
+          aria-expanded={moreMenuOpen}
+          onclick={() => (moreMenuOpen = !moreMenuOpen)}
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-            <path d="M12 17v5" />
-            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="5" cy="12" r="1.4" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+            <circle cx="19" cy="12" r="1.4" fill="currentColor" />
           </svg>
         </button>
-      {/if}
 
-      <span class="toolbar-sep"></span>
+        {#if moreMenuOpen}
+          <div class="more-menu" role="menu" aria-label="更多功能">
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              onclick={() => {
+                moreMenuOpen = false;
+                drawerTab = 'presets';
+                drawerOpen = true;
+              }}
+            >
+              <span>预置公式库</span>
+              <span class="menu-hint">{effectivePresets.length}</span>
+            </button>
 
-      <button
-        type="button"
-        class="icon-btn"
-        title="切换浅色/深色"
-        aria-label="切换主题"
-        onclick={toggleTheme}
-      >
-        {#if resolvedTheme === 'dark'}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-          </svg>
-        {:else}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
-          </svg>
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              onclick={() => {
+                moreMenuOpen = false;
+                drawerTab = 'history';
+                drawerOpen = true;
+              }}
+            >
+              <span>历史记录</span>
+              <span class="menu-hint">{history.length}</span>
+            </button>
+
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              disabled={snapshot.isEmpty}
+              onclick={() => {
+                moreMenuOpen = false;
+                if (snapshot.mode.kind === 'jump') engine.exitMode();
+                else engine.enterJumpMode();
+                sync();
+                canvasRef?.focus();
+              }}
+            >
+              <span>槽位跳转</span>
+              <span class="menu-hint">Esc</span>
+            </button>
+
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              onclick={() => {
+                moreMenuOpen = false;
+                updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
+                canvasRef?.focus();
+              }}
+            >
+              <span>层级虚线框</span>
+              <span class="menu-hint" class:on={settings.showHierarchyBoxes}>
+                {settings.showHierarchyBoxes ? '开' : '关'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              disabled={snapshot.isEmpty}
+              onclick={() => {
+                moreMenuOpen = false;
+                recordHistory(snapshot.latex);
+                engine.clear();
+                sync();
+                canvasRef?.focus();
+              }}
+            >
+              <span>清空画布</span>
+            </button>
+
+            <div class="menu-sep"></div>
+
+            {#if host.setAlwaysOnTop}
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  void togglePin();
+                }}
+              >
+                <span>窗口置顶</span>
+                <span class="menu-hint" class:on={pinned}>{pinned ? '已置顶' : '关'}</span>
+              </button>
+            {/if}
+
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              onclick={() => {
+                moreMenuOpen = false;
+                toggleTheme();
+              }}
+            >
+              <span>切换外观</span>
+              <span class="menu-hint">{resolvedTheme === 'dark' ? '深色' : '浅色'}</span>
+            </button>
+
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              onclick={() => {
+                moreMenuOpen = false;
+                helpOpen = true;
+              }}
+            >
+              <span>使用文档与快速开始</span>
+            </button>
+
+            {#if host.openConfigDir}
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  void host.openConfigDir?.();
+                }}
+              >
+                <span>打开配置目录</span>
+              </button>
+            {/if}
+
+            <button
+              type="button"
+              class="menu-item"
+              role="menuitem"
+              onclick={() => {
+                moreMenuOpen = false;
+                settingsOpen = true;
+              }}
+            >
+              <span>偏好设置</span>
+            </button>
+          </div>
         {/if}
-      </button>
-
-      <button
-        type="button"
-        class="icon-btn"
-        title="设置"
-        aria-label="设置"
-        onclick={() => (settingsOpen = true)}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-          <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.08a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.08a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-      </button>
+      </div>
 
       <button
         type="button"
         class="primary-cta"
         disabled={snapshot.isEmpty}
-        onclick={() => void handlePrimarySubmit()}
+        onclick={() => {
+          moreMenuOpen = false;
+          void handlePrimarySubmit();
+        }}
       >
         {host.primaryActionLabel}
       </button>
@@ -1171,6 +1237,17 @@
       }}
     />
   {/if}
+
+  {#if helpOpen}
+    <HelpModal
+      {configDir}
+      onOpenConfigDir={host.openConfigDir ? () => void host.openConfigDir?.() : undefined}
+      onClose={() => {
+        helpOpen = false;
+        canvasRef?.focus();
+      }}
+    />
+  {/if}
 </div>
 
 <style>
@@ -1276,20 +1353,78 @@
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 4px;
+    flex-shrink: 0;
   }
 
-  .toolbar-sep {
-    width: 1px;
-    height: 16px;
-    background: var(--ms-border);
-    margin: 0 4px;
+  .more-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .more-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 186px;
+    padding: 5px;
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 45;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 7px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ms-fg);
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .menu-item:hover:not(:disabled) {
+    background: var(--ms-surface-muted);
+  }
+
+  .menu-item:disabled {
+    opacity: 0.36;
+    cursor: default;
+  }
+
+  .menu-hint {
+    font-family: var(--ms-font-mono);
+    font-size: 11px;
+    color: var(--ms-fg-muted);
+  }
+
+  .menu-hint.on {
+    color: var(--ms-accent);
+    font-weight: 600;
+  }
+
+  .menu-sep {
+    height: 1px;
+    background: var(--ms-border-subtle);
+    margin: 3px 6px;
   }
 
   .text-btn {
-    height: 28px;
-    padding: 0 9px;
-    margin: 0 2px;
+    height: 30px;
+    padding: 0 10px;
     border: 1px solid var(--ms-border);
     border-radius: 7px;
     background: var(--ms-surface);
@@ -1297,6 +1432,8 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
     transition: border-color 80ms ease, color 80ms ease, background-color 80ms ease;
   }
 
@@ -1307,8 +1444,10 @@
   }
 
   .icon-btn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;

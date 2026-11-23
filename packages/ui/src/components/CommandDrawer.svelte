@@ -171,9 +171,14 @@
     searchInputEl?.focus();
   });
 
+  const presetLatexCache = new Map<string, string>();
   function presetLatex(source: string): string {
+    const cached = presetLatexCache.get(source);
+    if (cached !== undefined) return cached;
     const res = importFormula(source);
-    return toLatex(res.doc);
+    const out = toLatex(res.doc);
+    presetLatexCache.set(source, out);
+    return out;
   }
 
   function commitRename(id: string): void {
@@ -608,7 +613,6 @@
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.36);
-    backdrop-filter: blur(4px);
     display: flex;
     align-items: flex-start;
     justify-content: center;

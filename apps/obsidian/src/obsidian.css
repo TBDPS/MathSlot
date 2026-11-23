@@ -1,21 +1,45 @@
 .mathslot-obsidian-modal {
-  width: min(860px, 92vw);
-  max-width: 92vw;
-  height: min(560px, 82vh);
+  width: min(1060px, 94vw) !important;
+  max-width: 94vw !important;
+  height: min(720px, 88vh) !important;
+  max-height: 90vh !important;
   padding: 0 !important;
-  overflow: hidden;
-  border-radius: 14px;
+  overflow: hidden !important;
+  border-radius: 14px !important;
 }
 
 .mathslot-obsidian-modal .modal-close-button {
-  display: none;
+  display: none !important;
 }
 
 .mathslot-obsidian-content {
-  width: 100%;
-  height: 100%;
+  width: 100% !important;
+  height: 100% !important;
   padding: 0 !important;
   margin: 0 !important;
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+/* Shield MathSlot controls from Obsidian's global button / input / svg theme rules */
+.mathslot-obsidian-modal .ms-studio button {
+  margin: 0;
+  box-shadow: none;
+  min-width: 0;
+  line-height: 1.2;
+  letter-spacing: normal;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mathslot-obsidian-modal .ms-studio svg {
+  flex-shrink: 0;
+}
+
+.mathslot-obsidian-modal .ms-studio input[type='text'],
+.mathslot-obsidian-modal .ms-studio textarea,
+.mathslot-obsidian-modal .ms-studio select {
+  box-shadow: none;
+  margin: 0;
 }

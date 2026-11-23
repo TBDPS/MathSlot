@@ -40,10 +40,14 @@
   }: Props = $props();
 
   let stageEl: HTMLDivElement | null = $state(null);
+  let innerEl: HTMLDivElement | null = $state(null);
   let formulaEl: HTMLDivElement | null = $state(null);
   let inputEl: HTMLInputElement | null = $state(null);
   let isComposing = $state(false);
-  let scale = $state(1);
+  let autoScale = $state(1);
+  let userZoom = $state(1);
+  const scale = $derived(Math.max(0.55, Math.min(2.4, autoScale * userZoom)));
+  let rafId = 0;
 
   interface HierarchyBox {
     id: string;
@@ -84,53 +88,78 @@
     inputEl?.focus({ preventScroll: true });
   }
 
-  /**
-   * Computes the TRUE visual ink bounding rect of a KaTeX subtree, ignoring
-   * KaTeX's hidden `.pstrut` / `.strut` vertical-alignment spacers and inline-span
-   * 1em baseline clipping so tall fractions, integrals, and nested brackets get
-   * crisp, pixel-accurate rectangular boxes!
-   */
-  function getTrueVisualRect(el: HTMLElement): DOMRect | null {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
+  interface BoxBounds {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  }
 
-    const includeRect = (r: DOMRect) => {
+  function mergeBounds(map: Map<HTMLElement, BoxBounds>, key: HTMLElement, r: DOMRect): void {
+    if (r.width <= 0.5 && r.height <= 0.5) return;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, { minX: r.left, minY: r.top, maxX: r.right, maxY: r.bottom });
+    } else {
+      if (r.left < prev.minX) prev.minX = r.left;
+      if (r.top < prev.minY) prev.minY = r.top;
+      if (r.right > prev.maxX) prev.maxX = r.right;
+      if (r.bottom > prev.maxY) prev.maxY = r.bottom;
+    }
+  }
+
+  /**
+   * Single-pass O(N) visual ink measurement across the entire KaTeX subtree:
+   * walks text nodes and drawn lines ONCE, then rolls up tight bounds to every
+   * ancestor `[data-struct-id]` and `[data-slot-id]` (avoiding O(depth * N) reflows!).
+   */
+  function buildVisualRectMap(root: HTMLElement): Map<HTMLElement, DOMRect> {
+    const boundsMap = new Map<HTMLElement, BoxBounds>();
+    const propagate = (startEl: HTMLElement | null, r: DOMRect) => {
       if (r.width <= 0.5 && r.height <= 0.5) return;
-      if (r.left < minX) minX = r.left;
-      if (r.top < minY) minY = r.top;
-      if (r.right > maxX) maxX = r.right;
-      if (r.bottom > maxY) maxY = r.bottom;
+      let cur = startEl;
+      while (cur && cur !== root) {
+        if (cur.hasAttribute('data-struct-id') || cur.hasAttribute('data-slot-id')) {
+          mergeBounds(boundsMap, cur, r);
+        }
+        cur = cur.parentElement;
+      }
     };
 
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
     let node: Node | null;
     while ((node = walker.nextNode())) {
       if (!node.nodeValue || !node.nodeValue.trim()) continue;
       const parentEl = node.parentElement;
-      if (parentEl?.closest('.ms-caret-anchor, .ms-empty-root')) continue;
+      if (!parentEl || parentEl.closest('.ms-caret-anchor, .ms-empty-root')) continue;
       range.selectNodeContents(node);
-      includeRect(range.getBoundingClientRect());
+      propagate(parentEl, range.getBoundingClientRect());
     }
 
-    const drawn = el.querySelectorAll(
+    const drawn = root.querySelectorAll(
       'svg, .frac-line, .overline-line, .underline-line, .hline, .ms-empty-box, .ms-space-active',
     );
     for (const d of drawn) {
-      includeRect(d.getBoundingClientRect());
+      propagate(d as HTMLElement, d.getBoundingClientRect());
     }
 
-    if (!Number.isFinite(minX)) {
-      const fallback = el.getBoundingClientRect();
-      return fallback.width > 0.5 || fallback.height > 0.5 ? fallback : null;
+    const out = new Map<HTMLElement, DOMRect>();
+    for (const [el, b] of boundsMap) {
+      out.set(el, new DOMRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY));
     }
-    return new DOMRect(minX, minY, maxX - minX, maxY - minY);
+    return out;
+  }
+
+  function getTrueVisualRect(el: HTMLElement, rectMap?: Map<HTMLElement, DOMRect>): DOMRect | null {
+    const cached = rectMap?.get(el);
+    if (cached) return cached;
+    const fallback = el.getBoundingClientRect();
+    return fallback.width > 0.5 || fallback.height > 0.5 ? fallback : null;
   }
 
   function measureOverlays(): void {
-    if (!stageEl || !formulaEl || snapshot.isEmpty) {
+    if (!stageEl || !innerEl || !formulaEl || snapshot.isEmpty) {
       hierarchyBoxes = [];
       activeSlotBox = null;
       activeGridPos = null;
@@ -139,7 +168,8 @@
       return;
     }
 
-    const stageRect = stageEl.getBoundingClientRect();
+    const stageRect = innerEl.getBoundingClientRect();
+    const rectMap = buildVisualRectMap(formulaEl);
 
     // Determine active ancestor struct chain & active slot label from AST
     const activePath = findSlotPath(snapshot.doc.root, snapshot.cursor.slotId);
@@ -167,7 +197,7 @@
         if (boxFlag === '0' && !isAncestor) continue;
         const depth = Number(htmlEl.getAttribute('data-struct-depth') ?? '1');
         const subtreeHeight = Number(htmlEl.getAttribute('data-struct-height') ?? '0');
-        const r = getTrueVisualRect(htmlEl);
+        const r = getTrueVisualRect(htmlEl, rectMap);
         if (!r) continue;
 
         // Progressive nesting padding: outer containers strictly wrap inner dashed boxes without border overlap!
@@ -199,7 +229,7 @@
         `[data-slot-id="${CSS.escape(curEntry.slot.id)}"]`,
       ) as HTMLElement | null;
       if (slotEl) {
-        const r = getTrueVisualRect(slotEl);
+        const r = getTrueVisualRect(slotEl, rectMap);
         if (r) {
           const padX = 4;
           const padY = 3;
@@ -227,7 +257,7 @@
       const gridEl = formulaEl.querySelector(
         `[data-struct-id="${CSS.escape(snapshot.activeGrid.structId)}"]`,
       ) as HTMLElement | null;
-      const gr = gridEl ? getTrueVisualRect(gridEl) : null;
+      const gr = gridEl ? getTrueVisualRect(gridEl, rectMap) : null;
       if (gr) {
         activeGridPos = {
           left: Math.max(12, gr.left - stageRect.left + gr.width / 2),
@@ -245,7 +275,7 @@
       const scopeEl = formulaEl.querySelector(
         `[data-slot-id="${CSS.escape(snapshot.mode.scopeSlotId)}"]`,
       ) as HTMLElement | null;
-      const scopeRect = scopeEl ? getTrueVisualRect(scopeEl) ?? scopeEl.getBoundingClientRect() : null;
+      const scopeRect = scopeEl ? getTrueVisualRect(scopeEl, rectMap) ?? scopeEl.getBoundingClientRect() : null;
 
       if (snapshot.mode.scopePath.length > 0 && scopeRect) {
         jumpScopeBox = {
@@ -295,12 +325,12 @@
             r = new DOMRect(minX, minY, maxX - minX, maxY - minY);
           }
         } else {
-          const el = formulaEl.querySelector(
-            `[data-slot-id="${CSS.escape(target.slotId)}"]`,
-          ) as HTMLElement | null;
-          if (el) {
-            r = getTrueVisualRect(el) ?? el.getBoundingClientRect();
-          }
+            const el = formulaEl.querySelector(
+              `[data-slot-id="${CSS.escape(target.slotId)}"]`,
+            ) as HTMLElement | null;
+            if (el) {
+              r = getTrueVisualRect(el, rectMap) ?? el.getBoundingClientRect();
+            }
         }
 
         if (r) {
@@ -326,22 +356,46 @@
     }
   }
 
+  function adjustZoom(delta: number): void {
+    userZoom = Math.round(Math.max(0.6, Math.min(2.2, userZoom + delta)) * 100) / 100;
+  }
+
+  function resetZoom(): void {
+    userZoom = 1;
+  }
+
+  function handleStageWheel(e: WheelEvent): void {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    adjustZoom(e.deltaY < 0 ? 0.15 : -0.15);
+  }
+
   async function recomputeLayout(): Promise<void> {
     if (!stageEl || !formulaEl) return;
-    const stageWidth = stageEl.clientWidth - 88;
+    const stageWidth = stageEl.clientWidth - 72;
     const katexEl = formulaEl.querySelector('.katex') as HTMLElement | null;
-    let nextScale = 1;
+    let nextAuto = 1;
     if (katexEl && stageWidth > 120) {
-      const naturalWidth = katexEl.scrollWidth;
+      // Measure unscaled width cleanly; keep a readable floor (0.72) and allow smooth horizontal scroll for huge formulas!
+      const currentRatio = Math.max(0.55, scale);
+      const naturalWidth = katexEl.scrollWidth / currentRatio;
       if (naturalWidth > stageWidth) {
-        nextScale = Math.max(0.46, stageWidth / naturalWidth);
+        nextAuto = Math.max(0.72, stageWidth / naturalWidth);
       }
     }
-    if (Math.abs(nextScale - scale) > 0.002) {
-      scale = nextScale;
+    if (Math.abs(nextAuto - autoScale) > 0.015) {
+      autoScale = nextAuto;
       await tick();
     }
     measureOverlays();
+  }
+
+  function scheduleLayout(): void {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      void recomputeLayout();
+    });
   }
 
   $effect(() => {
@@ -350,16 +404,20 @@
     void snapshot.cursor;
     void showHierarchyBoxes;
     void shiftedUp;
-    void tick().then(() => recomputeLayout());
+    void userZoom;
+    void tick().then(() => scheduleLayout());
   });
 
   onMount(() => {
     focus();
     const ro = new ResizeObserver(() => {
-      void recomputeLayout();
+      scheduleLayout();
     });
     if (stageEl) ro.observe(stageEl);
-    return () => ro.disconnect();
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
   });
 
   function hitTestPoint(clientX: number, target: HTMLElement | null): { slotId: string; offset: number; atomOffset?: number } | null {
@@ -468,6 +526,7 @@
   onmousedown={handleStageMouseDown}
   onmousemove={handleStageMouseMove}
   ondblclick={handleStageDblClick}
+  onwheel={handleStageWheel}
 >
   <input
     bind:this={inputEl}
@@ -487,105 +546,226 @@
     onblur={() => onFocusChange(false)}
   />
 
-  <!-- Always-visible pixel-accurate nested dashed hierarchy frames -->
-  <div class="hierarchy-layer" aria-hidden="true">
-    {#each hierarchyBoxes as box (box.id)}
-      <div
-        class={`h-box h-depth-${((box.depth - 1) % 4) + 1}`}
-        class:is-ancestor={box.isAncestor}
-        class:is-parent={box.isImmediateParent}
-        style:left={`${box.left}px`}
-        style:top={`${box.top}px`}
-        style:width={`${box.width}px`}
-        style:height={`${box.height}px`}
-      ></div>
-    {/each}
+  <div class="canvas-scroll">
+    <div class="canvas-inner" bind:this={innerEl}>
+      <!-- Always-visible pixel-accurate nested dashed hierarchy frames -->
+      <div class="hierarchy-layer" aria-hidden="true">
+        {#each hierarchyBoxes as box (box.id)}
+          <div
+            class={`h-box h-depth-${((box.depth - 1) % 4) + 1}`}
+            class:is-ancestor={box.isAncestor}
+            class:is-parent={box.isImmediateParent}
+            style:left={`${box.left}px`}
+            style:top={`${box.top}px`}
+            style:width={`${box.width}px`}
+            style:height={`${box.height}px`}
+          ></div>
+        {/each}
 
-    {#if jumpScopeBox}
-      <div
-        class="jump-scope-box"
-        style:left={`${jumpScopeBox.left}px`}
-        style:top={`${jumpScopeBox.top}px`}
-        style:width={`${jumpScopeBox.width}px`}
-        style:height={`${jumpScopeBox.height}px`}
-      ></div>
-    {/if}
+        {#if jumpScopeBox}
+          <div
+            class="jump-scope-box"
+            style:left={`${jumpScopeBox.left}px`}
+            style:top={`${jumpScopeBox.top}px`}
+            style:width={`${jumpScopeBox.width}px`}
+            style:height={`${jumpScopeBox.height}px`}
+          ></div>
+        {/if}
 
-    {#if activeSlotBox && snapshot.mode.kind !== 'jump'}
-      <div
-        class="active-slot-box"
-        style:left={`${activeSlotBox.left}px`}
-        style:top={`${activeSlotBox.top}px`}
-        style:width={`${activeSlotBox.width}px`}
-        style:height={`${activeSlotBox.height}px`}
-      >
-        {#if !snapshot.activeGrid}
-          <span class="active-slot-tag">{activeSlotBox.label}</span>
+        {#if activeSlotBox && snapshot.mode.kind !== 'jump'}
+          <div
+            class="active-slot-box"
+            style:left={`${activeSlotBox.left}px`}
+            style:top={`${activeSlotBox.top}px`}
+            style:width={`${activeSlotBox.width}px`}
+            style:height={`${activeSlotBox.height}px`}
+          >
+            {#if !snapshot.activeGrid}
+              <span class="active-slot-tag">{activeSlotBox.label}</span>
+            {/if}
+          </div>
         {/if}
       </div>
-    {/if}
-  </div>
 
-  <div class="formula-center" class:shifted={shiftedUp}>
-    <div
-      class="formula-render"
-      class:is-empty={snapshot.isEmpty}
-      style:transform={`scale(${scale})`}
-      bind:this={formulaEl}
-    >
-      {@html rendered.html}
-    </div>
-  </div>
+      <div class="formula-center" class:shifted={shiftedUp}>
+        <div
+          class="formula-render"
+          class:is-empty={snapshot.isEmpty}
+          style:font-size={`calc(clamp(1.65rem, 2.9vw, 2.3rem) * ${scale})`}
+          bind:this={formulaEl}
+        >
+          {@html rendered.html}
+        </div>
+      </div>
 
-  {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind === 'edit' && !shiftedUp}
-    <div
-      class="grid-controls"
-      style:left={`${activeGridPos.left}px`}
-      style:top={`${activeGridPos.top}px`}
-    >
-      <span class="grid-dim">
-        {snapshot.activeGrid.rows}×{snapshot.activeGrid.cols} · ({snapshot.activeGrid.row + 1},{snapshot.activeGrid.col + 1})
-      </span>
-      <button type="button" class="grid-btn" title="加一行（Shift+↓ 下方 / Shift+↑ 上方）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridRow?.()}>+行</button>
-      <button type="button" class="grid-btn" title="删除当前行" disabled={snapshot.activeGrid.rows <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridRow?.()}>−行</button>
-      {#if snapshot.activeGrid.canEditCols}
-        <button type="button" class="grid-btn" title="加一列（Shift+→ 右侧 / Shift+← 左侧）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridCol?.()}>+列</button>
-        <button type="button" class="grid-btn" title="删除当前列" disabled={snapshot.activeGrid.cols <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridCol?.()}>−列</button>
+      {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind === 'edit' && !shiftedUp}
+        <div
+          class="grid-controls"
+          style:left={`${activeGridPos.left}px`}
+          style:top={`${activeGridPos.top}px`}
+        >
+          <span class="grid-dim">
+            {snapshot.activeGrid.rows}×{snapshot.activeGrid.cols} · ({snapshot.activeGrid.row + 1},{snapshot.activeGrid.col + 1})
+          </span>
+          <button type="button" class="grid-btn" title="加一行（Shift+↓ 下方 / Shift+↑ 上方）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridRow?.()}>+行</button>
+          <button type="button" class="grid-btn" title="删除当前行" disabled={snapshot.activeGrid.rows <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridRow?.()}>−行</button>
+          {#if snapshot.activeGrid.canEditCols}
+            <button type="button" class="grid-btn" title="加一列（Shift+→ 右侧 / Shift+← 左侧）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridCol?.()}>+列</button>
+            <button type="button" class="grid-btn" title="删除当前列" disabled={snapshot.activeGrid.cols <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridCol?.()}>−列</button>
+          {/if}
+        </div>
+      {/if}
+
+      {#if snapshot.mode.kind === 'jump'}
+        {#each jumpPositions as jp (`${jp.label}-${jp.slotId}-${jp.offset}`)}
+          <button
+            type="button"
+            class="jump-badge"
+            class:is-composite={jp.isComposite}
+            class:is-active={jp.isActive}
+            title={jp.isComposite ? `${jp.slotLabel}（展开子层级）` : jp.slotLabel}
+            style:left={`${jp.left}px`}
+            style:top={`${jp.top}px`}
+            onclick={() => onJumpTarget(jp.label)}
+          >
+            {jp.isComposite ? `${jp.label}+` : jp.label}
+          </button>
+        {/each}
       {/if}
     </div>
-  {/if}
+  </div>
 
-  {#if snapshot.mode.kind === 'jump'}
-    {#each jumpPositions as jp (`${jp.label}-${jp.slotId}-${jp.offset}`)}
-      <button
-        type="button"
-        class="jump-badge"
-        class:is-composite={jp.isComposite}
-        class:is-active={jp.isActive}
-        title={jp.isComposite ? `${jp.slotLabel}（展开子层级）` : jp.slotLabel}
-        style:left={`${jp.left}px`}
-        style:top={`${jp.top}px`}
-        onclick={() => onJumpTarget(jp.label)}
-      >
-        {jp.isComposite ? `${jp.label}+` : jp.label}
-      </button>
-    {/each}
-  {/if}
+  <!-- Crisp floating zoom controls (also supports Ctrl+Wheel) -->
+  <div class="zoom-controls" aria-label="画布缩放">
+    <button
+      type="button"
+      class="zoom-btn"
+      title="缩小 (Ctrl+滚轮)"
+      aria-label="缩小"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => adjustZoom(-0.15)}
+    >
+      −
+    </button>
+    <button
+      type="button"
+      class="zoom-val"
+      title="重置缩放至 100%"
+      aria-label="重置缩放"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={resetZoom}
+    >
+      {Math.round(scale * 100)}%
+    </button>
+    <button
+      type="button"
+      class="zoom-btn"
+      title="放大 (Ctrl+滚轮)"
+      aria-label="放大"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={() => adjustZoom(0.15)}
+    >
+      +
+    </button>
+  </div>
 </div>
 
 <style>
   .canvas-stage {
     position: relative;
     flex: 1 1 auto;
-    min-height: 260px;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    contain: layout style;
+    cursor: text;
+    user-select: none;
+  }
+
+  .canvas-scroll {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    display: flex;
+  }
+
+  .canvas-inner {
+    position: relative;
+    margin: auto;
+    width: max-content;
+    min-width: 100%;
+    min-height: 100%;
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
-    cursor: text;
-    user-select: none;
-    padding: 36px 28px;
+    padding: 36px 32px;
+    box-sizing: border-box;
+  }
+
+  .zoom-controls {
+    position: absolute;
+    right: 14px;
+    bottom: 10px;
+    z-index: 15;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px;
+    border-radius: 999px;
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-sm);
+    opacity: 0.78;
+    transition: opacity 100ms ease;
+  }
+
+  .zoom-controls:hover {
+    opacity: 1;
+  }
+
+  .zoom-btn {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ms-fg-muted);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .zoom-btn:hover {
+    background: var(--ms-surface-muted);
+    color: var(--ms-fg);
+  }
+
+  .zoom-val {
+    min-width: 38px;
+    height: 22px;
+    padding: 0 4px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ms-fg-muted);
+    font-family: var(--ms-font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .zoom-val:hover {
+    color: var(--ms-accent);
   }
 
   .hidden-capture {
@@ -682,7 +862,6 @@
     align-items: center;
     justify-content: center;
     gap: 10px;
-    max-width: 100%;
     min-height: 92px;
   }
 
@@ -691,10 +870,9 @@
   }
 
   .formula-render {
-    font-size: clamp(1.75rem, 3.2vw, 2.45rem);
     line-height: 1.5;
-    transform-origin: center center;
     color: var(--ms-fg);
+    white-space: nowrap;
   }
 
   .jump-scope-box {
