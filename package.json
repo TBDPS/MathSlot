@@ -1,0 +1,30 @@
+{
+  "name": "mathslot",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@mathslot/desktop",
+    "test": "npm run test --workspace=@mathslot/core && npm run check --workspace=@mathslot/desktop",
+    "test:core": "npm run test --workspace=@mathslot/core",
+    "build": "npm run build --workspace=@mathslot/desktop && npm run build --workspace=@mathslot/obsidian",
+    "build:desktop": "npm run build --workspace=@mathslot/desktop",
+    "build:obsidian": "npm run build --workspace=@mathslot/obsidian",
+    "build:rpm": "npm run build:rpm --workspace=@mathslot/desktop"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/katex": "^0.16.7",
+    "@types/node": "^26.6.6",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}

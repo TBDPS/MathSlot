@@ -1,0 +1,20 @@
+{
+  "name": "@mathslot/ui",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./styles.css": "./src/styles/tokens.css"
+  },
+  "dependencies": {
+    "@mathslot/core": "*",
+    "katex": "^0.16.21"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  }
+}

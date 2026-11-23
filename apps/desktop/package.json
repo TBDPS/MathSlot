@@ -1,0 +1,20 @@
+{
+  "name": "@mathslot/desktop",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:rpm": "tauri build --bundles rpm",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@mathslot/core": "*",
+    "@mathslot/ui": "*",
+    "@tauri-apps/api": "^2.10.1",
+    "katex": "^0.16.21",
+    "svelte": "^5.57.3"
+  }
+}
