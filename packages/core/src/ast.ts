@@ -3,7 +3,9 @@ import type {
   BreadcrumbItem,
   CharNode,
   CommandDef,
+  CustomCommandDef,
   Document,
+  GridMeta,
   JumpTarget,
   MathNode,
   RawNode,
@@ -88,6 +90,7 @@ export function cloneNode(node: MathNode): MathNode {
         slots: node.slots.map((s) => cloneSlot(s)),
         customLatex: node.customLatex,
         fillOrder: node.fillOrder ? [...node.fillOrder] : undefined,
+        grid: node.grid ? { ...node.grid } : undefined,
       };
   }
 }
@@ -160,15 +163,47 @@ export function findSlot(root: SlotNode, slotId: string): SlotNode | null {
   return path ? path[path.length - 1].slot : null;
 }
 
-export function getBreadcrumbs(root: SlotNode, slotId: string): BreadcrumbItem[] {
+const BUILTIN_GRID_META: Readonly<Record<string, GridMeta>> = {
+  matrix_2x2: { env: 'pmatrix', rows: 2, cols: 2 },
+  matrix_3x3: { env: 'pmatrix', rows: 3, cols: 3 },
+  bmatrix_2x2: { env: 'bmatrix', rows: 2, cols: 2 },
+  bmatrix_3x3: { env: 'bmatrix', rows: 3, cols: 3 },
+  det_2x2: { env: 'vmatrix', rows: 2, cols: 2 },
+  det_3x3: { env: 'vmatrix', rows: 3, cols: 3 },
+  cases_2: { env: 'cases', rows: 2, cols: 2 },
+  cases_3: { env: 'cases', rows: 3, cols: 2 },
+};
+
+export function getGridMeta(node: StructNode): GridMeta | null {
+  if (node.grid) return node.grid;
+  return BUILTIN_GRID_META[node.commandId] ?? null;
+}
+
+export function getBreadcrumbs(
+  root: SlotNode,
+  slotId: string,
+  customCommands: readonly CustomCommandDef[] = [],
+): BreadcrumbItem[] {
   const path = findSlotPath(root, slotId);
   if (!path || path.length <= 1) return [];
   const items: BreadcrumbItem[] = [];
   for (let i = 1; i < path.length; i += 1) {
     const entry = path[i];
-    const cmd = entry.parentStruct ? COMMANDS_BY_ID.get(entry.parentStruct.commandId) : undefined;
+    const cmdId = entry.parentStruct?.commandId;
+    const cmd = cmdId ? COMMANDS_BY_ID.get(cmdId) : undefined;
+    const custom = !cmd && cmdId ? customCommands.find((c) => c.id === cmdId) : undefined;
+    const grid = entry.parentStruct ? getGridMeta(entry.parentStruct) : null;
+    const commandLabel =
+      (entry.parentStruct?.grid
+        ? entry.parentStruct.grid.env === 'cases'
+          ? '分段函数'
+          : `${entry.parentStruct.grid.rows}×${entry.parentStruct.grid.cols} 矩阵`
+        : undefined) ??
+      cmd?.label ??
+      custom?.label ??
+      (grid ? (grid.env === 'cases' ? '分段函数' : `${grid.rows}×${grid.cols} 矩阵`) : '结构');
     items.push({
-      commandLabel: cmd?.label ?? '结构',
+      commandLabel,
       slotLabel: entry.slot.label,
       slotId: entry.slot.id,
     });

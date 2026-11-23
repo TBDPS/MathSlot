@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -18,9 +19,25 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn copy_image_to_clipboard(rgba: Vec<u8>, width: usize, height: usize) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    let img = arboard::ImageData {
+        width,
+        height,
+        bytes: Cow::Owned(rgba),
+    };
+    clipboard.set_image(img).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn read_from_clipboard() -> Result<String, String> {
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.get_text().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_always_on_top(window: tauri::WebviewWindow, pinned: bool) -> Result<(), String> {
+    window.set_always_on_top(pinned).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -45,7 +62,9 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             copy_to_clipboard,
+            copy_image_to_clipboard,
             read_from_clipboard,
+            set_always_on_top,
             load_store,
             save_store
         ])

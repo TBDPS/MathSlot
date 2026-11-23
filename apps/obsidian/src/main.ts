@@ -1,10 +1,81 @@
 import 'katex/dist/katex.min.css';
 import '@mathslot/ui/styles.css';
 import './obsidian.css';
-import { Plugin, type Editor } from 'obsidian';
+import { Plugin, type Editor, type EditorPosition } from 'obsidian';
 import type { PersistedStore } from '@mathslot/ui';
 import type { DelimiterStyle } from '@mathslot/core';
 import { MathSlotModal } from './MathSlotModal';
+
+interface DetectedFormula {
+  raw: string;
+  delimiter: DelimiterStyle;
+  from: EditorPosition;
+  to: EditorPosition;
+}
+
+/**
+ * Automatically detects an enclosing `$...$` (inline) or `$$...$$` (single/multi-line block)
+ * formula around the Obsidian editor cursor so users can edit existing equations in-place!
+ */
+function detectFormulaAtCursor(editor: Editor): DetectedFormula | null {
+  const cursor = editor.getCursor();
+  const lineText = editor.getLine(cursor.line);
+
+  // 1. Check inline `$...$` or single-line `$$...$$` on the current line
+  const regex = /(\$\$[\s\S]*?\$\$|\$(?!\$)(?:\\\$|[^$\n])+\$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(lineText)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (cursor.ch >= start && cursor.ch <= end) {
+      const isBlock = match[0].startsWith('$$');
+      return {
+        raw: match[0],
+        delimiter: isBlock ? 'block' : 'inline',
+        from: { line: cursor.line, ch: start },
+        to: { line: cursor.line, ch: end },
+      };
+    }
+  }
+
+  // 2. Check multi-line `$$ ... $$` block surrounding cursor.line (scan up to 30 lines up/down)
+  const totalLines = editor.lineCount();
+  const minLine = Math.max(0, cursor.line - 30);
+  const maxLine = Math.min(totalLines - 1, cursor.line + 30);
+  let openLine = -1;
+  for (let l = cursor.line; l >= minLine; l -= 1) {
+    if (editor.getLine(l).trim().startsWith('$$')) {
+      if (l < cursor.line && editor.getLine(l).trim() === '$$' && l > minLine) {
+        // Could be opening fence
+      }
+      openLine = l;
+      break;
+    }
+  }
+  if (openLine >= 0) {
+    let closeLine = -1;
+    for (let l = Math.max(openLine + 1, cursor.line); l <= maxLine; l += 1) {
+      if (editor.getLine(l).trim().endsWith('$$')) {
+        closeLine = l;
+        break;
+      }
+    }
+    if (closeLine > openLine && cursor.line >= openLine && cursor.line <= closeLine) {
+      const lines: string[] = [];
+      for (let l = openLine; l <= closeLine; l += 1) {
+        lines.push(editor.getLine(l));
+      }
+      return {
+        raw: lines.join('\n'),
+        delimiter: 'block',
+        from: { line: openLine, ch: 0 },
+        to: { line: closeLine, ch: editor.getLine(closeLine).length },
+      };
+    }
+  }
+
+  return null;
+}
 
 export default class MathSlotPlugin extends Plugin {
   async onload(): Promise<void> {
@@ -15,7 +86,7 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'open-mathslot-editor',
-      name: '打开公式编辑器',
+      name: '打开公式编辑器（自动识别光标处公式）',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor);
       },
@@ -32,16 +103,20 @@ export default class MathSlotPlugin extends Plugin {
 
   private openEditor(editor?: Editor, forceDelimiter?: DelimiterStyle): void {
     const selected = editor?.getSelection()?.trim() ?? '';
+    const detected = !selected && editor ? detectFormulaAtCursor(editor) : null;
+
     const modal = new MathSlotModal(this.app, {
       editor,
-      initialFormula: selected || undefined,
-      forceDelimiter,
+      initialFormula: selected || detected?.raw || undefined,
+      replaceRange: detected ? { from: detected.from, to: detected.to } : undefined,
+      forceDelimiter: forceDelimiter ?? detected?.delimiter,
       loadStore: async () => {
         const data = (await this.loadData()) as Partial<PersistedStore> | null;
         return {
           settings: data?.settings ?? {},
           snippets: Array.isArray(data?.snippets) ? data.snippets : [],
           customCommands: Array.isArray(data?.customCommands) ? data.customCommands : [],
+          history: Array.isArray(data?.history) ? data.history : [],
         };
       },
       saveStore: async (store: PersistedStore) => {

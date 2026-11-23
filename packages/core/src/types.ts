@@ -51,6 +51,12 @@ export interface SymbolNode {
   glyph: string;
 }
 
+export interface GridMeta {
+  env: string;
+  rows: number;
+  cols: number;
+}
+
 export interface StructNode {
   type: 'struct';
   id: string;
@@ -62,6 +68,8 @@ export interface StructNode {
   fillOrder?: number[];
   /** Auto-sized delimiter inserted from keyboard `(`, `[`, `{`: emits plain `(x)` when flat and `\left(...\right)` when tall */
   autoSized?: boolean;
+  /** Optional dynamic matrix / cases grid dimensions */
+  grid?: GridMeta;
 }
 
 export interface RawNode {
@@ -151,7 +159,25 @@ export interface Snippet {
   id: string;
   name: string;
   latex: string;
+  /** Optional single key under `Tab t <key>` for instant keyboard insertion */
+  key?: string;
   createdAt: number;
+}
+
+export interface HistoryFormula {
+  id: string;
+  latex: string;
+  timestamp: number;
+}
+
+export interface ActiveGridInfo {
+  structId: string;
+  env: string;
+  rows: number;
+  cols: number;
+  row: number;
+  col: number;
+  canEditCols: boolean;
 }
 
 export interface CustomCommandDef {
@@ -190,6 +216,7 @@ export interface EditorSnapshot {
   latex: string;
   interactiveLatex: string;
   breadcrumbs: BreadcrumbItem[];
+  activeGrid: ActiveGridInfo | null;
   emptySlotCount: number;
   canUndo: boolean;
   canRedo: boolean;

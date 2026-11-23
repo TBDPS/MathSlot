@@ -11,8 +11,14 @@
     onTextInput: (text: string) => void;
     onPaste: (text: string) => void;
     onClickSlot: (slotId: string, offset: number) => void;
+    onDragSelect?: (slotId: string, anchorOffset: number, focusOffset: number) => void;
+    onDoubleClickAtom?: (slotId: string, offset: number) => void;
     onJumpTarget: (label: string) => void;
     onFocusChange: (focused: boolean) => void;
+    onAddGridRow?: () => void;
+    onRemoveGridRow?: () => void;
+    onAddGridCol?: () => void;
+    onRemoveGridCol?: () => void;
   }
 
   let {
@@ -23,8 +29,14 @@
     onTextInput,
     onPaste,
     onClickSlot,
+    onDragSelect,
+    onDoubleClickAtom,
     onJumpTarget,
     onFocusChange,
+    onAddGridRow,
+    onRemoveGridRow,
+    onAddGridCol,
+    onRemoveGridCol,
   }: Props = $props();
 
   let stageEl: HTMLDivElement | null = $state(null);
@@ -61,8 +73,10 @@
 
   let hierarchyBoxes = $state<HierarchyBox[]>([]);
   let activeSlotBox = $state<ActiveSlotBox | null>(null);
+  let activeGridPos = $state<{ left: number; top: number } | null>(null);
   let jumpScopeBox = $state<{ left: number; top: number; width: number; height: number } | null>(null);
   let jumpPositions = $state<PositionedJump[]>([]);
+  let dragAnchor = $state<{ slotId: string; offset: number } | null>(null);
 
   const rendered = $derived(renderLatexInteractive(snapshot.interactiveLatex));
 
@@ -119,6 +133,7 @@
     if (!stageEl || !formulaEl || snapshot.isEmpty) {
       hierarchyBoxes = [];
       activeSlotBox = null;
+      activeGridPos = null;
       jumpScopeBox = null;
       jumpPositions = [];
       return;
@@ -205,6 +220,24 @@
       }
     } else {
       activeSlotBox = null;
+    }
+
+    // 2.5 Floating mini grid controls beside active matrix / cases
+    if (snapshot.activeGrid && snapshot.mode.kind !== 'jump') {
+      const gridEl = formulaEl.querySelector(
+        `[data-struct-id="${CSS.escape(snapshot.activeGrid.structId)}"]`,
+      ) as HTMLElement | null;
+      const gr = gridEl ? getTrueVisualRect(gridEl) : null;
+      if (gr) {
+        activeGridPos = {
+          left: Math.max(12, gr.left - stageRect.left + gr.width / 2),
+          top: Math.min(stageRect.height - 34, gr.bottom - stageRect.top + 10),
+        };
+      } else {
+        activeGridPos = null;
+      }
+    } else {
+      activeGridPos = null;
     }
 
     // 3. Hierarchical jump badges when in Esc jump mode (including plain text terms like `+ 42 +`!)
@@ -329,16 +362,8 @@
     return () => ro.disconnect();
   });
 
-  function handleStageMouseDown(e: MouseEvent): void {
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('button')) return;
-
-    e.preventDefault();
-    focus();
-
-    if (!target || !formulaEl) return;
-
-    // 1. Direct click on a rendered math atom -> exact before/after offset
+  function hitTestPoint(clientX: number, target: HTMLElement | null): { slotId: string; offset: number; atomOffset?: number } | null {
+    if (!target || !formulaEl) return null;
     const atomEl = target.closest('[data-atom-slot]') as HTMLElement | null;
     if (atomEl && formulaEl.contains(atomEl)) {
       const slotId = atomEl.getAttribute('data-atom-slot');
@@ -349,24 +374,53 @@
         const span = spanStr ? Math.max(1, Number(spanStr)) : 1;
         const rect = atomEl.getBoundingClientRect();
         const midX = rect.left + rect.width / 2;
-        onClickSlot(slotId, e.clientX >= midX ? offset + span : offset);
-        return;
+        return { slotId, offset: clientX >= midX ? offset + span : offset, atomOffset: offset };
       }
     }
-
-    // 2. Direct click on an empty or container slot
     const slotEl = target.closest('[data-slot-id]') as HTMLElement | null;
     if (slotEl && formulaEl.contains(slotEl)) {
       const slotId = slotEl.getAttribute('data-slot-id');
       if (slotId) {
         const rect = slotEl.getBoundingClientRect();
-        onClickSlot(slotId, e.clientX >= rect.left + rect.width / 2 ? 99999 : 0);
-        return;
+        return { slotId, offset: clientX >= rect.left + rect.width / 2 ? 99999 : 0 };
       }
     }
+    return { slotId: snapshot.doc.root.id, offset: snapshot.doc.root.children.length };
+  }
 
-    // 3. Click on empty paper area -> place caret at end of root
-    onClickSlot(snapshot.doc.root.id, snapshot.doc.root.children.length);
+  function handleStageMouseDown(e: MouseEvent): void {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button')) return;
+
+    e.preventDefault();
+    focus();
+
+    const hit = hitTestPoint(e.clientX, target);
+    if (!hit) return;
+    dragAnchor = { slotId: hit.slotId, offset: hit.offset };
+    onClickSlot(hit.slotId, hit.offset);
+  }
+
+  function handleStageMouseMove(e: MouseEvent): void {
+    if (!dragAnchor || !(e.buttons & 1) || !onDragSelect) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+    const hit = hitTestPoint(e.clientX, el);
+    if (hit && hit.slotId === dragAnchor.slotId && hit.offset !== dragAnchor.offset) {
+      onDragSelect(dragAnchor.slotId, dragAnchor.offset, hit.offset);
+    }
+  }
+
+  function handleStageMouseUp(): void {
+    dragAnchor = null;
+  }
+
+  function handleStageDblClick(e: MouseEvent): void {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button') || !onDoubleClickAtom) return;
+    const hit = hitTestPoint(e.clientX, target);
+    if (hit && hit.atomOffset !== undefined) {
+      onDoubleClickAtom(hit.slotId, hit.atomOffset);
+    }
   }
 
   function handleInputKeyDown(e: KeyboardEvent): void {
@@ -405,8 +459,16 @@
   }
 </script>
 
+<svelte:window onmouseup={handleStageMouseUp} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="canvas-stage" bind:this={stageEl} onmousedown={handleStageMouseDown}>
+<div
+  class="canvas-stage"
+  bind:this={stageEl}
+  onmousedown={handleStageMouseDown}
+  onmousemove={handleStageMouseMove}
+  ondblclick={handleStageDblClick}
+>
   <input
     bind:this={inputEl}
     class="hidden-capture"
@@ -457,7 +519,9 @@
         style:width={`${activeSlotBox.width}px`}
         style:height={`${activeSlotBox.height}px`}
       >
-        <span class="active-slot-tag">{activeSlotBox.label}</span>
+        {#if !snapshot.activeGrid}
+          <span class="active-slot-tag">{activeSlotBox.label}</span>
+        {/if}
       </div>
     {/if}
   </div>
@@ -472,6 +536,24 @@
       {@html rendered.html}
     </div>
   </div>
+
+  {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind !== 'jump'}
+    <div
+      class="grid-controls"
+      style:left={`${activeGridPos.left}px`}
+      style:top={`${activeGridPos.top}px`}
+    >
+      <span class="grid-dim">
+        {snapshot.activeGrid.rows}×{snapshot.activeGrid.cols} · ({snapshot.activeGrid.row + 1},{snapshot.activeGrid.col + 1})
+      </span>
+      <button type="button" class="grid-btn" title="下方加一行 (Alt+Enter)" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridRow?.()}>+行</button>
+      <button type="button" class="grid-btn" title="删除当前行" disabled={snapshot.activeGrid.rows <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridRow?.()}>−行</button>
+      {#if snapshot.activeGrid.canEditCols}
+        <button type="button" class="grid-btn" title="右侧加一列 (Alt+Shift+Enter)" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridCol?.()}>+列</button>
+        <button type="button" class="grid-btn" title="删除当前列" disabled={snapshot.activeGrid.cols <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridCol?.()}>−列</button>
+      {/if}
+    </div>
+  {/if}
 
   {#if snapshot.mode.kind === 'jump'}
     {#each jumpPositions as jp (`${jp.label}-${jp.slotId}-${jp.offset}`)}
@@ -622,6 +704,50 @@
     border: 2px solid var(--ms-jump-border);
     background: color-mix(in srgb, var(--ms-jump-bg) 35%, transparent);
     box-sizing: border-box;
+  }
+
+  .grid-controls {
+    position: absolute;
+    z-index: 22;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-sm);
+  }
+
+  .grid-dim {
+    font-family: var(--ms-font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--ms-fg-muted);
+    padding: 0 4px;
+  }
+
+  .grid-btn {
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--ms-border-subtle);
+    border-radius: 999px;
+    background: var(--ms-tile);
+    color: var(--ms-fg);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .grid-btn:hover:not(:disabled) {
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
+    background: var(--ms-accent-soft);
+  }
+
+  .grid-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 
   .jump-badge {

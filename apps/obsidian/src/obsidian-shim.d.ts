@@ -1,4 +1,9 @@
 declare module 'obsidian' {
+  export interface EditorPosition {
+    line: number;
+    ch: number;
+  }
+
   export class App {
     workspace: {
       activeEditor?: {
@@ -10,6 +15,10 @@ declare module 'obsidian' {
   export interface Editor {
     getSelection(): string;
     replaceSelection(replacement: string): void;
+    getCursor(): EditorPosition;
+    getLine(line: number): string;
+    lineCount(): number;
+    replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition): void;
   }
 
   export class Modal {

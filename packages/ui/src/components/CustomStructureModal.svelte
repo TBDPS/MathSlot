@@ -6,11 +6,12 @@
   interface Props {
     leaderKey: LeaderKey;
     editing?: CustomCommandDef | null;
+    existingCommands?: CustomCommandDef[];
     onSave: (cmd: CustomCommandDef) => void;
     onClose: () => void;
   }
 
-  let { leaderKey, editing = null, onSave, onClose }: Props = $props();
+  let { leaderKey, editing = null, existingCommands = [], onSave, onClose }: Props = $props();
 
   let label = $state('');
   let latex = $state('');
@@ -37,6 +38,14 @@
     return Array.from({ length: detectedSlotCount }, (_, i) => customNames[i] ?? `槽位 ${i + 1}`);
   });
 
+  const keyConflict = $derived.by(() => {
+    const cleanKey = key.trim().slice(0, 1);
+    if (!cleanKey) return null;
+    return (
+      existingCommands.find((c) => c.key === cleanKey && c.id !== editing?.id) ?? null
+    );
+  });
+
   onMount(() => {
     if (editing) {
       label = editing.label;
@@ -51,7 +60,7 @@
   function submit(): void {
     const cleanLabel = label.trim();
     const cleanLatex = latex.trim();
-    if (!cleanLabel || !cleanLatex) return;
+    if (!cleanLabel || !cleanLatex || keyConflict) return;
     const cleanKey = key.trim().slice(0, 1);
     const cleanShort = shorthand.trim();
     onSave({
@@ -125,6 +134,9 @@
           maxlength="1"
           placeholder="可选单键，如 e"
         />
+        {#if keyConflict}
+          <span class="warn-text">与「{keyConflict.label}」冲突</span>
+        {/if}
       </label>
 
       <label class="field">
@@ -143,7 +155,7 @@
       <button
         type="button"
         class="btn-primary"
-        disabled={!label.trim() || !latex.trim()}
+        disabled={!label.trim() || !latex.trim() || Boolean(keyConflict)}
         onclick={submit}
       >
         保存结构
@@ -223,6 +235,11 @@
 
   .field input:focus {
     border-color: var(--ms-accent);
+  }
+
+  .warn-text {
+    font-size: 11px;
+    color: var(--ms-danger);
   }
 
   .two-col {

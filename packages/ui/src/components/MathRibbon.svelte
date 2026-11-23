@@ -8,20 +8,24 @@
     type CommandDef,
     type CustomCommandDef,
     type LeaderKey,
+    type Snippet,
   } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
 
-  type RibbonCategory = CommandCategory | 'custom';
+  type RibbonCategory = CommandCategory | 'custom' | 'snippets';
 
   interface Props {
     leaderKey: LeaderKey;
     leaderActive?: boolean;
     leaderPrefix?: string;
     customCommands?: CustomCommandDef[];
+    snippets?: Snippet[];
     onInsertCommand: (commandId: string) => void;
+    onInsertSnippet?: (snippet: Snippet) => void;
     onSelectSubmenuKey?: (key: string) => void;
     onLeaderBack?: () => void;
     onCreateCustom?: () => void;
+    onSaveSnippet?: () => void;
     onPopoverChange?: (open: boolean) => void;
   }
 
@@ -30,10 +34,13 @@
     leaderActive = false,
     leaderPrefix = '',
     customCommands = [],
+    snippets = [],
     onInsertCommand,
+    onInsertSnippet,
     onSelectSubmenuKey,
     onLeaderBack,
     onCreateCustom,
+    onSaveSnippet,
     onPopoverChange,
   }: Props = $props();
 
@@ -66,6 +73,7 @@
     { key: 'x', category: 'relation', label: '关系符号', preview: '\\approx' },
     { key: 'q', category: 'setlogic', label: '集合与逻辑', preview: '\\forall' },
     { key: 'k', category: 'custom', label: '自定义结构', preview: '\\star' },
+    { key: 't', category: 'snippets', label: '复用片段', preview: '\\sharp' },
   ];
 
   const KEY_TO_CATEGORY = new Map<string, RibbonCategory>(
@@ -82,7 +90,7 @@
   );
 
   const popoverCommands = $derived<CommandDef[]>(
-    activeCategory && activeCategory !== 'custom'
+    activeCategory && activeCategory !== 'custom' && activeCategory !== 'snippets'
       ? COMMANDS.filter((c) => c.category === activeCategory)
       : [],
   );
@@ -162,13 +170,58 @@
           >
             + 新建结构
           </button>
+        {:else if activeCategory === 'snippets' && onSaveSnippet}
+          <button
+            type="button"
+            class="new-custom-btn"
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => {
+              mouseCategory = null;
+              onSaveSnippet();
+            }}
+          >
+            + 存当前式为片段
+          </button>
         {/if}
         <span class="cat-chord">
           <kbd>{leaderKey}</kbd><kbd>{activeGroup.key}</kbd>
         </span>
       </div>
 
-      {#if activeCategory === 'custom'}
+      {#if activeCategory === 'snippets'}
+        {#if snippets.length === 0}
+          <div class="custom-empty">
+            <span>暂无复用片段</span>
+          </div>
+        {:else}
+          <div class="cat-grid">
+            {#each snippets as snip (snip.id)}
+              <button
+                type="button"
+                class="cat-cell"
+                title={snip.name}
+                onmousedown={(e) => e.preventDefault()}
+                onclick={() => {
+                  mouseCategory = null;
+                  onInsertSnippet?.(snip);
+                }}
+              >
+                <div class="cell-top">
+                  {#if snip.key}
+                    <kbd class="cell-key" class:hot={leaderActive}>{snip.key}</kbd>
+                  {:else}
+                    <span></span>
+                  {/if}
+                </div>
+                <span class="cat-math">
+                  {@html renderLatexPreview(snip.latex, false)}
+                </span>
+                <span class="cat-label">{snip.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      {:else if activeCategory === 'custom'}
         {#if customCommands.length === 0}
           <div class="custom-empty">
             <span>暂无自定义结构</span>

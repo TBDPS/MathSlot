@@ -1,4 +1,4 @@
-import { findSlotPath } from './ast';
+import { findSlotPath, getGridMeta } from './ast';
 import { COMMANDS_BY_ID } from './catalog';
 import type {
   Cursor,
@@ -809,6 +809,21 @@ function emitStructCanonical(
       return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}_${formatScriptArg(node.slots[1], autoShorthands)}^${formatScriptArg(node.slots[2], autoShorthands)}`;
     }
 
+    // Dynamic R×C matrix / N-row cases emission
+    if (node.grid) {
+      const { env, rows, cols } = node.grid;
+      const rowStrings: string[] = [];
+      for (let r = 0; r < rows; r += 1) {
+        const colStrings: string[] = [];
+        for (let c = 0; c < cols; c += 1) {
+          const slot = node.slots[r * cols + c];
+          colStrings.push(slot ? emitSlotCanonical(slot, 'display', autoShorthands) : '');
+        }
+        rowStrings.push(colStrings.join(' & '));
+      }
+      return `\\begin{${env}} ${rowStrings.join(' \\\\ ')} \\end{${env}}`;
+    }
+
     // Smart auto-sizing for keyboard-typed `( )`, `[ ]`, `{ }`:
     // Flat content like `f(x)` emits crisp `(x)`, while tall content like `\frac`/`\int` emits `\left(...\right)`!
     if (node.autoSized && node.slots.length === 1) {
@@ -866,13 +881,72 @@ export function emitNodesCanonical(nodes: MathNode[], options: LatexEmitOptions 
   return emitSlotCanonical({ id: '_tmp', label: '', children: nodes }, 'display', autoShorthands);
 }
 
+const ALIGN_RELATION_CHARS = new Set(['=', '<', '>', '~']);
+const ALIGN_RELATION_SYMBOLS = new Set([
+  'leq', 'geq', 'neq', 'equiv', 'approx', 'sim', 'simeq', 'cong', 'propto', 'implies', 'iff', 'to', 'mapsto',
+]);
+
+function splitSlotIntoLines(slot: SlotNode): SlotNode[] {
+  const lines: SlotNode[] = [];
+  let cur: MathNode[] = [];
+  for (const child of slot.children) {
+    if (child.type === 'raw' && child.latex.trim() === '\\\\') {
+      lines.push({ id: `${slot.id}_L${lines.length}`, label: slot.label, children: cur });
+      cur = [];
+    } else {
+      cur.push(child);
+    }
+  }
+  lines.push({ id: `${slot.id}_L${lines.length}`, label: slot.label, children: cur });
+  return lines;
+}
+
+function findFirstRelationIndex(nodes: readonly MathNode[]): number {
+  for (let i = 0; i < nodes.length; i += 1) {
+    const n = nodes[i];
+    if (n.type === 'char' && ALIGN_RELATION_CHARS.has(n.value)) return i;
+    if (n.type === 'symbol' && ALIGN_RELATION_SYMBOLS.has(n.commandId)) return i;
+  }
+  return -1;
+}
+
 export function toLatex(doc: Document, options: LatexEmitOptions = {}): string {
   const autoShorthands = options.autoShorthands ?? true;
   const hasLineBreak = doc.root.children.some(
     (n) => n.type === 'raw' && n.latex.trim() === '\\\\',
   );
+  if (!hasLineBreak) {
+    return emitSlotCanonical(doc.root, 'display', autoShorthands);
+  }
+
+  // Smart multi-line alignment: if lines contain top-level relations (`=`, `\sim`, `\le`, etc.),
+  // emit clean publication-grade `\begin{aligned} lhs &= rhs \\ ... \end{aligned}`!
+  const lines = splitSlotIntoLines(doc.root);
+  const relIndices = lines.map((line) => findFirstRelationIndex(line.children));
+  const useAligned = relIndices.some((idx) => idx >= 0);
+  if (useAligned) {
+    const formattedLines = lines.map((line, idx) => {
+      const rIdx = relIndices[idx];
+      if (rIdx < 0) {
+        const full = emitSlotCanonical(line, 'display', autoShorthands);
+        return full ? `& ${full}` : '';
+      }
+      const lhs = emitSlotCanonical(
+        { id: '_lhs', label: '', children: line.children.slice(0, rIdx) },
+        'display',
+        autoShorthands,
+      );
+      const rhs = emitSlotCanonical(
+        { id: '_rhs', label: '', children: line.children.slice(rIdx) },
+        'display',
+        autoShorthands,
+      );
+      return lhs ? `${lhs} &${rhs}` : `&${rhs}`;
+    });
+    return `\\begin{aligned} ${formattedLines.join(' \\\\ ')} \\end{aligned}`;
+  }
+
   const inner = emitSlotCanonical(doc.root, 'display', autoShorthands);
-  if (!hasLineBreak) return inner;
   return `\\begin{gathered} ${inner} \\end{gathered}`;
 }
 
@@ -1176,6 +1250,12 @@ function emitSlotInteractive(
       parts.push('\\,');
     }
 
+    // Line breaks `\\` must sit outside `\htmlClass` wrappers so KaTeX `gathered`/`aligned` breaks lines properly!
+    if (child.type === 'raw' && child.latex.trim() === '\\\\') {
+      parts.push(' \\\\ ');
+      continue;
+    }
+
     const isSelected = selForSlot !== null && idx >= selForSlot.start && idx < selForSlot.end;
     const atomLatex = emitNodeInteractive(
       child,
@@ -1248,7 +1328,33 @@ function emitNodeInteractive(
         }
       }
       let rendered: string;
-      if (!template) {
+      const dynGrid = node.grid ?? (getGridMeta(node) && node.slots.length !== (COMMANDS_BY_ID.get(node.commandId)?.slots.length ?? 0) ? getGridMeta(node) : null);
+      if (dynGrid) {
+        const { env, rows, cols } = dynGrid;
+        const rowStrings: string[] = [];
+        for (let r = 0; r < rows; r += 1) {
+          const colStrings: string[] = [];
+          for (let c = 0; c < cols; c += 1) {
+            const slot = node.slots[r * cols + c];
+            colStrings.push(
+              slot
+                ? emitSlotInteractive(
+                    slot,
+                    cursor,
+                    selection,
+                    parentStructId,
+                    false,
+                    focused,
+                    autoShorthands,
+                    structDepth,
+                  )
+                : '',
+            );
+          }
+          rowStrings.push(colStrings.join(' & '));
+        }
+        rendered = `\\begin{${env}} ${rowStrings.join(' \\\\ ')} \\end{${env}}`;
+      } else if (!template) {
         rendered = node.slots
           .map((s) =>
             emitSlotInteractive(
@@ -1301,18 +1407,70 @@ export function toInteractiveLatex(
   const hasLineBreak = doc.root.children.some(
     (n) => n.type === 'raw' && n.latex.trim() === '\\\\',
   );
-  const inner = emitSlotInteractive(
-    doc.root,
-    cursor,
-    selection,
-    parentStructId,
-    true,
-    focused,
-    autoShorthands,
-    0,
-  );
-  if (!hasLineBreak) return inner;
-  return `\\begin{gathered} ${inner} \\end{gathered}`;
+  if (!hasLineBreak) {
+    return emitSlotInteractive(
+      doc.root,
+      cursor,
+      selection,
+      parentStructId,
+      true,
+      focused,
+      autoShorthands,
+      0,
+    );
+  }
+
+  // Render interactive multi-line equations cleanly inside `\begin{gathered}` (with top-level `\\` line breaks!)
+  // Keep `\\` outside `\htmlData` so KaTeX lays out real visual rows while every atom stays clickable!
+  const lineRanges: { start: number; end: number }[] = [];
+  let lineStart = 0;
+  for (let i = 0; i < doc.root.children.length; i += 1) {
+    const n = doc.root.children[i];
+    if (n.type === 'raw' && n.latex.trim() === '\\\\') {
+      lineRanges.push({ start: lineStart, end: i });
+      lineStart = i + 1;
+    }
+  }
+  lineRanges.push({ start: lineStart, end: doc.root.children.length });
+
+  const lineLatexList = lineRanges.map((range) => {
+    const subSlot: SlotNode = {
+      id: doc.root.id,
+      label: doc.root.label,
+      children: doc.root.children.slice(range.start, range.end),
+    };
+    const localCursor: Cursor =
+      cursor.slotId === doc.root.id && cursor.offset >= range.start && cursor.offset <= range.end
+        ? { slotId: doc.root.id, offset: cursor.offset - range.start }
+        : { slotId: '__none__', offset: 0 };
+    const localSel: Selection | null =
+      selection && selection.slotId === doc.root.id
+        ? {
+            slotId: doc.root.id,
+            start: Math.max(0, selection.start - range.start),
+            end: Math.min(subSlot.children.length, selection.end - range.start),
+          }
+        : null;
+    const validSel = localSel && localSel.end > localSel.start ? localSel : null;
+    const rawLine = emitSlotInteractive(
+      subSlot,
+      localCursor,
+      validSel,
+      parentStructId,
+      true,
+      focused,
+      autoShorthands,
+      0,
+    );
+    // Offset atom indices back to real root offsets so clicking/selecting on line 2+ lands accurately!
+    if (range.start === 0) return rawLine;
+    return rawLine.replace(
+      new RegExp(`atom-slot=${doc.root.id},offset=(\\d+)`, 'g'),
+      (_, offStr: string) => `atom-slot=${doc.root.id},offset=${Number(offStr) + range.start}`,
+    );
+  });
+
+  return `\\begin{gathered} ${lineLatexList.join(' \\\\ ')} \\end{gathered}`;
 }
 
 export function commandPreviewLatex(template: string): string {

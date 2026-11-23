@@ -482,5 +482,83 @@ describe('MathSlotEngine keyboard flow', () => {
 
     const res2 = importFormula('\\begin{equation} E = mc^2 \\end{equation}');
     expect(toLatex(res2.doc)).toBe('E = mc^2');
+
+    // Plain (...) roundtrip preserves bracket structure and two adjacent integrals stay separate!
+    const res3 = importFormula('\\int_0^1 x\\,\\mathrm{d}x \\cdot \\int_0^1 y\\,\\mathrm{d}y + (a + b)');
+    expect(res3.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    const intStructs = res3.doc.root.children.filter(
+      (n) => n.type === 'struct' && n.commandId === 'integral',
+    );
+    expect(intStructs.length).toBe(2);
+    expect(res3.doc.root.children.some((n) => n.type === 'struct' && n.commandId === 'paren')).toBe(
+      true,
+    );
+  });
+
+  it('supports backward atom wrap (x + Tab a c -> \\vec{x}), Tab t snippet chord, custom breadcrumbs, dynamic matrix resize, and aligned multi-line equations', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // 1. Backward atom wrap for accents without manual selection
+    type('x');
+    engine.triggerLeader();
+    engine.handleLeaderKey('a');
+    engine.handleLeaderKey('c'); // \vec{x}
+    expect(engine.getSnapshot().latex).toBe('\\vec{x}');
+
+    // 2. Tab t <key> snippet chord insertion
+    engine.clear();
+    engine.setSnippets([
+      { id: 's1', name: '高斯核', latex: 'e^{-x^2}', key: 'g', createdAt: 1 },
+    ]);
+    engine.triggerLeader();
+    engine.handleLeaderKey('t');
+    engine.handleLeaderKey('g');
+    expect(engine.getSnapshot().latex).toBe('e^{-x^2}');
+
+    // 3. Custom structure breadcrumb displays real label
+    engine.clear();
+    engine.setCustomCommands([
+      { id: 'c-exp', label: '数学期望', latex: '\\mathbb{E}\\left[$1\\right]', slots: ['随机变量'], key: 'e' },
+    ]);
+    engine.insertCommand('c-exp');
+    expect(engine.getSnapshot().breadcrumbs.map((b) => `${b.commandLabel}·${b.slotLabel}`)).toEqual([
+      '数学期望·随机变量',
+    ]);
+
+    // 4. Dynamic matrix row/col add & remove + 2D Up/Down navigation
+    engine.clear();
+    engine.insertCommand('matrix_2x2'); // 2x2
+    type('1');
+    engine.nextSlot();
+    type('2');
+    engine.addGridCol(); // -> 2x3! cursor at (1,3)
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(2);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(3);
+    type('3');
+    engine.addGridRow(); // -> 3x3! cursor at (2,1)
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(3);
+    type('4');
+    engine.moveUp(); // jumps cleanly to (1,1) = `1`!
+    type('0');
+    expect(engine.getSnapshot().latex).toContain('\\begin{pmatrix} 10 & 2 & 3 \\\\ 4 & & \\\\ & & \\end{pmatrix}');
+    engine.removeGridCol(); // removes col 1 -> 3x2
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(2);
+
+    // 5. Smart aligned multi-line equations on Enter at root
+    engine.clear();
+    type('f(x) = x^2');
+    engine.nextSlot(); // exit sup
+    engine.nextSlot(); // root Enter -> line break!
+    type('= (x)(x)');
+    expect(engine.getSnapshot().latex).toBe('\\begin{aligned} f(x) &= x^2 \\\\ &= (x)(x) \\end{aligned}');
+
+    // 6. Drag selection & double-click word selection
+    engine.clear();
+    type('alpha + beta');
+    engine.selectWordOrAtomAt(engine.getSnapshot().doc.root.id, 1);
+    expect(engine.getSelectedLatex()).toBe('\\alpha');
   });
 });

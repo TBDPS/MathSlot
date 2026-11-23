@@ -8,9 +8,11 @@
     type CustomCommandDef,
     type DelimiterStyle,
     type EditorSnapshot,
+    type HistoryFormula,
     type Snippet,
   } from '@mathslot/core';
   import type { HostAdapter } from '../host';
+  import { latexToMathML, renderLatexToPng } from '../exportUtils';
   import VisualCanvas from './VisualCanvas.svelte';
   import MathRibbon from './MathRibbon.svelte';
   import CommandDrawer from './CommandDrawer.svelte';
@@ -31,11 +33,13 @@
   let settings = $state<AppSettings>({ ...DEFAULT_SETTINGS });
   let snippets = $state<Snippet[]>([]);
   let customCommands = $state<CustomCommandDef[]>([]);
+  let history = $state<HistoryFormula[]>([]);
+  let pinned = $state(false);
   let snapshot = $state<EditorSnapshot>(engine.getSnapshot());
   let systemDark = $state(false);
 
   let drawerOpen = $state(false);
-  let drawerTab = $state<'commands' | 'presets' | 'snippets' | 'custom'>('commands');
+  let drawerTab = $state<'commands' | 'presets' | 'snippets' | 'custom' | 'history'>('commands');
   let importOpen = $state(false);
   let saveSnippetOpen = $state(false);
   let customModalOpen = $state(false);
@@ -69,10 +73,35 @@
 
   async function persist(): Promise<void> {
     try {
-      await host.saveStore({ settings, snippets, customCommands });
+      await host.saveStore({ settings, snippets, customCommands, history });
     } catch {
       // Non-fatal persistence error
     }
+  }
+
+  function recordHistory(latex: string): void {
+    const clean = latex.trim();
+    if (!clean) return;
+    if (history[0]?.latex === clean) return;
+    const deduped = history.filter((h) => h.latex !== clean);
+    history = [
+      { id: `h-${Date.now()}`, latex: clean, timestamp: Date.now() },
+      ...deduped,
+    ].slice(0, 40);
+    void persist();
+  }
+
+  async function togglePin(): Promise<void> {
+    if (!host.setAlwaysOnTop) return;
+    const next = !pinned;
+    try {
+      await host.setAlwaysOnTop(next);
+      pinned = next;
+      flash(next ? '已置顶窗口' : '已取消置顶');
+    } catch {
+      flash('当前环境不支持窗口置顶');
+    }
+    canvasRef?.focus();
   }
 
   function updateSettings(patch: Partial<AppSettings>): void {
@@ -97,14 +126,47 @@
   async function handleCopy(): Promise<void> {
     const formatted = formatExport(snapshot.latex, settings.delimiter);
     if (!formatted) return;
+    recordHistory(snapshot.latex);
     await host.copyText(formatted);
     flash('已复制');
+    canvasRef?.focus();
+  }
+
+  async function handleCopyMathML(): Promise<void> {
+    if (!snapshot.latex.trim()) return;
+    recordHistory(snapshot.latex);
+    const mathml = latexToMathML(snapshot.latex);
+    await host.copyText(mathml);
+    flash('已复制 Word 公式 (MathML)');
+    canvasRef?.focus();
+  }
+
+  async function handleCopyPng(): Promise<void> {
+    if (!snapshot.latex.trim()) return;
+    recordHistory(snapshot.latex);
+    try {
+      const rendered = await renderLatexToPng(snapshot.latex, {
+        dark: resolvedTheme === 'dark',
+        scale: 3,
+      });
+      if (host.copyImagePng) {
+        await host.copyImagePng(rendered.rgba, rendered.width, rendered.height, rendered.blob);
+      } else if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': rendered.blob })]);
+      } else {
+        throw new Error('unsupported');
+      }
+      flash('已复制高清 PNG 图片');
+    } catch {
+      flash('PNG 复制失败，请使用 LaTeX 或 Word 公式');
+    }
     canvasRef?.focus();
   }
 
   async function handlePrimarySubmit(): Promise<void> {
     const formatted = formatExport(snapshot.latex, settings.delimiter);
     if (!formatted) return;
+    recordHistory(snapshot.latex);
     if (host.onPrimarySubmit) {
       const msg = await host.onPrimarySubmit(formatted, snapshot.latex);
       if (msg) flash(msg);
@@ -120,16 +182,18 @@
     saveSnippetOpen = true;
   }
 
-  function handleSaveNamedSnippet(name: string): void {
+  function handleSaveNamedSnippet(name: string, key?: string): void {
     const latex = snapshot.latex.trim();
     if (!latex) return;
     const next: Snippet = {
       id: `snip-${Date.now()}`,
       name,
       latex,
+      ...(key ? { key } : {}),
       createdAt: Date.now(),
     };
     snippets = [next, ...snippets];
+    engine.setSnippets(snippets);
     void persist();
     flash(`已保存「${name}」`);
     canvasRef?.focus();
@@ -137,11 +201,13 @@
 
   function handleRenameSnippet(id: string, nextName: string): void {
     snippets = snippets.map((s) => (s.id === id ? { ...s, name: nextName } : s));
+    engine.setSnippets(snippets);
     void persist();
   }
 
   function handleDeleteSnippet(id: string): void {
     snippets = snippets.filter((s) => s.id !== id);
+    engine.setSnippets(snippets);
     void persist();
   }
 
@@ -326,8 +392,14 @@
 
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (e.shiftKey) engine.prevSlot();
-      else engine.nextSlot();
+      if (e.altKey && snapshot.activeGrid) {
+        if (e.shiftKey) engine.addGridCol();
+        else engine.addGridRow();
+      } else if (e.shiftKey) {
+        engine.prevSlot();
+      } else {
+        engine.nextSlot();
+      }
       sync();
       return;
     }
@@ -432,10 +504,14 @@
       }
       if (Array.isArray(loaded.snippets)) {
         snippets = loaded.snippets;
+        engine.setSnippets(snippets);
       }
       if (Array.isArray(loaded.customCommands)) {
         customCommands = loaded.customCommands;
         engine.setCustomCommands(customCommands);
+      }
+      if (Array.isArray(loaded.history)) {
+        history = loaded.history;
       }
       if (host.initialFormula && host.initialFormula.trim()) {
         engine.loadFormula(host.initialFormula);
@@ -612,10 +688,27 @@
       <button
         type="button"
         class="icon-btn"
+        title="历史记录"
+        aria-label="历史记录"
+        onclick={() => {
+          drawerTab = 'history';
+          drawerOpen = true;
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class="icon-btn"
         title="清空"
         aria-label="清空"
         disabled={snapshot.isEmpty}
         onclick={() => {
+          recordHistory(snapshot.latex);
           engine.clear();
           sync();
           canvasRef?.focus();
@@ -627,6 +720,22 @@
           <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
         </svg>
       </button>
+
+      {#if host.setAlwaysOnTop}
+        <button
+          type="button"
+          class="icon-btn"
+          class:active={pinned}
+          title={pinned ? '取消窗口置顶' : '窗口置顶'}
+          aria-label="窗口置顶"
+          onclick={() => void togglePin()}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M12 17v5" />
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+          </svg>
+        </button>
+      {/if}
 
       <span class="toolbar-sep"></span>
 
@@ -691,6 +800,14 @@
       engine.setCursor(slotId, offset);
       sync();
     }}
+    onDragSelect={(slotId, anchor, focus) => {
+      engine.setSelection(slotId, anchor, focus);
+      sync();
+    }}
+    onDoubleClickAtom={(slotId, offset) => {
+      engine.selectWordOrAtomAt(slotId, offset);
+      sync();
+    }}
     onJumpTarget={(label) => {
       engine.handleJumpKey(label);
       sync();
@@ -700,6 +817,26 @@
       engine.setFocused(focused);
       sync();
     }}
+    onAddGridRow={() => {
+      engine.addGridRow();
+      sync();
+      canvasRef?.focus();
+    }}
+    onRemoveGridRow={() => {
+      engine.removeGridRow();
+      sync();
+      canvasRef?.focus();
+    }}
+    onAddGridCol={() => {
+      engine.addGridCol();
+      sync();
+      canvasRef?.focus();
+    }}
+    onRemoveGridCol={() => {
+      engine.removeGridCol();
+      sync();
+      canvasRef?.focus();
+    }}
   />
 
   <MathRibbon
@@ -707,9 +844,15 @@
     leaderActive={snapshot.mode.kind === 'leader'}
     leaderPrefix={snapshot.mode.kind === 'leader' ? snapshot.mode.prefix : ''}
     {customCommands}
+    {snippets}
     onPopoverChange={(open) => (ribbonPopoverOpen = open)}
     onInsertCommand={(id) => {
       engine.insertCommand(id);
+      sync();
+      canvasRef?.focus();
+    }}
+    onInsertSnippet={(snip) => {
+      engine.insertSnippetAtCursor(snip);
       sync();
       canvasRef?.focus();
     }}
@@ -727,6 +870,7 @@
       editingCustom = null;
       customModalOpen = true;
     }}
+    onSaveSnippet={openSaveSnippetModal}
   />
 
   {#if settings.showLatexDock}
@@ -737,6 +881,8 @@
       onCycleDelimiter={cycleDelimiter}
       onSaveSnippet={openSaveSnippetModal}
       onCopy={() => void handleCopy()}
+      onCopyMathML={() => void handleCopyMathML()}
+      onCopyPng={() => void handleCopyPng()}
     />
   {/if}
 
@@ -749,9 +895,15 @@
       leaderKey={settings.leaderKey}
       {snippets}
       {customCommands}
+      {history}
       initialTab={drawerTab}
       onInsertCommand={(id) => {
         engine.insertCommand(id);
+        sync();
+        canvasRef?.focus();
+      }}
+      onInsertSnippet={(snip) => {
+        engine.insertSnippetAtCursor(snip);
         sync();
         canvasRef?.focus();
       }}
@@ -767,6 +919,10 @@
         customModalOpen = true;
       }}
       onDeleteCustom={handleDeleteCustomCommand}
+      onClearHistory={() => {
+        history = [];
+        void persist();
+      }}
       onClose={() => {
         drawerOpen = false;
         canvasRef?.focus();
@@ -789,6 +945,8 @@
     <SaveSnippetModal
       latex={snapshot.latex}
       defaultName={`片段 ${snippets.length + 1}`}
+      leaderKey={settings.leaderKey}
+      usedKeys={snippets.map((s) => s.key).filter((k): k is string => Boolean(k))}
       onSave={handleSaveNamedSnippet}
       onClose={() => {
         saveSnippetOpen = false;
@@ -801,6 +959,7 @@
     <CustomStructureModal
       leaderKey={settings.leaderKey}
       editing={editingCustom}
+      existingCommands={customCommands}
       onSave={handleSaveCustomCommand}
       onClose={() => {
         customModalOpen = false;

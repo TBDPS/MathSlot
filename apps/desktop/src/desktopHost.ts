@@ -37,6 +37,32 @@ export function createDesktopHost(): HostAdapter {
       ta.remove();
     },
 
+    async copyImagePng(rgba: Uint8Array, width: number, height: number, blob: Blob): Promise<void> {
+      if (isTauriRuntime()) {
+        try {
+          await tauriInvoke('copy_image_to_clipboard', {
+            rgba: Array.from(rgba),
+            width,
+            height,
+          });
+          return;
+        } catch {
+          // Fallback to browser clipboard
+        }
+      }
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        return;
+      }
+      throw new Error('Clipboard image write unsupported');
+    },
+
+    async setAlwaysOnTop(pinned: boolean): Promise<void> {
+      if (isTauriRuntime()) {
+        await tauriInvoke('set_always_on_top', { pinned });
+      }
+    },
+
     async readText(): Promise<string> {
       if (isTauriRuntime()) {
         try {
@@ -61,6 +87,7 @@ export function createDesktopHost(): HostAdapter {
               settings: parsed.settings ?? {},
               snippets: Array.isArray(parsed.snippets) ? parsed.snippets : [],
               customCommands: Array.isArray(parsed.customCommands) ? parsed.customCommands : [],
+              history: Array.isArray(parsed.history) ? parsed.history : [],
             };
           }
         } catch {
@@ -75,12 +102,13 @@ export function createDesktopHost(): HostAdapter {
             settings: parsed.settings ?? {},
             snippets: Array.isArray(parsed.snippets) ? parsed.snippets : [],
             customCommands: Array.isArray(parsed.customCommands) ? parsed.customCommands : [],
+            history: Array.isArray(parsed.history) ? parsed.history : [],
           };
         }
       } catch {
         // Ignore corrupt localStorage
       }
-      return { settings: {}, snippets: [], customCommands: [] };
+      return { settings: {}, snippets: [], customCommands: [], history: [] };
     },
 
     async saveStore(store: PersistedStore): Promise<void> {

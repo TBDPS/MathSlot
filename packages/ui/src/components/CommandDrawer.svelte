@@ -12,25 +12,29 @@
     toLatex,
     type CommandCategory,
     type CustomCommandDef,
+    type HistoryFormula,
     type LeaderKey,
     type Snippet,
   } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
 
-  type DrawerTab = 'commands' | 'presets' | 'snippets' | 'custom';
+  type DrawerTab = 'commands' | 'presets' | 'snippets' | 'custom' | 'history';
 
   interface Props {
     leaderKey: LeaderKey;
     snippets: Snippet[];
     customCommands: CustomCommandDef[];
+    history?: HistoryFormula[];
     initialTab?: DrawerTab;
     onInsertCommand: (commandId: string) => void;
+    onInsertSnippet?: (snippet: Snippet) => void;
     onLoadFormula: (source: string) => void;
     onRenameSnippet: (id: string, nextName: string) => void;
     onDeleteSnippet: (id: string) => void;
     onCreateCustom: () => void;
     onEditCustom: (cmd: CustomCommandDef) => void;
     onDeleteCustom: (id: string) => void;
+    onClearHistory?: () => void;
     onClose: () => void;
   }
 
@@ -38,14 +42,17 @@
     leaderKey,
     snippets,
     customCommands,
+    history = [],
     initialTab = 'commands',
     onInsertCommand,
+    onInsertSnippet,
     onLoadFormula,
     onRenameSnippet,
     onDeleteSnippet,
     onCreateCustom,
     onEditCustom,
     onDeleteCustom,
+    onClearHistory,
     onClose,
   }: Props = $props();
 
@@ -92,6 +99,12 @@
     );
   });
 
+  const filteredHistory = $derived.by(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter((h) => h.latex.toLowerCase().includes(q));
+  });
+
   const currentCount = $derived(
     tab === 'commands'
       ? filteredCommands.length
@@ -99,7 +112,9 @@
         ? filteredPresets.length
         : tab === 'snippets'
           ? filteredSnippets.length
-          : filteredCustom.length,
+          : tab === 'custom'
+            ? filteredCustom.length
+            : filteredHistory.length,
   );
 
   $effect(() => {
@@ -159,13 +174,20 @@
       } else if (tab === 'snippets') {
         const item = filteredSnippets[activeIndex];
         if (item) {
-          onLoadFormula(item.latex);
+          if (onInsertSnippet) onInsertSnippet(item);
+          else onLoadFormula(item.latex);
           onClose();
         }
-      } else {
+      } else if (tab === 'custom') {
         const item = filteredCustom[activeIndex];
         if (item) {
           onInsertCommand(item.id);
+          onClose();
+        }
+      } else {
+        const item = filteredHistory[activeIndex];
+        if (item) {
+          onLoadFormula(item.latex);
           onClose();
         }
       }
@@ -205,6 +227,9 @@
         <button type="button" class="tab-btn" class:active={tab === 'custom'} onclick={() => (tab = 'custom')}>
           自定义结构 <span>{customCommands.length}</span>
         </button>
+        <button type="button" class="tab-btn" class:active={tab === 'history'} onclick={() => (tab = 'history')}>
+          历史 <span>{history.length}</span>
+        </button>
         {#if tab === 'custom'}
           <button
             type="button"
@@ -215,6 +240,10 @@
             }}
           >
             + 新建
+          </button>
+        {:else if tab === 'history' && history.length > 0 && onClearHistory}
+          <button type="button" class="new-btn" onclick={onClearHistory}>
+            清空
           </button>
         {/if}
       </div>
@@ -331,11 +360,19 @@
                   class="snip-main"
                   onmouseenter={() => (activeIndex = idx)}
                   onclick={() => {
-                    onLoadFormula(snip.latex);
+                    if (onInsertSnippet) onInsertSnippet(snip);
+                    else onLoadFormula(snip.latex);
                     onClose();
                   }}
                 >
-                  <span class="preset-name">{snip.name}</span>
+                  <div class="preset-info">
+                    <span class="preset-name">{snip.name}</span>
+                    {#if snip.key}
+                      <span class="cmd-keys">
+                        <kbd>{leaderKey}</kbd><kbd>t</kbd><kbd>{snip.key}</kbd>
+                      </span>
+                    {/if}
+                  </div>
                   <span class="preset-math">{@html renderLatexPreview(snip.latex, false)}</span>
                 </button>
                 <div class="row-actions">
@@ -361,6 +398,30 @@
                 </div>
               {/if}
             </div>
+          {/each}
+        {/if}
+      {:else if tab === 'history'}
+        {#if filteredHistory.length === 0}
+          <div class="empty-state">暂无历史记录</div>
+        {:else}
+          {#each filteredHistory as item, idx (item.id)}
+            <button
+              type="button"
+              class="preset-row"
+              class:selected={idx === activeIndex}
+              onmouseenter={() => (activeIndex = idx)}
+              onclick={() => {
+                onLoadFormula(item.latex);
+                onClose();
+              }}
+            >
+              <div class="preset-info">
+                <span class="preset-cat">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              <div class="preset-math">
+                {@html renderLatexPreview(item.latex, false)}
+              </div>
+            </button>
           {/each}
         {/if}
       {:else if filteredCustom.length === 0}

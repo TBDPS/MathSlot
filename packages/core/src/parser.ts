@@ -8,7 +8,7 @@ import {
   textToCharNodes,
 } from './ast';
 import { COMMANDS, COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS } from './catalog';
-import { MATH_FUNCTIONS } from './latex';
+import { DIFFERENTIAL_WORDS, MATH_FUNCTIONS } from './latex';
 import type { CommandDef, Diagnostic, Document, ImportResult, MathNode } from './types';
 
 // Build reverse lookup from normalized LaTeX macro -> atomic Symbol CommandDef
@@ -28,10 +28,11 @@ const SYMBOL_ALIASES: Record<string, string> = {
   '\\rightarrow': 'to',
   '\\Rightarrow': 'implies',
   '\\Leftrightarrow': 'iff',
-  '\\lor': 'vee',
-  '\\land': 'wedge',
+  '\\lor': 'lor',
+  '\\vee': 'lor',
+  '\\land': 'land',
+  '\\wedge': 'land',
   '\\lnot': 'neg',
-  '\\|': 'norm',
   '\\dots': 'cdots',
   '\\ldots': 'cdots',
 };
@@ -90,7 +91,6 @@ export function parseStreamCode(source: string): ImportResult {
           out.push(createStructNode(cmd, slotContents));
         }
       } else if (ch === '\\') {
-        // Allow mixed LaTeX macros inside stream presets (e.g. `\le`, `\mathrm{d}`)
         const start = pos;
         pos += 1;
         let name = '';
@@ -177,491 +177,98 @@ const MATRIX_ENV_MAP: Record<string, { two: string; three: string }> = {
   vmatrix: { two: 'det_2x2', three: 'det_3x3' },
 };
 
+const SUPPORTED_MATRIX_ENVS = new Set(['pmatrix', 'bmatrix', 'vmatrix', 'Bmatrix', 'Vmatrix', 'matrix']);
+
+function splitTopLevel(input: string, delimiter: '\\\\' | '&'): string[] {
+  const parts: string[] = [];
+  let braceDepth = 0;
+  let envDepth = 0;
+  let start = 0;
+  let i = 0;
+  while (i < input.length) {
+    if (input.startsWith('\\begin{', i)) {
+      envDepth += 1;
+      i += 7;
+      continue;
+    }
+    if (input.startsWith('\\end{', i)) {
+      envDepth = Math.max(0, envDepth - 1);
+      i += 5;
+      continue;
+    }
+    if (input[i] === '\\' && delimiter === '&') {
+      i += 2;
+      continue;
+    }
+    if (input[i] === '{') {
+      braceDepth += 1;
+      i += 1;
+      continue;
+    }
+    if (input[i] === '}') {
+      braceDepth = Math.max(0, braceDepth - 1);
+      i += 1;
+      continue;
+    }
+    if (braceDepth === 0 && envDepth === 0 && input.startsWith(delimiter, i)) {
+      parts.push(input.slice(start, i));
+      i += delimiter.length;
+      start = i;
+      continue;
+    }
+    if (input[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+  parts.push(input.slice(start));
+  return parts;
+}
+
 /**
- * Recursive descent parser for standard mathematical LaTeX -> MathSlot Document AST.
+ * Clean single-pass recursive descent parser for standard mathematical LaTeX -> MathSlot Document AST.
  */
 export function parseLatex(input: string): ImportResult {
   const src = stripOuterDelimiters(input);
   const diagnostics: Diagnostic[] = [];
-  let pos = 0;
-
-  const peek = () => src[pos] ?? '';
-  const eof = () => pos >= src.length;
-
-  const skipSpaces = () => {
-    while (!eof() && /\s/.test(src[pos])) pos += 1;
-  };
-
-  const readMacroName = (): string => {
-    // Assumes src[pos] === '\\'
-    pos += 1;
-    if (eof()) return '\\';
-    const ch = src[pos];
-    if (/[a-zA-Z]/.test(ch)) {
-      const start = pos;
-      while (!eof() && /[a-zA-Z]/.test(src[pos])) pos += 1;
-      return '\\' + src.slice(start, pos);
-    }
-    pos += 1;
-    return '\\' + ch;
-  };
-
-  const readBracedRaw = (): string => {
-    skipSpaces();
-    if (peek() !== '{') return '';
-    pos += 1;
-    const start = pos;
-    let depth = 1;
-    while (!eof() && depth > 0) {
-      if (src[pos] === '\\') {
-        pos += 2;
-        continue;
-      }
-      if (src[pos] === '{') depth += 1;
-      else if (src[pos] === '}') depth -= 1;
-      if (depth > 0) pos += 1;
-    }
-    const content = src.slice(start, pos);
-    if (peek() === '}') pos += 1;
-    else diagnostics.push({ severity: 'warning', message: '检测到未闭合花括号 }，已自动补全' });
-    return content;
-  };
-
-  const readBracketRaw = (): string | null => {
-    skipSpaces();
-    if (peek() !== '[') return null;
-    pos += 1;
-    const start = pos;
-    let depth = 1;
-    while (!eof() && depth > 0) {
-      if (src[pos] === '\\') {
-        pos += 2;
-        continue;
-      }
-      if (src[pos] === '[') depth += 1;
-      else if (src[pos] === ']') depth -= 1;
-      if (depth > 0) pos += 1;
-    }
-    const content = src.slice(start, pos);
-    if (peek() === ']') pos += 1;
-    else diagnostics.push({ severity: 'error', message: '缺少闭合方括号 ]' });
-    return content;
-  };
-
-  const readGroupNodes = (): MathNode[] => {
-    skipSpaces();
-    if (peek() === '{') {
-      const raw = readBracedRaw();
-      return parseFragment(raw);
-    }
-    const single = parseAtom();
-    return single ? [single] : [];
-  };
-
-  const parseFragment = (fragment: string): MathNode[] => {
-    const savedPos = pos;
-    const inner = parseLatexNodes(fragment, diagnostics);
-    pos = savedPos;
-    return inner;
-  };
-
-  const readSubSup = (): { sub: MathNode[] | null; sup: MathNode[] | null } => {
-    let sub: MathNode[] | null = null;
-    let sup: MathNode[] | null = null;
-    for (let k = 0; k < 2; k += 1) {
-      skipSpaces();
-      if (peek() === '_' && !sub) {
-        pos += 1;
-        sub = readGroupNodes();
-      } else if (peek() === '^' && !sup) {
-        pos += 1;
-        sup = readGroupNodes();
-      } else {
-        break;
-      }
-    }
-    return { sub, sup };
-  };
-
-  const parseLeftRight = (): MathNode => {
-    skipSpaces();
-    let openDelim = '';
-    if (peek() === '\\') {
-      openDelim = readMacroName();
-    } else if (!eof()) {
-      openDelim = src[pos];
-      pos += 1;
-    }
-
-    // Read until matching \right
-    const start = pos;
-    let depth = 1;
-    let closeDelim = '';
-    while (!eof() && depth > 0) {
-      if (src.startsWith('\\left', pos) && !/[a-zA-Z]/.test(src[pos + 5] ?? '')) {
-        depth += 1;
-        pos += 5;
-        continue;
-      }
-      if (src.startsWith('\\right', pos) && !/[a-zA-Z]/.test(src[pos + 6] ?? '')) {
-        depth -= 1;
-        if (depth === 0) {
-          const bodyRaw = src.slice(start, pos).trim();
-          pos += 6;
-          skipSpaces();
-          if (peek() === '\\') closeDelim = readMacroName();
-          else if (!eof()) {
-            closeDelim = src[pos];
-            pos += 1;
-          }
-
-          // Special case: \left. F \right|_{a}^{b} or \right\|_{a}^{b}
-          if (openDelim === '.' && (closeDelim === '|' || closeDelim === '\\|')) {
-            const { sub, sup } = readSubSup();
-            const cmd = COMMANDS_BY_ID.get('eval_bar')!;
-            return createStructNode(cmd, [
-              parseFragment(bodyRaw),
-              sub ?? [],
-              sup ?? [],
-            ]);
-          }
-
-          let cmdId: string | null = null;
-          if (openDelim === '(' && closeDelim === ')') cmdId = 'paren';
-          else if (openDelim === '|' && closeDelim === '|') cmdId = 'abs';
-          else if (openDelim === '[' && closeDelim === ']') cmdId = 'bracket';
-          else if (openDelim === '\\{' && closeDelim === '\\}') cmdId = 'brace';
-          else if (
-            (openDelim === '\\Vert' || openDelim === '\\|') &&
-            (closeDelim === '\\Vert' || closeDelim === '\\|')
-          ) {
-            cmdId = 'norm';
-          } else if (openDelim === '\\langle' && closeDelim === '\\rangle') cmdId = 'angle';
-          else if (openDelim === '\\lfloor' && closeDelim === '\\rfloor') cmdId = 'floor';
-          else if (openDelim === '\\lceil' && closeDelim === '\\rceil') cmdId = 'ceil';
-
-          if (cmdId) {
-            const cmd = COMMANDS_BY_ID.get(cmdId)!;
-            return createStructNode(cmd, [parseFragment(bodyRaw)]);
-          }
-
-          diagnostics.push({
-            severity: 'warning',
-            message: `保留自定义定界符 \\left${openDelim}...\\right${closeDelim}`,
-          });
-          return createRawNode(`\\left${openDelim}${bodyRaw}\\right${closeDelim}`);
-        }
-        pos += 6;
-        continue;
-      }
-      pos += 1;
-    }
-
-    diagnostics.push({ severity: 'error', message: '缺少与 \\left 匹配的 \\right' });
-    return createRawNode(`\\left${openDelim}${src.slice(start)}`);
-  };
-
-  const parseEnvironment = (): MathNode => {
-    const envName = readBracedRaw().trim();
-    const endToken = `\\end{${envName}}`;
-    const endIdx = src.indexOf(endToken, pos);
-    if (endIdx === -1) {
-      diagnostics.push({ severity: 'error', message: `缺少 \\end{${envName}}` });
-      const rest = src.slice(pos);
-      pos = src.length;
-      return createRawNode(`\\begin{${envName}}${rest}`);
-    }
-    const body = src.slice(pos, endIdx).trim();
-    pos = endIdx + endToken.length;
-
-    if (envName === 'gathered' || envName === 'aligned') {
-      return createRawNode(`\\begin{${envName}}${body}\\end{${envName}}`);
-    }
-
-    const rows = body.split('\\\\').map((r) => r.trim()).filter((r) => r.length > 0);
-    const cells = rows.map((r) => r.split('&').map((c) => c.trim()));
-
-    if (envName === 'cases') {
-      if (rows.length === 2 && cells.every((r) => r.length <= 2)) {
-        const cmd = COMMANDS_BY_ID.get('cases_2')!;
-        return createStructNode(cmd, [
-          parseFragment(cells[0][0] ?? ''),
-          parseFragment(cells[0][1] ?? ''),
-          parseFragment(cells[1][0] ?? ''),
-          parseFragment(cells[1][1] ?? ''),
-        ]);
-      }
-      if (rows.length === 3 && cells.every((r) => r.length <= 2)) {
-        const cmd = COMMANDS_BY_ID.get('cases_3')!;
-        return createStructNode(cmd, [
-          parseFragment(cells[0][0] ?? ''),
-          parseFragment(cells[0][1] ?? ''),
-          parseFragment(cells[1][0] ?? ''),
-          parseFragment(cells[1][1] ?? ''),
-          parseFragment(cells[2][0] ?? ''),
-          parseFragment(cells[2][1] ?? ''),
-        ]);
-      }
-    }
-
-    const matMap = MATRIX_ENV_MAP[envName];
-    if (matMap) {
-      if (rows.length === 2 && cells.every((r) => r.length === 2)) {
-        const cmd = COMMANDS_BY_ID.get(matMap.two)!;
-        return createStructNode(
-          cmd,
-          cells.flat().map((c) => parseFragment(c)),
-        );
-      }
-      if (rows.length === 3 && cells.every((r) => r.length === 3)) {
-        const cmd = COMMANDS_BY_ID.get(matMap.three)!;
-        return createStructNode(
-          cmd,
-          cells.flat().map((c) => parseFragment(c)),
-        );
-      }
-    }
-
-    diagnostics.push({ severity: 'warning', message: `以原生 LaTeX 保留环境 ${envName}` });
-    return createRawNode(`\\begin{${envName}}${body}\\end{${envName}}`);
-  };
-
-  const readBigOpBody = (): MathNode[] => {
-    skipSpaces();
-    const out: MathNode[] = [];
-    while (!eof()) {
-      const ch = peek();
-      if (ch === '=' || ch === ',' || ch === ';' || ch === ')' || ch === ']') break;
-      if (ch === '+' || ch === '-') {
-        if (out.length > 0) break;
-      }
-      if (src.startsWith('\\\\', pos)) break;
-      const node = parseTerm();
-      if (!node) break;
-      out.push(node);
-    }
-    return out;
-  };
-
-  const parseAtom = (): MathNode | null => {
-    skipSpaces();
-    if (eof()) return null;
-    const ch = peek();
-
-    if (ch === '{') {
-      const raw = readBracedRaw();
-      const inner = parseFragment(raw);
-      if (inner.length === 1) return inner[0];
-      // Check if immediately followed by ^ or _ — attach to group
-      return createRawNode(`{${raw}}`);
-    }
-
-    if (ch === '\\') {
-      const macro = readMacroName();
-
-      if (macro === '\\\\') {
-        return createRawNode('\\\\');
-      }
-      if (macro === '\\,' || macro === '\\;' || macro === '\\!' || macro === '\\ ') {
-        return createCharNode(' ');
-      }
-      if (macro === '\\frac') {
-        const numRaw = readBracedRaw();
-        const denRaw = readBracedRaw();
-        // Recognize partial_frac and total_frac cleanly
-        const pNum = numRaw.trim().match(/^\\partial\s+([\s\S]+)$/);
-        const pDen = denRaw.trim().match(/^\\partial\s+([\s\S]+)$/);
-        if (pNum && pDen) {
-          return createStructNode(COMMANDS_BY_ID.get('partial_frac')!, [
-            parseFragment(pNum[1]),
-            parseFragment(pDen[1]),
-          ]);
-        }
-        const tNum = numRaw.trim().match(/^\\mathrm\{d\}\s*([\s\S]+)$/);
-        const tDen = denRaw.trim().match(/^\\mathrm\{d\}\s*([\s\S]+)$/);
-        if (tNum && tDen) {
-          return createStructNode(COMMANDS_BY_ID.get('total_frac')!, [
-            parseFragment(tNum[1]),
-            parseFragment(tDen[1]),
-          ]);
-        }
-        return createStructNode(COMMANDS_BY_ID.get('frac')!, [
-          parseFragment(numRaw),
-          parseFragment(denRaw),
-        ]);
-      }
-      if (macro === '\\sqrt') {
-        const opt = readBracketRaw();
-        const body = readGroupNodes();
-        if (opt !== null) {
-          return createStructNode(COMMANDS_BY_ID.get('nth_root')!, [
-            parseFragment(opt),
-            body,
-          ]);
-        }
-        return createStructNode(COMMANDS_BY_ID.get('sqrt')!, [body]);
-      }
-      if (macro === '\\binom') {
-        const n = readGroupNodes();
-        const k = readGroupNodes();
-        return createStructNode(COMMANDS_BY_ID.get('binom')!, [n, k]);
-      }
-      if (macro === '\\int') {
-        const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
-        if (sub || sup) {
-          return createStructNode(COMMANDS_BY_ID.get('integral')!, [
-            sub ?? [],
-            sup ?? [],
-            body,
-          ]);
-        }
-        return createStructNode(COMMANDS_BY_ID.get('indef_integral')!, [body]);
-      }
-      if (macro === '\\sum') {
-        const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
-        return createStructNode(COMMANDS_BY_ID.get('sum')!, [
-          sub ?? [],
-          sup ?? [],
-          body,
-        ]);
-      }
-      if (macro === '\\prod') {
-        const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
-        return createStructNode(COMMANDS_BY_ID.get('product')!, [
-          sub ?? [],
-          sup ?? [],
-          body,
-        ]);
-      }
-      if (macro === '\\iint' || macro === '\\oint' || macro === '\\iiint') {
-        const idMap: Record<string, string> = {
-          '\\iint': 'double_integral',
-          '\\oint': 'contour_integral',
-          '\\iiint': 'triple_integral',
-        };
-        const { sub } = readSubSup();
-        const body = readBigOpBody();
-        return createStructNode(COMMANDS_BY_ID.get(idMap[macro])!, [sub ?? [], body]);
-      }
-      if (macro === '\\lim') {
-        skipSpaces();
-        let varNodes: MathNode[] = [];
-        let targetNodes: MathNode[] = [];
-        if (peek() === '_') {
-          pos += 1;
-          const subRaw = peek() === '{' ? readBracedRaw() : '';
-          const arrowSplit = subRaw.split(/\\to\b|\\rightarrow\b/);
-          if (arrowSplit.length >= 2) {
-            varNodes = parseFragment(arrowSplit[0].trim());
-            targetNodes = parseFragment(arrowSplit.slice(1).join('\\to').trim());
-          } else {
-            varNodes = parseFragment(subRaw);
-          }
-        }
-        const body = readBigOpBody();
-        return createStructNode(COMMANDS_BY_ID.get('limit')!, [
-          varNodes,
-          targetNodes,
-          body,
-        ]);
-      }
-      if (macro === '\\overbrace') {
-        const body = readGroupNodes();
-        const { sup } = readSubSup();
-        return createStructNode(COMMANDS_BY_ID.get('overbrace')!, [body, sup ?? []]);
-      }
-      if (macro === '\\underbrace') {
-        const body = readGroupNodes();
-        const { sub } = readSubSup();
-        return createStructNode(COMMANDS_BY_ID.get('underbrace')!, [body, sub ?? []]);
-      }
-      if (ACCENT_MAP[macro]) {
-        const body = readGroupNodes();
-        return createStructNode(COMMANDS_BY_ID.get(ACCENT_MAP[macro])!, [body]);
-      }
-      if (macro === '\\left') {
-        return parseLeftRight();
-      }
-      if (macro === '\\begin') {
-        return parseEnvironment();
-      }
-      if (macro === '\\mathrm' || macro === '\\mathbf' || macro === '\\mathbb' || macro === '\\mathcal' || macro === '\\text') {
-        const arg = readBracedRaw();
-        return createRawNode(`${macro}{${arg}}`);
-      }
-
-      const fnName = macro.slice(1);
-      if (MATH_FUNCTIONS.has(fnName)) {
-        // Return first char and handle via caller? Better: wrap as RawNode or char list?
-        // Actually returning RawNode(macro) preserves exact TeX function cleanly!
-        return createRawNode(macro);
-      }
-
-      const sym = lookupSymbol(macro);
-      if (sym) {
-        return createSymbolNode(sym);
-      }
-
-      // Escaped literal punctuation
-      if (macro === '\\%' || macro === '\\#' || macro === '\\&' || macro === '\\$' || macro === '\\_') {
-        return createCharNode(macro[1]);
-      }
-
-      diagnostics.push({ severity: 'warning', message: `保留未内置宏 ${macro}` });
-      return createRawNode(macro);
-    }
-
-    pos += 1;
-    return createCharNode(ch);
-  };
-
-  const parseTerm = (): MathNode | null => {
-    skipSpaces();
-    if (eof()) return null;
-
-    // Special case: `{base}^{sup}` or `{base}_{sub}` -> unwrap base directly into sup/sub/subsup!
-    let baseNodes: MathNode[] | null = null;
-    if (peek() === '{') {
-      const raw = readBracedRaw();
-      baseNodes = parseFragment(raw);
-    } else {
-      const atom = parseAtom();
-      if (!atom) return null;
-      baseNodes = [atom];
-    }
-
-    skipSpaces();
-    if (peek() === '^' || peek() === '_') {
-      const { sub, sup } = readSubSup();
-      if (sub && sup) {
-        return createStructNode(COMMANDS_BY_ID.get('subsup')!, [baseNodes, sub, sup]);
-      }
-      if (sup) {
-        return createStructNode(COMMANDS_BY_ID.get('sup')!, [baseNodes, sup]);
-      }
-      if (sub) {
-        return createStructNode(COMMANDS_BY_ID.get('sub')!, [baseNodes, sub]);
-      }
-    }
-
-    if (baseNodes.length === 1) return baseNodes[0];
-    return createRawNode(`{${baseNodes.map((n) => (n.type === 'char' ? n.value : '')).join('')}}`);
-  };
-
-  // Top-level parse loop
   const nodes = parseLatexNodes(src, diagnostics);
   const doc = createEmptyDocument();
   doc.root = createSlot('公式', nodes);
-  // Reference helper to keep TS happy if unused
-  void parseTerm;
   return {
     doc,
     diagnostics,
     lossless: diagnostics.length === 0,
   };
+}
+
+function endsWithDifferential(nodes: readonly MathNode[]): boolean {
+  if (nodes.length === 0) return false;
+  const last = nodes[nodes.length - 1];
+  const prev = nodes.length >= 2 ? nodes[nodes.length - 2] : undefined;
+
+  // Case 1: `\mathrm{d}` followed by single variable char or Greek symbol (e.g. `\mathrm{d}x`, `\mathrm{d}\theta`)
+  if (
+    prev?.type === 'raw' &&
+    prev.latex === '\\mathrm{d}' &&
+    ((last.type === 'char' && /^[a-zA-Z]$/.test(last.value)) || last.type === 'symbol')
+  ) {
+    return true;
+  }
+
+  // Case 2: trailing alphabetic word is a differential token (`dx`, `dt`, `dy`, `dtheta`, ...)
+  if (last.type === 'char' && /^[a-zA-Z]$/.test(last.value)) {
+    let i = nodes.length - 1;
+    let word = '';
+    while (i >= 0 && nodes[i].type === 'char' && /^[a-zA-Z]$/.test((nodes[i] as { value: string }).value)) {
+      word = (nodes[i] as { value: string }).value + word;
+      i -= 1;
+    }
+    if (DIFFERENTIAL_WORDS[word]) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
@@ -685,6 +292,18 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     return '\\' + ch;
   };
 
+  const peekMacroName = (): string | null => {
+    if (peek() !== '\\') return null;
+    if (pos + 1 >= src.length) return '\\';
+    const ch = src[pos + 1];
+    if (/[a-zA-Z]/.test(ch)) {
+      let end = pos + 1;
+      while (end < src.length && /[a-zA-Z]/.test(src[end])) end += 1;
+      return '\\' + src.slice(pos + 1, end);
+    }
+    return '\\' + ch;
+  };
+
   const readBracedRaw = (): string => {
     skipSpaces();
     if (peek() !== '{') return '';
@@ -727,13 +346,48 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     return content;
   };
 
+  /**
+   * Scans a matched plain `(...)` or `[...]` delimiter pair (respecting escapes, braces, and nested `\left..\right`).
+   * Returns inner raw string and advances `pos` past the matching close char, or returns `null` if unmatched.
+   */
+  const tryReadPlainDelimRaw = (openCh: '(' | '[', closeCh: ')' | ']'): string | null => {
+    if (peek() !== openCh) return null;
+    let scan = pos + 1;
+    let depth = 1;
+    let braceDepth = 0;
+    while (scan < src.length && depth > 0) {
+      if (src[scan] === '\\') {
+        scan += 2;
+        continue;
+      }
+      if (src[scan] === '{') {
+        braceDepth += 1;
+        scan += 1;
+        continue;
+      }
+      if (src[scan] === '}') {
+        braceDepth = Math.max(0, braceDepth - 1);
+        scan += 1;
+        continue;
+      }
+      if (braceDepth === 0) {
+        if (src[scan] === openCh) depth += 1;
+        else if (src[scan] === closeCh) depth -= 1;
+      }
+      if (depth > 0) scan += 1;
+    }
+    if (depth !== 0) return null;
+    const inner = src.slice(pos + 1, scan);
+    pos = scan + 1;
+    return inner;
+  };
+
   const readGroupNodes = (): MathNode[] => {
     skipSpaces();
     if (peek() === '{') {
       return parseLatexNodes(readBracedRaw(), diagnostics);
     }
-    const single = parseSingleUnit();
-    return single;
+    return parseSingleUnit();
   };
 
   const readSubSup = (): { sub: MathNode[] | null; sup: MathNode[] | null } => {
@@ -841,14 +495,27 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     const body = src.slice(pos, endIdx).trim();
     pos = endIdx + endToken.length;
 
-    if (envName === 'gathered' || envName === 'equation' || envName === 'equation*' || envName === 'gather' || envName === 'gather*') {
-      return parseLatexNodes(body, diagnostics);
+    if (
+      envName === 'gathered' ||
+      envName === 'aligned' ||
+      envName === 'align' ||
+      envName === 'align*' ||
+      envName === 'equation' ||
+      envName === 'equation*' ||
+      envName === 'gather' ||
+      envName === 'gather*'
+    ) {
+      // Strip alignment `&` markers cleanly so lines import into editable multi-line root AST
+      const cleaned = body.replace(/(?<!\\)&/g, '');
+      return parseLatexNodes(cleaned, diagnostics);
     }
 
-    const rows = body.split('\\\\').map((r) => r.trim()).filter((r) => r.length > 0);
-    const cells = rows.map((r) => r.split('&').map((c) => c.trim()));
+    const rows = splitTopLevel(body, '\\\\')
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0);
+    const cells = rows.map((r) => splitTopLevel(r, '&').map((c) => c.trim()));
 
-    if (envName === 'cases') {
+    if (envName === 'cases' && rows.length >= 1) {
       if (rows.length === 2 && cells.every((r) => r.length <= 2)) {
         return [
           createStructNode(COMMANDS_BY_ID.get('cases_2')!, [
@@ -871,33 +538,95 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
           ]),
         ];
       }
+      // Dynamic N-row cases!
+      const slotLabels: string[] = [];
+      const slotContents: MathNode[][] = [];
+      for (let r = 0; r < rows.length; r += 1) {
+        slotLabels.push(`表达式${r + 1}`, `条件${r + 1}`);
+        slotContents.push(
+          parseLatexNodes(cells[r][0] ?? '', diagnostics),
+          parseLatexNodes(cells[r][1] ?? '', diagnostics),
+        );
+      }
+      const struct = createStructNode(
+        { id: 'cases_2', slots: slotLabels, latex: '' },
+        slotContents,
+      );
+      struct.grid = { env: 'cases', rows: rows.length, cols: 2 };
+      return [struct];
     }
 
-    const matMap = MATRIX_ENV_MAP[envName];
-    if (matMap) {
-      if (rows.length === 2 && cells.every((r) => r.length === 2)) {
+    if (SUPPORTED_MATRIX_ENVS.has(envName) && rows.length >= 1) {
+      const colCount = Math.max(...cells.map((r) => r.length), 1);
+      const matMap = MATRIX_ENV_MAP[envName];
+      if (matMap && rows.length === 2 && colCount === 2) {
         return [
           createStructNode(
             COMMANDS_BY_ID.get(matMap.two)!,
-            cells.flat().map((c) => parseLatexNodes(c, diagnostics)),
+            cells.flatMap((r) => [
+              parseLatexNodes(r[0] ?? '', diagnostics),
+              parseLatexNodes(r[1] ?? '', diagnostics),
+            ]),
           ),
         ];
       }
-      if (rows.length === 3 && cells.every((r) => r.length === 3)) {
+      if (matMap && rows.length === 3 && colCount === 3) {
         return [
           createStructNode(
             COMMANDS_BY_ID.get(matMap.three)!,
-            cells.flat().map((c) => parseLatexNodes(c, diagnostics)),
+            cells.flatMap((r) => [
+              parseLatexNodes(r[0] ?? '', diagnostics),
+              parseLatexNodes(r[1] ?? '', diagnostics),
+              parseLatexNodes(r[2] ?? '', diagnostics),
+            ]),
           ),
         ];
       }
+      // Dynamic R×C matrix!
+      const slotLabels: string[] = [];
+      const slotContents: MathNode[][] = [];
+      for (let r = 0; r < rows.length; r += 1) {
+        for (let c = 0; c < colCount; c += 1) {
+          slotLabels.push(`(${r + 1},${c + 1})`);
+          slotContents.push(parseLatexNodes(cells[r][c] ?? '', diagnostics));
+        }
+      }
+      const baseCmdId = matMap ? matMap.two : 'matrix_2x2';
+      const struct = createStructNode(
+        { id: baseCmdId, slots: slotLabels, latex: '' },
+        slotContents,
+      );
+      struct.grid = { env: envName, rows: rows.length, cols: colCount };
+      return [struct];
     }
 
     diagnostics.push({ severity: 'warning', message: `以原生 LaTeX 保留环境 ${envName}` });
     return [createRawNode(`\\begin{${envName}}${body}\\end{${envName}}`)];
   };
 
-  const readBigOpBody = (): MathNode[] => {
+  const BIGOP_BOUNDARY_MACROS = new Set([
+    '\\int',
+    '\\iint',
+    '\\iiint',
+    '\\oint',
+    '\\sum',
+    '\\prod',
+    '\\lim',
+    '\\sim',
+    '\\approx',
+    '\\equiv',
+    '\\le',
+    '\\leq',
+    '\\ge',
+    '\\geq',
+    '\\neq',
+    '\\ne',
+    '\\to',
+    '\\Rightarrow',
+    '\\Leftrightarrow',
+  ]);
+
+  const readBigOpBody = (isIntegral: boolean): MathNode[] => {
     skipSpaces();
     const out: MathNode[] = [];
     while (!eof()) {
@@ -913,10 +642,24 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       if (ch === '=' || ch === ',' || ch === ';' || ch === ')' || ch === ']' || ch === '~') break;
       if ((ch === '+' || ch === '-') && out.length > 0) break;
       if (src.startsWith('\\\\', pos)) break;
+
+      // Stop before a sibling relation or big operator once body has content (e.g. `\int_0^1 x dx \cdot \int_0^1 y dy`)
+      if (out.length > 0 && ch === '\\') {
+        const nextMacro = peekMacroName();
+        if (nextMacro && BIGOP_BOUNDARY_MACROS.has(nextMacro)) {
+          break;
+        }
+      }
+
       const before = pos;
       const units = parseTermUnits();
       if (units.length === 0 && pos === before) break;
       out.push(...units);
+
+      // For integrals, cleanly close the integrand right after reading the differential (`dx`, `\mathrm{d}x`, etc.)!
+      if (isIntegral && endsWithDifferential(out)) {
+        break;
+      }
     }
     return out;
   };
@@ -935,10 +678,40 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       return parseLatexNodes(raw, diagnostics);
     }
 
+    // Parse matched plain `(...)` and `[...]` into real autoSized delimiter structs so hierarchy & jump survive roundtrip!
+    if (ch === '(') {
+      const inner = tryReadPlainDelimRaw('(', ')');
+      if (inner !== null) {
+        const struct = createStructNode(COMMANDS_BY_ID.get('paren')!, [
+          parseLatexNodes(inner, diagnostics),
+        ]);
+        struct.autoSized = true;
+        return [struct];
+      }
+    }
+    if (ch === '[') {
+      const inner = tryReadPlainDelimRaw('[', ']');
+      if (inner !== null) {
+        const struct = createStructNode(COMMANDS_BY_ID.get('bracket')!, [
+          parseLatexNodes(inner, diagnostics),
+        ]);
+        struct.autoSized = true;
+        return [struct];
+      }
+    }
+
     if (ch === '\\') {
       const macro = readMacroName();
       if (macro === '\\\\') return [createRawNode('\\\\')];
-      if (macro === '\\,' || macro === '\\;' || macro === '\\:' || macro === '\\!' || macro === '\\ ' || macro === '\\quad' || macro === '\\qquad') {
+      if (
+        macro === '\\,' ||
+        macro === '\\;' ||
+        macro === '\\:' ||
+        macro === '\\!' ||
+        macro === '\\ ' ||
+        macro === '\\quad' ||
+        macro === '\\qquad'
+      ) {
         return [createCharNode(' ')];
       }
       if (
@@ -1007,7 +780,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       }
       if (macro === '\\int') {
         const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
+        const body = readBigOpBody(true);
         if (sub || sup) {
           return [
             createStructNode(COMMANDS_BY_ID.get('integral')!, [
@@ -1021,12 +794,12 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       }
       if (macro === '\\sum') {
         const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
+        const body = readBigOpBody(false);
         return [createStructNode(COMMANDS_BY_ID.get('sum')!, [sub ?? [], sup ?? [], body])];
       }
       if (macro === '\\prod') {
         const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
+        const body = readBigOpBody(false);
         return [createStructNode(COMMANDS_BY_ID.get('product')!, [sub ?? [], sup ?? [], body])];
       }
       if (macro === '\\iint' || macro === '\\oint' || macro === '\\iiint') {
@@ -1036,7 +809,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
           '\\iiint': 'triple_integral',
         };
         const { sub } = readSubSup();
-        const body = readBigOpBody();
+        const body = readBigOpBody(true);
         return [createStructNode(COMMANDS_BY_ID.get(idMap[macro])!, [sub ?? [], body])];
       }
       if (macro === '\\lim') {
@@ -1054,7 +827,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
             varNodes = parseLatexNodes(subRaw, diagnostics);
           }
         }
-        const body = readBigOpBody();
+        const body = readBigOpBody(false);
         return [createStructNode(COMMANDS_BY_ID.get('limit')!, [varNodes, targetNodes, body])];
       }
       if (macro === '\\overbrace') {
@@ -1071,25 +844,22 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
         const body = readGroupNodes();
         return [createStructNode(COMMANDS_BY_ID.get(ACCENT_MAP[macro])!, [body])];
       }
-      if (macro === '\\left') {
-        return [parseLeftRight()];
-      }
-      if (macro === '\\begin') {
-        return parseEnvironment();
-      }
+      if (macro === '\\left') return [parseLeftRight()];
+      if (macro === '\\begin') return parseEnvironment();
+
       if (
         macro === '\\mathrm' ||
         macro === '\\mathbf' ||
         macro === '\\mathbb' ||
         macro === '\\mathcal' ||
-        macro === '\\mathfrak' ||
-        macro === '\\boldsymbol' ||
         macro === '\\text' ||
-        macro === '\\textbf' ||
-        macro === '\\textit' ||
         macro === '\\operatorname'
       ) {
         const arg = readBracedRaw();
+        if (macro === '\\mathbb') {
+          const setSym = lookupSymbol(`\\mathbb{${arg}}`);
+          if (setSym) return [createSymbolNode(setSym)];
+        }
         return [createRawNode(`${macro}{${arg}}`)];
       }
 
@@ -1099,9 +869,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       }
 
       const sym = lookupSymbol(macro);
-      if (sym) {
-        return [createSymbolNode(sym)];
-      }
+      if (sym) return [createSymbolNode(sym)];
 
       if (
         macro === '\\%' ||
@@ -1129,7 +897,6 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     const base = parseSingleUnit();
     if (base.length === 0) return [];
 
-    // Check immediately following ^ or _ (skipping only spaces)
     const beforeSubSup = pos;
     skipSpaces();
     if (peek() === '^' || peek() === '_') {
@@ -1155,7 +922,6 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     const ch = peek();
     if (/\s/.test(ch)) {
       skipSpaces();
-      // Preserve a single meaningful space between adjacent alphanumeric tokens
       const prev = result[result.length - 1];
       if (prev && prev.type === 'char' && /[A-Za-z0-9]/.test(prev.value) && /[A-Za-z0-9]/.test(peek())) {
         result.push(createCharNode(' '));

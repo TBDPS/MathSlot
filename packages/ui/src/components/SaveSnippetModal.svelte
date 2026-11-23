@@ -2,17 +2,24 @@
   import { onMount } from 'svelte';
   import { renderLatexPreview } from '../katexRenderer';
 
+  import type { LeaderKey } from '@mathslot/core';
+
   interface Props {
     latex: string;
     defaultName: string;
-    onSave: (name: string) => void;
+    leaderKey?: LeaderKey;
+    usedKeys?: string[];
+    onSave: (name: string, key?: string) => void;
     onClose: () => void;
   }
 
-  let { latex, defaultName, onSave, onClose }: Props = $props();
+  let { latex, defaultName, leaderKey = 'Tab', usedKeys = [], onSave, onClose }: Props = $props();
 
   let name = $state('');
+  let key = $state('');
   let inputEl: HTMLInputElement | null = $state(null);
+
+  const keyConflict = $derived(key.trim().length === 1 && usedKeys.includes(key.trim()));
 
   onMount(() => {
     name = defaultName;
@@ -24,8 +31,9 @@
 
   function submit(): void {
     const clean = name.trim();
-    if (!clean) return;
-    onSave(clean);
+    if (!clean || keyConflict) return;
+    const cleanKey = key.trim().slice(0, 1);
+    onSave(clean, cleanKey || undefined);
     onClose();
   }
 </script>
@@ -62,9 +70,22 @@
       />
     </label>
 
+    <label class="field">
+      <span>快捷键（{leaderKey} t + 键，可选）</span>
+      <input
+        bind:value={key}
+        type="text"
+        maxlength="1"
+        placeholder="例如 a，保存后可按 Tab t a 直接插入"
+      />
+      {#if keyConflict}
+        <span class="warn-text">快捷键 {leaderKey} t {key.trim()} 已被其他片段占用</span>
+      {/if}
+    </label>
+
     <div class="modal-foot">
       <button type="button" class="btn-ghost" onclick={onClose}>取消</button>
-      <button type="button" class="btn-primary" disabled={!name.trim()} onclick={submit}>
+      <button type="button" class="btn-primary" disabled={!name.trim() || keyConflict} onclick={submit}>
         保存
       </button>
     </div>
@@ -148,6 +169,11 @@
 
   .field input:focus {
     border-color: var(--ms-accent);
+  }
+
+  .warn-text {
+    font-size: 11.5px;
+    color: var(--ms-danger);
   }
 
   .modal-foot {

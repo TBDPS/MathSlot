@@ -5,11 +5,13 @@ import {
   createCharNode,
   createEmptyDocument,
   createRawNode,
+  createSlot,
   createStructNode,
   createSymbolNode,
   findSlot,
   findSlotPath,
   getBreadcrumbs,
+  getGridMeta,
   isStructEmpty,
   textToCharNodes,
 } from './ast';
@@ -19,6 +21,7 @@ import { importFormula } from './parser';
 import { matchTrailingShorthand } from './shorthands';
 import { getSlotOrder } from './slotOrder';
 import type {
+  ActiveGridInfo,
   AppSettings,
   Cursor,
   CustomCommandDef,
@@ -29,6 +32,8 @@ import type {
   MathNode,
   Selection,
   SlotNode,
+  Snippet,
+  StructNode,
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
@@ -46,6 +51,7 @@ export class MathSlotEngine {
   private mode: EditorMode = { kind: 'edit' };
   private settings: AppSettings;
   private customCommands: CustomCommandDef[] = [];
+  private snippets: Snippet[] = [];
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
   private jumpHistory: Cursor[] = [];
@@ -66,6 +72,14 @@ export class MathSlotEngine {
     return [...this.customCommands];
   }
 
+  public setSnippets(snippets: Snippet[]): void {
+    this.snippets = [...snippets];
+  }
+
+  public getSnippets(): Snippet[] {
+    return [...this.snippets];
+  }
+
   public getSettings(): AppSettings {
     return { ...this.settings };
   }
@@ -76,6 +90,29 @@ export class MathSlotEngine {
 
   public setFocused(focused: boolean): void {
     this.focused = focused;
+  }
+
+  private getActiveGridInfo(): ActiveGridInfo | null {
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return null;
+    for (let i = path.length - 1; i >= 1; i -= 1) {
+      const entry = path[i];
+      if (!entry.parentStruct) continue;
+      const meta = getGridMeta(entry.parentStruct);
+      if (meta) {
+        const sIdx = entry.slotIndexInStruct;
+        return {
+          structId: entry.parentStruct.id,
+          env: meta.env,
+          rows: meta.rows,
+          cols: meta.cols,
+          row: Math.floor(sIdx / meta.cols),
+          col: sIdx % meta.cols,
+          canEditCols: meta.env !== 'cases',
+        };
+      }
+    }
+    return null;
   }
 
   public getSnapshot(): EditorSnapshot {
@@ -92,7 +129,8 @@ export class MathSlotEngine {
       mode: this.mode,
       latex,
       interactiveLatex,
-      breadcrumbs: getBreadcrumbs(this.doc.root, this.cursor.slotId),
+      breadcrumbs: getBreadcrumbs(this.doc.root, this.cursor.slotId, this.customCommands),
+      activeGrid: this.getActiveGridInfo(),
       emptySlotCount: countEmptySlots(this.doc.root),
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
@@ -285,6 +323,44 @@ export class MathSlotEngine {
     return false;
   }
 
+  public setSelection(slotId: string, anchorOffset: number, focusOffset: number): void {
+    const slot = findSlot(this.doc.root, slotId);
+    if (!slot) return;
+    const a = Math.max(0, Math.min(anchorOffset, slot.children.length));
+    const b = Math.max(0, Math.min(focusOffset, slot.children.length));
+    this.cursor = { slotId: slot.id, offset: b };
+    this.setSelectionRange(slot.id, a, b);
+    this.mode = { kind: 'edit' };
+  }
+
+  public selectWordOrAtomAt(slotId: string, offset: number): void {
+    const slot = findSlot(this.doc.root, slotId);
+    if (!slot || slot.children.length === 0) return;
+    const idx = Math.max(0, Math.min(offset, slot.children.length - 1));
+    const target = slot.children[idx];
+    if (target.type === 'char' && /[A-Za-z0-9]/.test(target.value)) {
+      let start = idx;
+      let end = idx + 1;
+      while (start > 0) {
+        const c = slot.children[start - 1];
+        if (c.type === 'char' && /[A-Za-z0-9]/.test(c.value)) start -= 1;
+        else break;
+      }
+      while (end < slot.children.length) {
+        const c = slot.children[end];
+        if (c.type === 'char' && /[A-Za-z0-9]/.test(c.value)) end += 1;
+        else break;
+      }
+      this.cursor = { slotId: slot.id, offset: end };
+      this.selection = { slotId: slot.id, start, end };
+      this.mode = { kind: 'edit' };
+      return;
+    }
+    this.cursor = { slotId: slot.id, offset: idx + 1 };
+    this.selection = { slotId: slot.id, start: idx, end: idx + 1 };
+    this.mode = { kind: 'edit' };
+  }
+
   public setCursor(slotId: string, offset: number): void {
     const slot = findSlot(this.doc.root, slotId);
     if (!slot) return;
@@ -465,6 +541,40 @@ export class MathSlotEngine {
     return true;
   }
 
+  public insertSnippetAtCursor(snippet: Pick<Snippet, 'latex'>): boolean {
+    const res = importFormula(snippet.latex);
+    const hasErr = res.diagnostics.some((d) => d.severity === 'error');
+    if (hasErr || res.doc.root.children.length === 0) return false;
+    this.pushHistory();
+    this.deleteSelectionInternal();
+    const slot = this.currentSlot();
+    const inserted = res.doc.root.children;
+    slot.children.splice(this.cursor.offset, 0, ...inserted);
+    const afterOffset = this.cursor.offset + inserted.length;
+    this.mode = { kind: 'edit' };
+
+    // Jump straight into the first empty slot inside the inserted snippet if one exists!
+    const findFirstEmpty = (nodes: readonly MathNode[]): SlotNode | null => {
+      for (const n of nodes) {
+        if (n.type === 'struct') {
+          for (const sub of n.slots) {
+            if (sub.children.length === 0) return sub;
+            const deeper = findFirstEmpty(sub.children);
+            if (deeper) return deeper;
+          }
+        }
+      }
+      return null;
+    };
+    const firstEmpty = findFirstEmpty(inserted);
+    if (firstEmpty) {
+      this.cursor = { slotId: firstEmpty.id, offset: 0 };
+    } else {
+      this.cursor = { slotId: slot.id, offset: afterOffset };
+    }
+    return true;
+  }
+
   public acceptSubmenuDefault(): boolean {
     if (this.mode.kind !== 'leader' || this.mode.prefix === '') return false;
     const { prefix } = this.mode;
@@ -474,6 +584,13 @@ export class MathSlotEngine {
       if (firstCustom) {
         this.insertCommand(firstCustom.id);
         return true;
+      }
+      return false;
+    }
+    if (prefix === 't') {
+      const firstSnippet = this.snippets[0];
+      if (firstSnippet) {
+        return this.insertSnippetAtCursor(firstSnippet);
       }
       return false;
     }
@@ -496,7 +613,7 @@ export class MathSlotEngine {
         this.enterJumpMode();
         return { handled: true };
       }
-      if (SUBMENU_KEYS.has(key) || key === 'k') {
+      if (SUBMENU_KEYS.has(key) || key === 'k' || key === 't') {
         this.mode = { kind: 'leader', prefix: key };
         return { handled: true };
       }
@@ -522,6 +639,16 @@ export class MathSlotEngine {
       if (custom) {
         this.insertCommand(custom.id);
         return { handled: true, executedCommandId: custom.id };
+      }
+      return { handled: true };
+    }
+
+    if (prefix === 't') {
+      const snip = this.snippets.find((s) => s.key === key);
+      this.mode = { kind: 'edit' };
+      if (snip) {
+        this.insertSnippetAtCursor(snip);
+        return { handled: true, executedCommandId: snip.id };
       }
       return { handled: true };
     }
@@ -1023,12 +1150,59 @@ export class MathSlotEngine {
     const slotContents: MathNode[][] = cmd.slots.map(() => []);
     let wrappedSlotIdx: number | null = null;
 
+    const BACKWARD_WRAP_CMDS = new Set([
+      'hat',
+      'bar',
+      'vec',
+      'tilde',
+      'dot',
+      'ddot',
+      'overline',
+      'underline',
+      'sup',
+      'sub',
+      'subsup',
+    ]);
+
     if (this.selection && this.selection.slotId === slot.id) {
       const selected = this.deleteSelectionInternal();
       const targetIdx = cmd.wrapSlot ?? 0;
       if (targetIdx >= 0 && targetIdx < slotContents.length) {
         slotContents[targetIdx] = selected;
         wrappedSlotIdx = targetIdx;
+      }
+    } else if (
+      BACKWARD_WRAP_CMDS.has(cmd.id) &&
+      this.cursor.offset > 0 &&
+      cmd.wrapSlot === 0
+    ) {
+      // Smart backward atom wrap: e.g. `x` + `Tab a c` -> `\vec{x}`, `x` + `Tab u` -> `x^{□}`!
+      const prev = slot.children[this.cursor.offset - 1];
+      const isWrappable =
+        prev.type === 'symbol' ||
+        (prev.type === 'struct' &&
+          !['integral', 'sum', 'product', 'limit', 'double_integral', 'triple_integral', 'contour_integral'].includes(
+            prev.commandId,
+          )) ||
+        (prev.type === 'char' && !/^[\s+=,;:\-<>()[\]~]$/.test(prev.value));
+
+      if (isWrappable) {
+        let wrapped: MathNode[];
+        if (prev.type === 'char' && /[0-9]/.test(prev.value)) {
+          let start = this.cursor.offset - 1;
+          while (start > 0) {
+            const c = slot.children[start - 1];
+            if (c.type === 'char' && /[0-9]/.test(c.value)) start -= 1;
+            else break;
+          }
+          wrapped = slot.children.splice(start, this.cursor.offset - start);
+          this.cursor.offset = start;
+        } else {
+          wrapped = slot.children.splice(this.cursor.offset - 1, 1);
+          this.cursor.offset -= 1;
+        }
+        slotContents[0] = wrapped;
+        wrappedSlotIdx = 0;
       }
     } else if (
       cmd.wrapSlot !== null &&
@@ -1322,11 +1496,162 @@ export class MathSlotEngine {
     return true;
   }
 
+  private findActiveGridContext(): {
+    struct: StructNode;
+    env: string;
+    rows: number;
+    cols: number;
+    row: number;
+    col: number;
+    slotIdx: number;
+  } | null {
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return null;
+    for (let i = path.length - 1; i >= 1; i -= 1) {
+      const entry = path[i];
+      if (!entry.parentStruct) continue;
+      const meta = getGridMeta(entry.parentStruct);
+      if (meta) {
+        const sIdx = entry.slotIndexInStruct;
+        return {
+          struct: entry.parentStruct,
+          env: meta.env,
+          rows: meta.rows,
+          cols: meta.cols,
+          row: Math.floor(sIdx / meta.cols),
+          col: sIdx % meta.cols,
+          slotIdx: sIdx,
+        };
+      }
+    }
+    return null;
+  }
+
+  private relabelGridSlots(struct: StructNode, env: string, rows: number, cols: number): void {
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const s = struct.slots[r * cols + c];
+        if (!s) continue;
+        s.label = env === 'cases' ? (c === 0 ? `表达式${r + 1}` : `条件${r + 1}`) : `(${r + 1},${c + 1})`;
+      }
+    }
+  }
+
+  public addGridRow(): boolean {
+    const ctx = this.findActiveGridContext();
+    if (!ctx || ctx.rows >= 12) return false;
+    this.pushHistory();
+    const { struct, env, rows, cols, row } = ctx;
+    const insertRow = row + 1;
+    const newSlots: SlotNode[] = [];
+    for (let c = 0; c < cols; c += 1) {
+      newSlots.push(createSlot(env === 'cases' ? (c === 0 ? `表达式${insertRow + 1}` : `条件${insertRow + 1}`) : `(${insertRow + 1},${c + 1})`));
+    }
+    struct.slots.splice(insertRow * cols, 0, ...newSlots);
+    struct.grid = { env, rows: rows + 1, cols };
+    this.relabelGridSlots(struct, env, rows + 1, cols);
+    this.cursor = { slotId: newSlots[0].id, offset: 0 };
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return true;
+  }
+
+  public removeGridRow(): boolean {
+    const ctx = this.findActiveGridContext();
+    if (!ctx || ctx.rows <= 1) return false;
+    this.pushHistory();
+    const { struct, env, rows, cols, row, col } = ctx;
+    struct.slots.splice(row * cols, cols);
+    const nextRows = rows - 1;
+    struct.grid = { env, rows: nextRows, cols };
+    this.relabelGridSlots(struct, env, nextRows, cols);
+    const targetRow = Math.min(row, nextRows - 1);
+    const targetSlot = struct.slots[targetRow * cols + col] ?? struct.slots[0];
+    this.cursor = { slotId: targetSlot.id, offset: targetSlot.children.length };
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return true;
+  }
+
+  public addGridCol(): boolean {
+    const ctx = this.findActiveGridContext();
+    if (!ctx || ctx.env === 'cases' || ctx.cols >= 10) return false;
+    this.pushHistory();
+    const { struct, env, rows, cols, row, col } = ctx;
+    const insertCol = col + 1;
+    const nextCols = cols + 1;
+    let focusSlot: SlotNode | null = null;
+    for (let r = rows - 1; r >= 0; r -= 1) {
+      const slot = createSlot(`(${r + 1},${insertCol + 1})`);
+      struct.slots.splice(r * cols + insertCol, 0, slot);
+      if (r === row) focusSlot = slot;
+    }
+    struct.grid = { env, rows, cols: nextCols };
+    this.relabelGridSlots(struct, env, rows, nextCols);
+    if (focusSlot) {
+      this.cursor = { slotId: focusSlot.id, offset: 0 };
+    }
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return true;
+  }
+
+  public removeGridCol(): boolean {
+    const ctx = this.findActiveGridContext();
+    if (!ctx || ctx.env === 'cases' || ctx.cols <= 1) return false;
+    this.pushHistory();
+    const { struct, env, rows, cols, row, col } = ctx;
+    for (let r = rows - 1; r >= 0; r -= 1) {
+      struct.slots.splice(r * cols + col, 1);
+    }
+    const nextCols = cols - 1;
+    struct.grid = { env, rows, cols: nextCols };
+    this.relabelGridSlots(struct, env, rows, nextCols);
+    const targetCol = Math.min(col, nextCols - 1);
+    const targetSlot = struct.slots[row * nextCols + targetCol] ?? struct.slots[0];
+    this.cursor = { slotId: targetSlot.id, offset: targetSlot.children.length };
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return true;
+  }
+
+  private moveRootLineVertical(delta: -1 | 1): boolean {
+    const children = this.doc.root.children;
+    const lineBounds: { start: number; end: number }[] = [];
+    let start = 0;
+    for (let i = 0; i < children.length; i += 1) {
+      if (children[i].type === 'raw' && (children[i] as { latex: string }).latex.trim() === '\\\\') {
+        lineBounds.push({ start, end: i });
+        start = i + 1;
+      }
+    }
+    lineBounds.push({ start, end: children.length });
+    if (lineBounds.length <= 1) return false;
+
+    const curLine = lineBounds.findIndex(
+      (b) => this.cursor.offset >= b.start && this.cursor.offset <= b.end,
+    );
+    if (curLine < 0) return false;
+    const nextLine = curLine + delta;
+    if (nextLine < 0 || nextLine >= lineBounds.length) return false;
+    const colOffset = this.cursor.offset - lineBounds[curLine].start;
+    const target = lineBounds[nextLine];
+    this.cursor = {
+      slotId: this.doc.root.id,
+      offset: Math.min(target.start + colOffset, target.end),
+    };
+    return true;
+  }
+
   public moveUp(): void {
     this.mode = { kind: 'edit' };
     this.selection = null;
     const path = findSlotPath(this.doc.root, this.cursor.slotId);
-    if (!path || path.length <= 1) return;
+    if (!path) return;
+    if (path.length <= 1) {
+      this.moveRootLineVertical(-1);
+      return;
+    }
 
     const cur = path[path.length - 1];
     const parentStruct = cur.parentStruct!;
@@ -1367,27 +1692,15 @@ export class MathSlotEngine {
       this.cursor = { slotId: base.id, offset: base.children.length };
       return;
     }
-    // 2-column grids (2x2 matrices & cases)
-    if (
-      (cmdId === 'matrix_2x2' ||
-        cmdId === 'bmatrix_2x2' ||
-        cmdId === 'det_2x2' ||
-        cmdId === 'cases_2' ||
-        cmdId === 'cases_3') &&
-      sIdx >= 2
-    ) {
-      const above = parentStruct.slots[sIdx - 2];
-      this.cursor = { slotId: above.id, offset: above.children.length };
-      return;
-    }
-    // 3-column grids (3x3 matrices)
-    if (
-      (cmdId === 'matrix_3x3' || cmdId === 'bmatrix_3x3' || cmdId === 'det_3x3') &&
-      sIdx >= 3
-    ) {
-      const above = parentStruct.slots[sIdx - 3];
-      this.cursor = { slotId: above.id, offset: above.children.length };
-      return;
+
+    // Dynamic R×C grids (matrices & cases of any size!)
+    const grid = getGridMeta(parentStruct);
+    if (grid && sIdx >= grid.cols) {
+      const above = parentStruct.slots[sIdx - grid.cols];
+      if (above) {
+        this.cursor = { slotId: above.id, offset: above.children.length };
+        return;
+      }
     }
 
     // Otherwise step cleanly out one level to parent slot
@@ -1398,7 +1711,11 @@ export class MathSlotEngine {
     this.mode = { kind: 'edit' };
     this.selection = null;
     const path = findSlotPath(this.doc.root, this.cursor.slotId);
-    if (!path || path.length <= 1) return;
+    if (!path) return;
+    if (path.length <= 1) {
+      this.moveRootLineVertical(1);
+      return;
+    }
 
     const cur = path[path.length - 1];
     const parentStruct = cur.parentStruct!;
@@ -1438,25 +1755,14 @@ export class MathSlotEngine {
       this.cursor = { slotId: sub.id, offset: sub.children.length };
       return;
     }
-    if (
-      (cmdId === 'matrix_2x2' ||
-        cmdId === 'bmatrix_2x2' ||
-        cmdId === 'det_2x2' ||
-        cmdId === 'cases_2' ||
-        cmdId === 'cases_3') &&
-      sIdx + 2 < parentStruct.slots.length
-    ) {
-      const below = parentStruct.slots[sIdx + 2];
-      this.cursor = { slotId: below.id, offset: below.children.length };
-      return;
-    }
-    if (
-      (cmdId === 'matrix_3x3' || cmdId === 'bmatrix_3x3' || cmdId === 'det_3x3') &&
-      sIdx + 3 < parentStruct.slots.length
-    ) {
-      const below = parentStruct.slots[sIdx + 3];
-      this.cursor = { slotId: below.id, offset: below.children.length };
-      return;
+
+    const grid = getGridMeta(parentStruct);
+    if (grid && sIdx + grid.cols < parentStruct.slots.length) {
+      const below = parentStruct.slots[sIdx + grid.cols];
+      if (below) {
+        this.cursor = { slotId: below.id, offset: below.children.length };
+        return;
+      }
     }
 
     // Otherwise step cleanly out after current structure

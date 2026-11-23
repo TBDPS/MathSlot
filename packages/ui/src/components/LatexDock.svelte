@@ -8,6 +8,8 @@
     onCycleDelimiter: () => void;
     onSaveSnippet: () => void;
     onCopy: () => void;
+    onCopyMathML?: () => void;
+    onCopyPng?: () => void;
   }
 
   let {
@@ -17,6 +19,8 @@
     onCycleDelimiter,
     onSaveSnippet,
     onCopy,
+    onCopyMathML,
+    onCopyPng,
   }: Props = $props();
 
   let draft = $state('');
@@ -89,6 +93,30 @@
     >
       {delimiterLabel}
     </button>
+
+    {#if onCopyMathML}
+      <button
+        type="button"
+        class="dock-chip"
+        title="复制 Word / LibreOffice 原生公式 (MathML)"
+        onclick={onCopyMathML}
+        disabled={!latex.trim()}
+      >
+        Word
+      </button>
+    {/if}
+
+    {#if onCopyPng}
+      <button
+        type="button"
+        class="dock-chip"
+        title="复制高清透明 PNG 图片 (PPT / 微信 / 文档)"
+        onclick={onCopyPng}
+        disabled={!latex.trim()}
+      >
+        PNG
+      </button>
+    {/if}
 
     <button
       type="button"
@@ -168,9 +196,14 @@
     cursor: pointer;
   }
 
-  .dock-chip:hover {
+  .dock-chip:hover:not(:disabled) {
     border-color: var(--ms-accent);
     color: var(--ms-accent);
+  }
+
+  .dock-chip:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 
   .dock-icon-btn {
