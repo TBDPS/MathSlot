@@ -5,12 +5,19 @@ import {
   COMMANDS_BY_ID,
   COMMANDS_BY_KEYS,
   DIRECT_COMMANDS,
+  MathSlotEngine,
   PRESETS,
   SUBMENUS,
   commandPreviewLatex,
   getSubmenuCommands,
   importFormula,
+  mergeCommands,
+  mergePresets,
+  parseUserCommandsJson,
+  parseUserPresetsJson,
   searchCommands,
+  serializeUserCommandsJson,
+  serializeUserPresetsJson,
   toLatex,
 } from '../src';
 
@@ -66,5 +73,48 @@ describe('MathSlot catalog & presets integrity', () => {
       expect(latex, `preset ${preset.id} has raw >=`).not.toContain('>=');
       expect(latex, `preset ${preset.id} has raw +-`).not.toContain('+-');
     }
+  });
+
+  it('merges external presets.json and commands.json safely without recompile and executes new Tab chords live', () => {
+    const pRaw = serializeUserPresetsJson([
+      {
+        id: 'user-fourier',
+        category: '考研高数',
+        name: '傅里叶展开',
+        source: 'f(x) \\sim \\frac{a_0}{2} + \\sum_{n=1}^{\\infty} a_n \\cos nx',
+      },
+      { id: PRESETS[0].id, category: '', name: '', source: '', disabled: true },
+    ]);
+    const pParsed = parseUserPresetsJson(pRaw);
+    expect(pParsed.warnings).toEqual([]);
+    const mergedP = mergePresets(PRESETS, pParsed.entries);
+    expect(mergedP.some((p) => p.id === 'user-fourier' && p.category === '考研高数')).toBe(true);
+    expect(mergedP.some((p) => p.id === PRESETS[0].id)).toBe(false);
+
+    const cRaw = serializeUserCommandsJson([
+      {
+        id: 'user-laplace',
+        keys: ['c', 'z'],
+        label: '拉普拉斯变换',
+        category: 'calculus',
+        latex: '\\mathcal{L}\\left\\{$1\\right\\}',
+        slots: ['原函数'],
+      },
+    ]);
+    const cParsed = parseUserCommandsJson(cRaw);
+    expect(cParsed.warnings).toEqual([]);
+    const mergedC = mergeCommands(COMMANDS, cParsed.entries);
+    const engine = new MathSlotEngine();
+    engine.setEffectiveCommands(mergedC);
+    engine.triggerLeader();
+    engine.handleLeaderKey('c');
+    engine.handleLeaderKey('z');
+    engine.insertText('f(t)');
+    expect(engine.getSnapshot().latex).toBe('\\mathcal{L}\\left\\{f(t)\\right\\}');
+
+    // Malformed JSON never throws
+    const bad = parseUserPresetsJson('{ broken json');
+    expect(bad.entries).toEqual([]);
+    expect(bad.warnings.length).toBeGreaterThan(0);
   });
 });

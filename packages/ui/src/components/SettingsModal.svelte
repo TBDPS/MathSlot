@@ -13,11 +13,27 @@
 
   interface Props {
     settings: AppSettings;
+    configDir?: string;
+    userPresetCount?: number;
+    userCommandCount?: number;
     onUpdate: (patch: Partial<AppSettings>) => void;
+    onOpenConfigDir?: () => void;
+    onReloadLibraries?: () => void;
+    onResetUserLibraries?: () => void;
     onClose: () => void;
   }
 
-  let { settings, onUpdate, onClose }: Props = $props();
+  let {
+    settings,
+    configDir = '',
+    userPresetCount = 0,
+    userCommandCount = 0,
+    onUpdate,
+    onOpenConfigDir,
+    onReloadLibraries,
+    onResetUserLibraries,
+    onClose,
+  }: Props = $props();
 
   const themes: { value: ThemeMode; label: string }[] = [
     { value: 'system', label: '跟随系统' },
@@ -238,6 +254,32 @@
           onchange={(e) => onUpdate({ showLatexDock: (e.currentTarget as HTMLInputElement).checked })}
         />
       </label>
+
+      {#if onOpenConfigDir || onReloadLibraries}
+        <div class="section-sep"></div>
+        <div class="ext-lib-card">
+          <div class="ext-lib-head">
+            <span class="setting-label strong">外部公式库与命令库文件</span>
+            <span class="ext-lib-stat">
+              公式覆盖 {userPresetCount} · 命令覆盖 {userCommandCount}
+            </span>
+          </div>
+          {#if configDir && configDir !== 'localStorage'}
+            <div class="ext-lib-path" title={configDir}>{configDir}/presets.json &amp; commands.json</div>
+          {/if}
+          <div class="ext-lib-actions">
+            {#if onOpenConfigDir}
+              <button type="button" class="lib-btn" onclick={onOpenConfigDir}>打开配置目录</button>
+            {/if}
+            {#if onReloadLibraries}
+              <button type="button" class="lib-btn accent" onclick={onReloadLibraries}>重新加载文件</button>
+            {/if}
+            {#if onResetUserLibraries && (userPresetCount > 0 || userCommandCount > 0)}
+              <button type="button" class="lib-btn danger" onclick={onResetUserLibraries}>恢复默认</button>
+            {/if}
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 </div>
@@ -392,5 +434,71 @@
     height: 16px;
     accent-color: var(--ms-accent);
     cursor: pointer;
+  }
+
+  .ext-lib-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: var(--ms-radius-md);
+    background: var(--ms-bg);
+    border: 1px solid var(--ms-border-subtle);
+  }
+
+  .ext-lib-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .ext-lib-stat {
+    font-size: 11.5px;
+    color: var(--ms-fg-muted);
+  }
+
+  .ext-lib-path {
+    font-family: var(--ms-font-mono);
+    font-size: 11px;
+    color: var(--ms-fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ext-lib-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .lib-btn {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--ms-border);
+    background: var(--ms-surface);
+    color: var(--ms-fg);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .lib-btn:hover {
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
+  }
+
+  .lib-btn.accent {
+    background: var(--ms-accent-soft);
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
+    font-weight: 500;
+  }
+
+  .lib-btn.danger:hover {
+    border-color: var(--ms-danger);
+    color: var(--ms-danger);
   }
 </style>

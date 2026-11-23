@@ -15,7 +15,7 @@ import {
   isStructEmpty,
   textToCharNodes,
 } from './ast';
-import { COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS, getSubmenuCommands } from './catalog';
+import { COMMANDS, COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS, getSubmenuCommands } from './catalog';
 import { MATH_FUNCTIONS, emitNodesCanonical, toInteractiveLatex, toLatex } from './latex';
 import { importFormula } from './parser';
 import { matchTrailingShorthand } from './shorthands';
@@ -23,6 +23,7 @@ import { getSlotOrder } from './slotOrder';
 import type {
   ActiveGridInfo,
   AppSettings,
+  CommandDef,
   Cursor,
   CustomCommandDef,
   Document,
@@ -50,6 +51,9 @@ export class MathSlotEngine {
   private selection: Selection | null = null;
   private mode: EditorMode = { kind: 'edit' };
   private settings: AppSettings;
+  private effectiveCommands: readonly CommandDef[] = COMMANDS;
+  private commandsById: Map<string, CommandDef> = new Map(COMMANDS_BY_ID);
+  private commandsByKeys: Map<string, CommandDef> = new Map(COMMANDS_BY_KEYS);
   private customCommands: CustomCommandDef[] = [];
   private snippets: Snippet[] = [];
   private undoStack: HistoryEntry[] = [];
@@ -62,6 +66,14 @@ export class MathSlotEngine {
     this.doc = createEmptyDocument();
     this.cursor = { slotId: this.doc.root.id, offset: 0 };
     this.settings = { ...DEFAULT_SETTINGS, ...initialSettings };
+  }
+
+  public setEffectiveCommands(commands: readonly CommandDef[]): void {
+    this.effectiveCommands = [...commands];
+    this.commandsById = new Map(commands.map((c) => [c.id, c]));
+    this.commandsByKeys = new Map(
+      commands.filter((c) => c.keys.length > 0).map((c) => [c.keys.join(''), c]),
+    );
   }
 
   public setCustomCommands(commands: CustomCommandDef[]): void {
@@ -129,7 +141,12 @@ export class MathSlotEngine {
       mode: this.mode,
       latex,
       interactiveLatex,
-      breadcrumbs: getBreadcrumbs(this.doc.root, this.cursor.slotId, this.customCommands),
+      breadcrumbs: getBreadcrumbs(
+        this.doc.root,
+        this.cursor.slotId,
+        this.customCommands,
+        this.effectiveCommands,
+      ),
       activeGrid: this.getActiveGridInfo(),
       emptySlotCount: countEmptySlots(this.doc.root),
       canUndo: this.undoStack.length > 0,
@@ -594,9 +611,12 @@ export class MathSlotEngine {
       }
       return false;
     }
-    const list = getSubmenuCommands(prefix);
-    if (list.length > 0) {
-      this.insertCommand(list[0].id);
+    const list = this.effectiveCommands.filter(
+      (c) => c.keys.length === 2 && c.keys[0] === prefix,
+    );
+    const fallbackList = list.length > 0 ? list : getSubmenuCommands(prefix);
+    if (fallbackList.length > 0) {
+      this.insertCommand(fallbackList[0].id);
       return true;
     }
     return false;
@@ -617,7 +637,7 @@ export class MathSlotEngine {
         this.mode = { kind: 'leader', prefix: key };
         return { handled: true };
       }
-      const direct = COMMANDS_BY_KEYS.get(key);
+      const direct = this.commandsByKeys.get(key);
       if (direct) {
         this.mode = { kind: 'edit' };
         this.insertCommand(direct.id);
@@ -653,7 +673,7 @@ export class MathSlotEngine {
       return { handled: true };
     }
 
-    const full = COMMANDS_BY_KEYS.get(prefix + key);
+    const full = this.commandsByKeys.get(prefix + key);
     this.mode = { kind: 'edit' };
     if (full) {
       this.insertCommand(full.id);
@@ -1132,7 +1152,7 @@ export class MathSlotEngine {
       return true;
     }
 
-    const cmd = COMMANDS_BY_ID.get(commandId);
+    const cmd = this.commandsById.get(commandId) ?? COMMANDS_BY_ID.get(commandId);
     if (!cmd) return false;
 
     this.pushHistory();
@@ -1232,7 +1252,10 @@ export class MathSlotEngine {
       }
     }
 
-    const struct = createStructNode(cmd, slotContents);
+    // If command is user-defined or overridden with a custom template, preserve its template on the node!
+    const builtin = COMMANDS_BY_ID.get(cmd.id);
+    const customTpl = !builtin || builtin.latex !== cmd.latex ? cmd.latex : undefined;
+    const struct = createStructNode(cmd, slotContents, customTpl);
     slot.children.splice(this.cursor.offset, 0, struct);
 
     // Place cursor in the first empty slot according to the user's configured slot filling order

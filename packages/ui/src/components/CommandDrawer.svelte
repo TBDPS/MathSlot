@@ -4,16 +4,15 @@
     CATEGORY_LABELS,
     COMMANDS,
     PRESETS,
-    PRESET_CATEGORIES,
     commandPreviewLatex,
     importFormula,
-    searchCommands,
-    searchPresets,
     toLatex,
     type CommandCategory,
+    type CommandDef,
     type CustomCommandDef,
     type HistoryFormula,
     type LeaderKey,
+    type PresetFormula,
     type Snippet,
   } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
@@ -22,6 +21,8 @@
 
   interface Props {
     leaderKey: LeaderKey;
+    commands?: readonly CommandDef[];
+    presets?: readonly PresetFormula[];
     snippets: Snippet[];
     customCommands: CustomCommandDef[];
     history?: HistoryFormula[];
@@ -29,6 +30,13 @@
     onInsertCommand: (commandId: string) => void;
     onInsertSnippet?: (snippet: Snippet) => void;
     onLoadFormula: (source: string) => void;
+    onCreatePreset?: () => void;
+    onEditPreset?: (preset: PresetFormula) => void;
+    onDeletePreset?: (id: string) => void;
+    onCreateCommand?: () => void;
+    onEditCommand?: (cmd: CommandDef) => void;
+    onOpenConfigDir?: () => void;
+    onReloadLibraries?: () => void;
     onRenameSnippet: (id: string, nextName: string) => void;
     onDeleteSnippet: (id: string) => void;
     onCreateCustom: () => void;
@@ -40,6 +48,8 @@
 
   let {
     leaderKey,
+    commands = COMMANDS,
+    presets = PRESETS,
     snippets,
     customCommands,
     history = [],
@@ -47,6 +57,13 @@
     onInsertCommand,
     onInsertSnippet,
     onLoadFormula,
+    onCreatePreset,
+    onEditPreset,
+    onDeletePreset,
+    onCreateCommand,
+    onEditCommand,
+    onOpenConfigDir,
+    onReloadLibraries,
     onRenameSnippet,
     onDeleteSnippet,
     onCreateCustom,
@@ -68,14 +85,39 @@
   let renameDraft = $state('');
   let searchInputEl: HTMLInputElement | null = $state(null);
 
+  const presetCategories = $derived(Array.from(new Set(presets.map((p) => p.category))));
+
   const filteredCommands = $derived.by(() => {
-    const base = query.trim() ? searchCommands(query) : [...COMMANDS];
+    const q = query.trim().toLowerCase();
+    const base = q
+      ? commands.filter((c) => {
+          const keySeq = c.keys.join('').toLowerCase();
+          return (
+            c.id.toLowerCase().includes(q) ||
+            c.label.toLowerCase().includes(q) ||
+            keySeq.includes(q) ||
+            c.latex.toLowerCase().includes(q) ||
+            c.glyph.toLowerCase().includes(q) ||
+            c.doc.toLowerCase().includes(q)
+          );
+        })
+      : [...commands];
     if (selectedCategory === 'all') return base;
     return base.filter((c) => c.category === selectedCategory);
   });
 
   const filteredPresets = $derived.by(() => {
-    const base = query.trim() ? searchPresets(query) : [...PRESETS];
+    const q = query.trim().toLowerCase();
+    const base = q
+      ? presets.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.category.toLowerCase().includes(q) ||
+            p.desc.toLowerCase().includes(q) ||
+            p.source.toLowerCase().includes(q) ||
+            p.tags.some((t) => t.toLowerCase().includes(q)),
+        )
+      : [...presets];
     if (selectedPresetCat === 'all') return base;
     return base.filter((p) => p.category === selectedPresetCat);
   });
@@ -216,10 +258,10 @@
 
       <div class="tabs-row">
         <button type="button" class="tab-btn" class:active={tab === 'commands'} onclick={() => (tab = 'commands')}>
-          命令 <span>{COMMANDS.length}</span>
+          命令 <span>{commands.length}</span>
         </button>
         <button type="button" class="tab-btn" class:active={tab === 'presets'} onclick={() => (tab = 'presets')}>
-          公式库 <span>{PRESETS.length}</span>
+          公式库 <span>{presets.length}</span>
         </button>
         <button type="button" class="tab-btn" class:active={tab === 'snippets'} onclick={() => (tab = 'snippets')}>
           片段 <span>{snippets.length}</span>
@@ -230,22 +272,56 @@
         <button type="button" class="tab-btn" class:active={tab === 'history'} onclick={() => (tab = 'history')}>
           历史 <span>{history.length}</span>
         </button>
-        {#if tab === 'custom'}
-          <button
-            type="button"
-            class="new-btn"
-            onclick={() => {
-              onClose();
-              onCreateCustom();
-            }}
-          >
-            + 新建
-          </button>
-        {:else if tab === 'history' && history.length > 0 && onClearHistory}
-          <button type="button" class="new-btn" onclick={onClearHistory}>
-            清空
-          </button>
-        {/if}
+        <div class="tabs-actions">
+          {#if (tab === 'commands' || tab === 'presets') && onOpenConfigDir}
+            <button type="button" class="util-btn" title="打开 presets.json / commands.json 所在目录" onclick={onOpenConfigDir}>
+              目录
+            </button>
+          {/if}
+          {#if (tab === 'commands' || tab === 'presets') && onReloadLibraries}
+            <button type="button" class="util-btn" title="从配置文件重新加载" onclick={onReloadLibraries}>
+              重载
+            </button>
+          {/if}
+          {#if tab === 'commands' && onCreateCommand}
+            <button
+              type="button"
+              class="new-btn"
+              onclick={() => {
+                onClose();
+                onCreateCommand();
+              }}
+            >
+              + 添加
+            </button>
+          {:else if tab === 'presets' && onCreatePreset}
+            <button
+              type="button"
+              class="new-btn"
+              onclick={() => {
+                onClose();
+                onCreatePreset();
+              }}
+            >
+              + 添加
+            </button>
+          {:else if tab === 'custom'}
+            <button
+              type="button"
+              class="new-btn"
+              onclick={() => {
+                onClose();
+                onCreateCustom();
+              }}
+            >
+              + 新建
+            </button>
+          {:else if tab === 'history' && history.length > 0 && onClearHistory}
+            <button type="button" class="new-btn" onclick={onClearHistory}>
+              清空
+            </button>
+          {/if}
+        </div>
       </div>
 
       {#if tab === 'commands'}
@@ -269,7 +345,7 @@
           <button type="button" class="pill" class:active={selectedPresetCat === 'all'} onclick={() => (selectedPresetCat = 'all')}>
             全部
           </button>
-          {#each PRESET_CATEGORIES as cat (cat)}
+          {#each presetCategories as cat (cat)}
             <button
               type="button"
               class="pill"
@@ -287,51 +363,96 @@
       {#if tab === 'commands'}
         <div class="cmd-grid">
           {#each filteredCommands as cmd, idx (cmd.id)}
-            <button
-              type="button"
-              class="cmd-tile"
-              class:selected={idx === activeIndex}
-              onmouseenter={() => (activeIndex = idx)}
-              onclick={() => {
-                onInsertCommand(cmd.id);
-                onClose();
-              }}
-            >
-              <div class="cmd-math">
-                {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
-              </div>
-              <div class="cmd-meta">
-                <span class="cmd-name">{cmd.label}</span>
-                <span class="cmd-keys">
-                  <kbd>{leaderKey}</kbd>
-                  {#each cmd.keys as k}
-                    <kbd>{k}</kbd>
-                  {/each}
-                </span>
-              </div>
-            </button>
+            <div class="cmd-tile-wrap" class:selected={idx === activeIndex}>
+              <button
+                type="button"
+                class="cmd-tile"
+                onmouseenter={() => (activeIndex = idx)}
+                onclick={() => {
+                  onInsertCommand(cmd.id);
+                  onClose();
+                }}
+              >
+                <div class="cmd-math">
+                  {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+                </div>
+                <div class="cmd-meta">
+                  <span class="cmd-name">{cmd.label}</span>
+                  {#if cmd.keys.length > 0}
+                    <span class="cmd-keys">
+                      <kbd>{leaderKey}</kbd>
+                      {#each cmd.keys as k}
+                        <kbd>{k}</kbd>
+                      {/each}
+                    </span>
+                  {/if}
+                </div>
+              </button>
+              {#if onEditCommand}
+                <button
+                  type="button"
+                  class="cmd-edit-btn"
+                  title="编辑命令"
+                  aria-label="编辑命令"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                    onEditCommand(cmd);
+                  }}
+                >
+                  ✎
+                </button>
+              {/if}
+            </div>
           {/each}
         </div>
       {:else if tab === 'presets'}
         {#each filteredPresets as preset, idx (preset.id)}
-          <button
-            type="button"
-            class="preset-row"
-            class:selected={idx === activeIndex}
-            onmouseenter={() => (activeIndex = idx)}
-            onclick={() => {
-              onLoadFormula(preset.source);
-              onClose();
-            }}
-          >
-            <div class="preset-info">
-              <span class="preset-name">{preset.name}</span>
-              <span class="preset-cat">{preset.category}</span>
-            </div>
-            <div class="preset-math">
-              {@html renderLatexPreview(presetLatex(preset.source), false)}
-            </div>
-          </button>
+          <div class="preset-row" class:selected={idx === activeIndex}>
+            <button
+              type="button"
+              class="snip-main"
+              onmouseenter={() => (activeIndex = idx)}
+              onclick={() => {
+                onLoadFormula(preset.source);
+                onClose();
+              }}
+            >
+              <div class="preset-info">
+                <span class="preset-name">{preset.name}</span>
+                <span class="preset-cat">{preset.category}</span>
+              </div>
+              <div class="preset-math">
+                {@html renderLatexPreview(presetLatex(preset.source), false)}
+              </div>
+            </button>
+            {#if onEditPreset || onDeletePreset}
+              <div class="row-actions">
+                {#if onEditPreset}
+                  <button
+                    type="button"
+                    class="row-btn"
+                    onclick={() => {
+                      onClose();
+                      onEditPreset(preset);
+                    }}
+                  >
+                    编辑
+                  </button>
+                {/if}
+                {#if onDeletePreset}
+                  <button
+                    type="button"
+                    class="row-btn danger"
+                    aria-label="删除或隐藏公式"
+                    onclick={() => onDeletePreset(preset.id)}
+                  >
+                    ✕
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          </div>
         {/each}
       {:else if tab === 'snippets'}
         {#if filteredSnippets.length === 0}
@@ -426,17 +547,7 @@
         {/if}
       {:else if filteredCustom.length === 0}
         <div class="empty-state">
-          <p>暂无自定义结构</p>
-          <button
-            type="button"
-            class="new-btn"
-            onclick={() => {
-              onClose();
-              onCreateCustom();
-            }}
-          >
-            + 新建自定义结构
-          </button>
+          <p>暂无自定义结构，点击右上角「+ 新建」添加</p>
         </div>
       {:else}
         {#each filteredCustom as cmd, idx (cmd.id)}
@@ -602,8 +713,30 @@
     color: var(--ms-accent);
   }
 
-  .new-btn {
+  .tabs-actions {
     margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .util-btn {
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--ms-border);
+    border-radius: 6px;
+    background: var(--ms-surface);
+    color: var(--ms-fg-muted);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+
+  .util-btn:hover {
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
+  }
+
+  .new-btn {
     height: 26px;
     padding: 0 10px;
     border: 1px solid var(--ms-accent);
@@ -618,6 +751,50 @@
   .new-btn:hover {
     background: var(--ms-accent);
     color: var(--ms-accent-fg);
+  }
+
+  .cmd-tile-wrap {
+    position: relative;
+    display: flex;
+  }
+
+  .cmd-tile-wrap .cmd-tile {
+    width: 100%;
+  }
+
+  .cmd-tile-wrap.selected .cmd-tile {
+    background: var(--ms-tile-hover);
+    border-color: var(--ms-accent);
+  }
+
+  .cmd-edit-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--ms-border);
+    border-radius: 5px;
+    background: var(--ms-surface);
+    color: var(--ms-fg-muted);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 90ms ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cmd-tile-wrap:hover .cmd-edit-btn,
+  .cmd-tile-wrap.selected .cmd-edit-btn {
+    opacity: 1;
+  }
+
+  .cmd-edit-btn:hover {
+    border-color: var(--ms-accent);
+    color: var(--ms-accent);
   }
 
   .filter-pills {
@@ -670,7 +847,6 @@
     transition: border-color 90ms ease, background-color 90ms ease;
   }
 
-  .cmd-tile.selected,
   .cmd-tile:hover {
     border-color: var(--ms-accent);
     background: var(--ms-tile-hover);

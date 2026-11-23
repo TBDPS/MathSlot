@@ -1,4 +1,4 @@
-import type { HostAdapter, PersistedStore } from '@mathslot/ui';
+import type { ExternalUserLibraries, HostAdapter, PersistedStore } from '@mathslot/ui';
 
 const LOCAL_STORAGE_KEY = 'mathslot.v2.store';
 
@@ -60,6 +60,36 @@ export function createDesktopHost(): HostAdapter {
     async setAlwaysOnTop(pinned: boolean): Promise<void> {
       if (isTauriRuntime()) {
         await tauriInvoke('set_always_on_top', { pinned });
+      }
+    },
+
+    async loadUserLibraries(): Promise<ExternalUserLibraries> {
+      if (isTauriRuntime()) {
+        return tauriInvoke<ExternalUserLibraries>('load_user_libraries');
+      }
+      return {
+        configDir: 'localStorage',
+        presetsJson: localStorage.getItem('mathslot.v2.presets.json') ?? '',
+        commandsJson: localStorage.getItem('mathslot.v2.commands.json') ?? '',
+      };
+    },
+
+    async saveUserLibraries(presetsJson: string, commandsJson: string): Promise<void> {
+      if (isTauriRuntime()) {
+        await tauriInvoke('save_user_libraries', { presetsJson, commandsJson });
+        return;
+      }
+      try {
+        localStorage.setItem('mathslot.v2.presets.json', presetsJson);
+        localStorage.setItem('mathslot.v2.commands.json', commandsJson);
+      } catch {
+        // Ignore quota errors
+      }
+    },
+
+    async openConfigDir(): Promise<void> {
+      if (isTauriRuntime()) {
+        await tauriInvoke('open_config_dir');
       }
     },
 

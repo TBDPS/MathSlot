@@ -117,6 +117,8 @@ export default class MathSlotPlugin extends Plugin {
           snippets: Array.isArray(data?.snippets) ? data.snippets : [],
           customCommands: Array.isArray(data?.customCommands) ? data.customCommands : [],
           history: Array.isArray(data?.history) ? data.history : [],
+          userPresets: Array.isArray(data?.userPresets) ? data.userPresets : [],
+          userCommands: Array.isArray(data?.userCommands) ? data.userCommands : [],
         };
       },
       saveStore: async (store: PersistedStore) => {

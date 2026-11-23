@@ -1,6 +1,7 @@
 export * from './types';
 export * from './catalog';
 export * from './presets';
+export * from './userLibraries';
 export * from './slotOrder';
 export * from './shorthands';
 export * from './ast';

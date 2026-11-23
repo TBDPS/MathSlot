@@ -18,6 +18,7 @@
     leaderKey: LeaderKey;
     leaderActive?: boolean;
     leaderPrefix?: string;
+    commands?: readonly CommandDef[];
     customCommands?: CustomCommandDef[];
     snippets?: Snippet[];
     onInsertCommand: (commandId: string) => void;
@@ -33,6 +34,7 @@
     leaderKey,
     leaderActive = false,
     leaderPrefix = '',
+    commands = COMMANDS,
     customCommands = [],
     snippets = [],
     onInsertCommand,
@@ -91,7 +93,7 @@
 
   const popoverCommands = $derived<CommandDef[]>(
     activeCategory && activeCategory !== 'custom' && activeCategory !== 'snippets'
-      ? COMMANDS.filter((c) => c.category === activeCategory)
+      ? commands.filter((c) => c.category === activeCategory)
       : [],
   );
 
@@ -225,19 +227,6 @@
         {#if customCommands.length === 0}
           <div class="custom-empty">
             <span>暂无自定义结构</span>
-            {#if onCreateCustom}
-              <button
-                type="button"
-                class="new-custom-btn"
-                onmousedown={(e) => e.preventDefault()}
-                onclick={() => {
-                  mouseCategory = null;
-                  onCreateCustom();
-                }}
-              >
-                + 创建第一个
-              </button>
-            {/if}
           </div>
         {:else}
           <div class="cat-grid">

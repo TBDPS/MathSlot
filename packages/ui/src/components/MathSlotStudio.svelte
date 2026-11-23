@@ -1,15 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
+    COMMANDS,
     DEFAULT_SETTINGS,
     MathSlotEngine,
+    PRESETS,
     formatExport,
+    mergeCommands,
+    mergePresets,
+    parseUserCommandsJson,
+    parseUserPresetsJson,
+    serializeUserCommandsJson,
+    serializeUserPresetsJson,
     type AppSettings,
+    type CommandDef,
     type CustomCommandDef,
     type DelimiterStyle,
     type EditorSnapshot,
     type HistoryFormula,
+    type PresetFormula,
     type Snippet,
+    type UserCommandEntry,
+    type UserPresetEntry,
   } from '@mathslot/core';
   import type { HostAdapter } from '../host';
   import { latexToMathML, renderLatexToPng } from '../exportUtils';
@@ -20,6 +32,8 @@
   import ImportModal from './ImportModal.svelte';
   import SaveSnippetModal from './SaveSnippetModal.svelte';
   import CustomStructureModal from './CustomStructureModal.svelte';
+  import PresetEditorModal from './PresetEditorModal.svelte';
+  import CommandEditorModal from './CommandEditorModal.svelte';
   import SettingsModal from './SettingsModal.svelte';
 
   interface Props {
@@ -33,10 +47,21 @@
   let settings = $state<AppSettings>({ ...DEFAULT_SETTINGS });
   let snippets = $state<Snippet[]>([]);
   let customCommands = $state<CustomCommandDef[]>([]);
+  let userPresets = $state<UserPresetEntry[]>([]);
+  let userCommands = $state<UserCommandEntry[]>([]);
+  let configDir = $state('');
   let history = $state<HistoryFormula[]>([]);
   let pinned = $state(false);
   let snapshot = $state<EditorSnapshot>(engine.getSnapshot());
   let systemDark = $state(false);
+
+  const effectivePresets = $derived(mergePresets(PRESETS, userPresets));
+  const effectiveCommands = $derived(mergeCommands(COMMANDS, userCommands));
+  const presetCategories = $derived(Array.from(new Set(effectivePresets.map((p) => p.category))));
+
+  $effect(() => {
+    engine.setEffectiveCommands(effectiveCommands);
+  });
 
   let drawerOpen = $state(false);
   let drawerTab = $state<'commands' | 'presets' | 'snippets' | 'custom' | 'history'>('commands');
@@ -44,6 +69,10 @@
   let saveSnippetOpen = $state(false);
   let customModalOpen = $state(false);
   let editingCustom = $state<CustomCommandDef | null>(null);
+  let presetModalOpen = $state(false);
+  let editingPreset = $state<PresetFormula | null>(null);
+  let commandModalOpen = $state(false);
+  let editingCommand = $state<CommandDef | null>(null);
   let settingsOpen = $state(false);
   let ribbonPopoverOpen = $state(false);
   let toast = $state<string | null>(null);
@@ -73,10 +102,103 @@
 
   async function persist(): Promise<void> {
     try {
-      await host.saveStore({ settings, snippets, customCommands, history });
+      await host.saveStore({
+        settings,
+        snippets,
+        customCommands,
+        history,
+        userPresets,
+        userCommands,
+      });
     } catch {
       // Non-fatal persistence error
     }
+  }
+
+  async function persistUserLibraries(): Promise<void> {
+    void persist();
+    if (host.saveUserLibraries) {
+      try {
+        await host.saveUserLibraries(
+          serializeUserPresetsJson(userPresets),
+          serializeUserCommandsJson(userCommands),
+        );
+      } catch {
+        // Non-fatal
+      }
+    }
+  }
+
+  async function loadExternalLibraries(silent = false): Promise<void> {
+    if (!host.loadUserLibraries) return;
+    try {
+      const ext = await host.loadUserLibraries();
+      configDir = ext.configDir;
+      const pRes = parseUserPresetsJson(ext.presetsJson);
+      const cRes = parseUserCommandsJson(ext.commandsJson);
+      userPresets = pRes.entries;
+      userCommands = cRes.entries;
+      engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
+      sync();
+      const allWarnings = [...pRes.warnings, ...cRes.warnings];
+      if (allWarnings.length > 0) {
+        flash(allWarnings[0]);
+      } else if (!silent) {
+        flash(`已重载配置（公式 ${pRes.entries.length} · 命令 ${cRes.entries.length}）`);
+      }
+    } catch {
+      if (!silent) flash('读取外部配置文件失败');
+    }
+  }
+
+  function handleSaveUserPreset(entry: UserPresetEntry): void {
+    const exists = userPresets.some((p) => p.id === entry.id);
+    userPresets = exists
+      ? userPresets.map((p) => (p.id === entry.id ? entry : p))
+      : [entry, ...userPresets];
+    void persistUserLibraries();
+    flash(`已保存公式「${entry.name}」`);
+    canvasRef?.focus();
+  }
+
+  function handleDeleteUserPreset(id: string): void {
+    const isBuiltin = PRESETS.some((p) => p.id === id);
+    if (isBuiltin) {
+      const exists = userPresets.some((p) => p.id === id);
+      const disabledEntry: UserPresetEntry = {
+        id,
+        category: '',
+        name: '',
+        source: '',
+        disabled: true,
+      };
+      userPresets = exists
+        ? userPresets.map((p) => (p.id === id ? disabledEntry : p))
+        : [...userPresets, disabledEntry];
+    } else {
+      userPresets = userPresets.filter((p) => p.id !== id);
+    }
+    void persistUserLibraries();
+    flash('已移除公式条目');
+  }
+
+  function handleSaveUserCommand(entry: UserCommandEntry): void {
+    const exists = userCommands.some((c) => c.id === entry.id);
+    userCommands = exists
+      ? userCommands.map((c) => (c.id === entry.id ? entry : c))
+      : [...userCommands, entry];
+    engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
+    void persistUserLibraries();
+    flash(`已保存命令「${entry.label}」`);
+    canvasRef?.focus();
+  }
+
+  function handleResetUserLibraries(): void {
+    userPresets = [];
+    userCommands = [];
+    engine.setEffectiveCommands(COMMANDS);
+    void persistUserLibraries();
+    flash('已恢复内置公式库与命令库');
   }
 
   function recordHistory(latex: string): void {
@@ -513,6 +635,16 @@
       if (Array.isArray(loaded.history)) {
         history = loaded.history;
       }
+      if (Array.isArray(loaded.userPresets)) {
+        userPresets = loaded.userPresets;
+      }
+      if (Array.isArray(loaded.userCommands)) {
+        userCommands = loaded.userCommands;
+        engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
+      }
+      if (host.loadUserLibraries) {
+        void loadExternalLibraries(true);
+      }
       if (host.initialFormula && host.initialFormula.trim()) {
         engine.loadFormula(host.initialFormula);
       }
@@ -843,6 +975,7 @@
     leaderKey={settings.leaderKey}
     leaderActive={snapshot.mode.kind === 'leader'}
     leaderPrefix={snapshot.mode.kind === 'leader' ? snapshot.mode.prefix : ''}
+    commands={effectiveCommands}
     {customCommands}
     {snippets}
     onPopoverChange={(open) => (ribbonPopoverOpen = open)}
@@ -893,6 +1026,8 @@
   {#if drawerOpen}
     <CommandDrawer
       leaderKey={settings.leaderKey}
+      commands={effectiveCommands}
+      presets={effectivePresets}
       {snippets}
       {customCommands}
       {history}
@@ -908,6 +1043,25 @@
         canvasRef?.focus();
       }}
       onLoadFormula={handleLoadFormula}
+      onCreatePreset={() => {
+        editingPreset = null;
+        presetModalOpen = true;
+      }}
+      onEditPreset={(preset) => {
+        editingPreset = preset;
+        presetModalOpen = true;
+      }}
+      onDeletePreset={handleDeleteUserPreset}
+      onCreateCommand={() => {
+        editingCommand = null;
+        commandModalOpen = true;
+      }}
+      onEditCommand={(cmd) => {
+        editingCommand = cmd;
+        commandModalOpen = true;
+      }}
+      onOpenConfigDir={host.openConfigDir ? () => void host.openConfigDir?.() : undefined}
+      onReloadLibraries={host.loadUserLibraries ? () => void loadExternalLibraries(false) : undefined}
       onRenameSnippet={handleRenameSnippet}
       onDeleteSnippet={handleDeleteSnippet}
       onCreateCustom={() => {
@@ -969,10 +1123,43 @@
     />
   {/if}
 
+  {#if presetModalOpen}
+    <PresetEditorModal
+      editing={editingPreset}
+      categories={presetCategories}
+      currentCanvasLatex={snapshot.latex}
+      onSave={handleSaveUserPreset}
+      onClose={() => {
+        presetModalOpen = false;
+        editingPreset = null;
+        canvasRef?.focus();
+      }}
+    />
+  {/if}
+
+  {#if commandModalOpen}
+    <CommandEditorModal
+      leaderKey={settings.leaderKey}
+      editing={editingCommand}
+      onSave={handleSaveUserCommand}
+      onClose={() => {
+        commandModalOpen = false;
+        editingCommand = null;
+        canvasRef?.focus();
+      }}
+    />
+  {/if}
+
   {#if settingsOpen}
     <SettingsModal
       {settings}
+      {configDir}
+      userPresetCount={userPresets.length}
+      userCommandCount={userCommands.length}
       onUpdate={updateSettings}
+      onOpenConfigDir={host.openConfigDir ? () => void host.openConfigDir?.() : undefined}
+      onReloadLibraries={host.loadUserLibraries ? () => void loadExternalLibraries(false) : undefined}
+      onResetUserLibraries={handleResetUserLibraries}
       onClose={() => {
         settingsOpen = false;
         canvasRef?.focus();

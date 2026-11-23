@@ -183,6 +183,7 @@ export function getBreadcrumbs(
   root: SlotNode,
   slotId: string,
   customCommands: readonly CustomCommandDef[] = [],
+  effectiveCommands: readonly CommandDef[] = [],
 ): BreadcrumbItem[] {
   const path = findSlotPath(root, slotId);
   if (!path || path.length <= 1) return [];
@@ -190,7 +191,9 @@ export function getBreadcrumbs(
   for (let i = 1; i < path.length; i += 1) {
     const entry = path[i];
     const cmdId = entry.parentStruct?.commandId;
-    const cmd = cmdId ? COMMANDS_BY_ID.get(cmdId) : undefined;
+    const cmd = cmdId
+      ? (effectiveCommands.find((c) => c.id === cmdId) ?? COMMANDS_BY_ID.get(cmdId))
+      : undefined;
     const custom = !cmd && cmdId ? customCommands.find((c) => c.id === cmdId) : undefined;
     const grid = entry.parentStruct ? getGridMeta(entry.parentStruct) : null;
     const commandLabel =
