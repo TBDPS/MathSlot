@@ -60,6 +60,8 @@ export interface StructNode {
   customLatex?: string;
   /** Optional per-instance slot order override (e.g. natural `a/b` fraction always exits after denominator) */
   fillOrder?: number[];
+  /** Auto-sized delimiter inserted from keyboard `(`, `[`, `{`: emits plain `(x)` when flat and `\left(...\right)` when tall */
+  autoSized?: boolean;
 }
 
 export interface RawNode {
@@ -118,6 +120,7 @@ export interface AppSettings {
   semicolonNextSlot: boolean;
   naturalScripts: boolean;
   naturalFraction: boolean;
+  autoBrackets: boolean;
   spaceExitsScript: boolean;
   autoShorthands: boolean;
   showLatexDock: boolean;
@@ -181,7 +184,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   semicolonNextSlot: true,
   naturalScripts: true,
   naturalFraction: true,
-  spaceExitsScript: true,
+  autoBrackets: true,
+  spaceExitsScript: false,
   autoShorthands: true,
   showLatexDock: true,
   slotOrderPreset: 'standard',

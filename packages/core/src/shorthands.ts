@@ -5,132 +5,93 @@ export interface ShorthandRule {
   readonly trigger: string;
   readonly commandId: string;
   /**
-   * 'none': match anywhere (e.g. `->`, `<=`, `+-`)
-   * 'word': character before trigger must NOT be an ASCII letter (e.g. `oo`, `xx`)
-   * 'coeff': allow 0 letters OR 1 single math coefficient letter before trigger (e.g. `npi` -> `n\pi`, `ipi` -> `i\pi`, `iomega` -> `i\omega`)
+   * 'punct': multi-char non-letter shorthand expanded immediately on keystroke (e.g. `->`, `<=`, `+-`, `~~`)
+   * 'word': isolated alphabetic token recognized non-destructively at word-boundary level
+   *         (e.g. `n pi x` -> `n \pi x`, `oo` -> `\infty`, while `spin`/`spi`/`foo` stay literal!)
    */
-  readonly boundary: 'none' | 'word' | 'coeff';
+  readonly kind: 'punct' | 'word';
 }
 
-const PROTECTED_WORDS = new Set([
-  'sin',
-  'cos',
-  'tan',
-  'cot',
-  'sec',
-  'csc',
-  'exp',
-  'log',
-  'lim',
-  'max',
-  'min',
-  'sup',
-  'inf',
-  'det',
-  'dim',
-  'ker',
-  'deg',
-  'arg',
-  'sum',
-  'int',
-  'mod',
-  'gcd',
-  'lcm',
-  'hom',
-  'beta',
-  'zeta',
-  'theta',
-  'delta',
-  'gamma',
-  'sigma',
-  'omega',
-  'alpha',
-  'kappa',
-  'lambda',
-  'epsilon',
-  'upsilon',
-  'partial',
-  'approx',
-  'simple',
-  'spin',
-  'spi',
-  'api',
-  'epi',
-  'opt',
-]);
-
 export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
-  // Multi-char operator / arrow / relation shorthands
-  { trigger: '<=>', commandId: 'iff', boundary: 'none' },
-  { trigger: '...', commandId: 'cdots', boundary: 'none' },
-  { trigger: '->', commandId: 'to', boundary: 'none' },
-  { trigger: '=>', commandId: 'implies', boundary: 'none' },
-  { trigger: '<=', commandId: 'leq', boundary: 'none' },
-  { trigger: '>=', commandId: 'geq', boundary: 'none' },
-  { trigger: '<<', commandId: 'll', boundary: 'none' },
-  { trigger: '>>', commandId: 'gg', boundary: 'none' },
-  { trigger: '||', commandId: 'parallel', boundary: 'none' },
-  { trigger: '!=', commandId: 'neq', boundary: 'none' },
-  { trigger: '~=', commandId: 'approx', boundary: 'none' },
-  { trigger: '~~', commandId: 'sim', boundary: 'none' },
-  { trigger: '==', commandId: 'equiv', boundary: 'none' },
-  { trigger: '+-', commandId: 'pm', boundary: 'none' },
-  { trigger: '-+', commandId: 'mp', boundary: 'none' },
-  { trigger: '**', commandId: 'cdot', boundary: 'none' },
+  // Multi-char punctuation / arrow / relation shorthands (instant, zero word collision)
+  { trigger: '<=>', commandId: 'iff', kind: 'punct' },
+  { trigger: '...', commandId: 'cdots', kind: 'punct' },
+  { trigger: '->', commandId: 'to', kind: 'punct' },
+  { trigger: '=>', commandId: 'implies', kind: 'punct' },
+  { trigger: '<=', commandId: 'leq', kind: 'punct' },
+  { trigger: '>=', commandId: 'geq', kind: 'punct' },
+  { trigger: '<<', commandId: 'll', kind: 'punct' },
+  { trigger: '>>', commandId: 'gg', kind: 'punct' },
+  { trigger: '||', commandId: 'parallel', kind: 'punct' },
+  { trigger: '!=', commandId: 'neq', kind: 'punct' },
+  { trigger: '~=', commandId: 'cong', kind: 'punct' },
+  { trigger: '~~', commandId: 'approx', kind: 'punct' },
+  { trigger: '==', commandId: 'equiv', kind: 'punct' },
+  { trigger: '+-', commandId: 'pm', kind: 'punct' },
+  { trigger: '-+', commandId: 'mp', kind: 'punct' },
+  { trigger: '**', commandId: 'cdot', kind: 'punct' },
 
-  // Ultra-fast symbolic shorthands (strict word boundary so `foo` never triggers)
-  { trigger: 'oo', commandId: 'infty', boundary: 'word' },
-  { trigger: 'xx', commandId: 'times', boundary: 'word' },
-
-  // Full symbol & Greek names
-  { trigger: 'emptyset', commandId: 'emptyset', boundary: 'word' },
-  { trigger: 'epsilon', commandId: 'epsilon', boundary: 'coeff' },
-  { trigger: 'upsilon', commandId: 'upsilon', boundary: 'coeff' },
-  { trigger: 'partial', commandId: 'partial', boundary: 'word' },
-  { trigger: 'propto', commandId: 'propto', boundary: 'word' },
-  { trigger: 'approx', commandId: 'approx', boundary: 'word' },
-  { trigger: 'forall', commandId: 'forall', boundary: 'word' },
-  { trigger: 'exists', commandId: 'exists', boundary: 'word' },
-  { trigger: 'lambda', commandId: 'lambda', boundary: 'coeff' },
-  { trigger: 'Lambda', commandId: 'cap_lambda', boundary: 'coeff' },
-  { trigger: 'alpha', commandId: 'alpha', boundary: 'coeff' },
-  { trigger: 'gamma', commandId: 'gamma', boundary: 'coeff' },
-  { trigger: 'Gamma', commandId: 'cap_gamma', boundary: 'coeff' },
-  { trigger: 'delta', commandId: 'delta', boundary: 'coeff' },
-  { trigger: 'Delta', commandId: 'cap_delta', boundary: 'coeff' },
-  { trigger: 'theta', commandId: 'theta', boundary: 'coeff' },
-  { trigger: 'Theta', commandId: 'cap_theta', boundary: 'coeff' },
-  { trigger: 'kappa', commandId: 'kappa', boundary: 'coeff' },
-  { trigger: 'sigma', commandId: 'sigma', boundary: 'coeff' },
-  { trigger: 'Sigma', commandId: 'cap_sigma', boundary: 'coeff' },
-  { trigger: 'omega', commandId: 'omega', boundary: 'coeff' },
-  { trigger: 'Omega', commandId: 'cap_omega', boundary: 'coeff' },
-  { trigger: 'infty', commandId: 'infty', boundary: 'word' },
-  { trigger: 'nabla', commandId: 'nabla', boundary: 'word' },
-  { trigger: 'equiv', commandId: 'equiv', boundary: 'word' },
-  { trigger: 'times', commandId: 'times', boundary: 'word' },
-  { trigger: 'beta', commandId: 'beta', boundary: 'coeff' },
-  { trigger: 'zeta', commandId: 'zeta', boundary: 'coeff' },
-  { trigger: 'iota', commandId: 'iota', boundary: 'word' },
-  { trigger: 'cdot', commandId: 'cdot', boundary: 'word' },
-  { trigger: 'sim', commandId: 'sim', boundary: 'word' },
-  { trigger: 'leq', commandId: 'leq', boundary: 'word' },
-  { trigger: 'geq', commandId: 'geq', boundary: 'word' },
-  { trigger: 'neq', commandId: 'neq', boundary: 'word' },
-  { trigger: 'rho', commandId: 'rho', boundary: 'coeff' },
-  { trigger: 'tau', commandId: 'tau', boundary: 'coeff' },
-  { trigger: 'phi', commandId: 'phi', boundary: 'coeff' },
-  { trigger: 'Phi', commandId: 'cap_phi', boundary: 'coeff' },
-  { trigger: 'chi', commandId: 'chi', boundary: 'coeff' },
-  { trigger: 'psi', commandId: 'psi', boundary: 'coeff' },
-  { trigger: 'Psi', commandId: 'cap_psi', boundary: 'coeff' },
-  { trigger: 'eta', commandId: 'eta', boundary: 'word' },
-  { trigger: 'pi', commandId: 'pi', boundary: 'coeff' },
-  { trigger: 'Pi', commandId: 'cap_pi', boundary: 'coeff' },
-  { trigger: 'mu', commandId: 'mu', boundary: 'word' },
-  { trigger: 'nu', commandId: 'nu', boundary: 'word' },
-  { trigger: 'xi', commandId: 'xi', boundary: 'word' },
-  { trigger: 'Xi', commandId: 'cap_xi', boundary: 'word' },
+  // Isolated-word shorthands (recognized cleanly at word boundaries — never break `spin`, `spi`, `foo`, `sin`!)
+  { trigger: 'oo', commandId: 'infty', kind: 'word' },
+  { trigger: 'xx', commandId: 'times', kind: 'word' },
+  { trigger: 'emptyset', commandId: 'emptyset', kind: 'word' },
+  { trigger: 'epsilon', commandId: 'epsilon', kind: 'word' },
+  { trigger: 'upsilon', commandId: 'upsilon', kind: 'word' },
+  { trigger: 'partial', commandId: 'partial', kind: 'word' },
+  { trigger: 'propto', commandId: 'propto', kind: 'word' },
+  { trigger: 'approx', commandId: 'approx', kind: 'word' },
+  { trigger: 'forall', commandId: 'forall', kind: 'word' },
+  { trigger: 'exists', commandId: 'exists', kind: 'word' },
+  { trigger: 'lambda', commandId: 'lambda', kind: 'word' },
+  { trigger: 'Lambda', commandId: 'cap_lambda', kind: 'word' },
+  { trigger: 'alpha', commandId: 'alpha', kind: 'word' },
+  { trigger: 'gamma', commandId: 'gamma', kind: 'word' },
+  { trigger: 'Gamma', commandId: 'cap_gamma', kind: 'word' },
+  { trigger: 'delta', commandId: 'delta', kind: 'word' },
+  { trigger: 'Delta', commandId: 'cap_delta', kind: 'word' },
+  { trigger: 'theta', commandId: 'theta', kind: 'word' },
+  { trigger: 'Theta', commandId: 'cap_theta', kind: 'word' },
+  { trigger: 'kappa', commandId: 'kappa', kind: 'word' },
+  { trigger: 'sigma', commandId: 'sigma', kind: 'word' },
+  { trigger: 'Sigma', commandId: 'cap_sigma', kind: 'word' },
+  { trigger: 'omega', commandId: 'omega', kind: 'word' },
+  { trigger: 'Omega', commandId: 'cap_omega', kind: 'word' },
+  { trigger: 'infty', commandId: 'infty', kind: 'word' },
+  { trigger: 'nabla', commandId: 'nabla', kind: 'word' },
+  { trigger: 'equiv', commandId: 'equiv', kind: 'word' },
+  { trigger: 'times', commandId: 'times', kind: 'word' },
+  { trigger: 'beta', commandId: 'beta', kind: 'word' },
+  { trigger: 'zeta', commandId: 'zeta', kind: 'word' },
+  { trigger: 'iota', commandId: 'iota', kind: 'word' },
+  { trigger: 'cdot', commandId: 'cdot', kind: 'word' },
+  { trigger: 'sim', commandId: 'sim', kind: 'word' },
+  { trigger: 'leq', commandId: 'leq', kind: 'word' },
+  { trigger: 'geq', commandId: 'geq', kind: 'word' },
+  { trigger: 'neq', commandId: 'neq', kind: 'word' },
+  { trigger: 'rho', commandId: 'rho', kind: 'word' },
+  { trigger: 'tau', commandId: 'tau', kind: 'word' },
+  { trigger: 'phi', commandId: 'phi', kind: 'word' },
+  { trigger: 'Phi', commandId: 'cap_phi', kind: 'word' },
+  { trigger: 'chi', commandId: 'chi', kind: 'word' },
+  { trigger: 'psi', commandId: 'psi', kind: 'word' },
+  { trigger: 'Psi', commandId: 'cap_psi', kind: 'word' },
+  { trigger: 'eta', commandId: 'eta', kind: 'word' },
+  { trigger: 'pi', commandId: 'pi', kind: 'word' },
+  { trigger: 'Pi', commandId: 'cap_pi', kind: 'word' },
+  { trigger: 'mu', commandId: 'mu', kind: 'word' },
+  { trigger: 'nu', commandId: 'nu', kind: 'word' },
+  { trigger: 'xi', commandId: 'xi', kind: 'word' },
+  { trigger: 'Xi', commandId: 'cap_xi', kind: 'word' },
+  { trigger: 'in', commandId: 'in', kind: 'word' },
+  { trigger: 'notin', commandId: 'notin', kind: 'word' },
+  { trigger: 'subset', commandId: 'subset', kind: 'word' },
+  { trigger: 'subseteq', commandId: 'subseteq', kind: 'word' },
+  { trigger: 'cup', commandId: 'cup', kind: 'word' },
+  { trigger: 'cap', commandId: 'cap', kind: 'word' },
+  { trigger: 'to', commandId: 'to', kind: 'word' },
+  { trigger: 'cong', commandId: 'cong', kind: 'word' },
+  { trigger: 'pm', commandId: 'pm', kind: 'word' },
+  { trigger: 'mp', commandId: 'mp', kind: 'word' },
 ];
 
 export const SHORTHAND_BY_COMMAND_ID: ReadonlyMap<string, string> = (() => {
@@ -144,31 +105,21 @@ export const SHORTHAND_BY_COMMAND_ID: ReadonlyMap<string, string> = (() => {
   return map;
 })();
 
-function isAsciiLetter(ch: string): boolean {
-  return /^[a-zA-Z]$/.test(ch);
-}
+const PUNCT_RULES = AUTO_SHORTHANDS.filter((r) => r.kind === 'punct');
 
+/**
+ * Matches ONLY multi-character punctuation shorthands (`->`, `<=`, `+-`, `~~`, `~=`, etc.)
+ * on immediate keystroke. Alphabetic words (`pi`, `oo`, `alpha`, `in`, ...) are recognized
+ * non-destructively at word-token boundaries in `latex.ts`, so typing `spin`, `spi`, `pin`,
+ * `foo`, or `n pi x` never gets corrupted mid-word!
+ */
 export function matchTrailingShorthand(
   children: readonly MathNode[],
   offset: number,
 ): { start: number; command: CommandDef } | null {
   if (offset <= 0) return null;
 
-  // Don't interfere with an active inline `\macro` being typed
-  let scan = offset - 1;
-  while (scan >= 0) {
-    const n = children[scan];
-    if (n.type === 'char' && isAsciiLetter(n.value)) {
-      scan -= 1;
-    } else {
-      if (n.type === 'char' && n.value === '\\') {
-        return null;
-      }
-      break;
-    }
-  }
-
-  const maxLen = Math.min(offset, 10);
+  const maxLen = Math.min(offset, 4);
   let tail = '';
   let charStart = offset;
   for (let i = offset - 1; i >= offset - maxLen; i -= 1) {
@@ -179,41 +130,10 @@ export function matchTrailingShorthand(
   }
   if (!tail) return null;
 
-  // Find full contiguous ASCII letter run ending at `offset` (for coeff check)
-  let wordStart = offset;
-  while (wordStart > 0) {
-    const n = children[wordStart - 1];
-    if (n.type === 'char' && isAsciiLetter(n.value)) {
-      wordStart -= 1;
-    } else {
-      break;
-    }
-  }
-  const fullWord = children
-    .slice(wordStart, offset)
-    .map((n) => (n.type === 'char' ? n.value : ''))
-    .join('');
-
-  for (const rule of AUTO_SHORTHANDS) {
+  for (const rule of PUNCT_RULES) {
     if (!tail.endsWith(rule.trigger)) continue;
     const matchStart = offset - rule.trigger.length;
     if (matchStart < charStart) continue;
-
-    if (rule.boundary === 'word' && matchStart > 0) {
-      const prev = children[matchStart - 1];
-      if (prev.type === 'char' && isAsciiLetter(prev.value)) {
-        continue;
-      }
-    } else if (rule.boundary === 'coeff' && matchStart > 0) {
-      const prev = children[matchStart - 1];
-      if (prev.type === 'char' && isAsciiLetter(prev.value)) {
-        // Allow ONLY a single variable coefficient letter before the Greek name (e.g. `npi`, `ipi`, `dtheta`)
-        const prefixLetters = matchStart - wordStart;
-        if (prefixLetters !== 1) continue;
-        if (PROTECTED_WORDS.has(fullWord.toLowerCase())) continue;
-      }
-    }
-
     const cmd = COMMANDS_BY_ID.get(rule.commandId);
     if (cmd) {
       return { start: matchStart, command: cmd };

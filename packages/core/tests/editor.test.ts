@@ -188,92 +188,166 @@ describe('MathSlotEngine keyboard flow', () => {
     expect(engine.getSnapshot().latex).toBe('\\frac{\\sin x}{x} = 1');
   });
 
-  it('auto-expands oo -> \\infty, pi -> \\pi, -> -> \\to, <= -> \\le and lets Ctrl+Z revert', () => {
-    const engine = new MathSlotEngine();
-    for (const ch of 'x->oo') engine.insertText(ch);
-    expect(engine.getSnapshot().latex).toBe('x \\to \\infty');
-
-    // Undo once reverts \infty back to literal oo!
-    engine.undo();
-    expect(engine.getSnapshot().latex).toBe('x \\to oo');
-
-    engine.clear();
-    for (const ch of '2pi <= alpha + beta') engine.insertText(ch);
-    expect(engine.getSnapshot().latex).toBe('2\\pi \\le \\alpha + \\beta');
-
-    // Does NOT corrupt English/math words like `sin` or `foo`
-    engine.clear();
-    for (const ch of 'foo') engine.insertText(ch);
-    expect(engine.getSnapshot().latex).toBe('foo');
-  });
-
-  it('writes the exact user-specified Fourier series smoothly with upright \\mathrm{d}x, npi -> n\\pi, and clean bracket/integral hierarchy', () => {
+  it('recognizes isolated-word shorthands (n pi x, oo, alpha, in) without corrupting spin/spi/pin/foo/sin', () => {
     const engine = new MathSlotEngine();
     const type = (s: string) => {
       for (const ch of s) engine.insertText(ch);
     };
 
-    // f(x) \sim \frac{1}{2l} \int_{-l}^{l} f(x)\,\mathrm{d}x + \sum_{n=1}^{\infty} \left[\left(\frac{1}{l} \int_{-l}^{l} f(x) \cos \frac{n\pi x}{l}\,\mathrm{d}x\right) \cos \frac{n\pi x}{l} + \left(\frac{1}{l} \int_{-l}^{l} f(x) \sin \frac{n\pi x}{l}\,\mathrm{d}x\right) \sin \frac{n\pi x}{l}\right]
-    type('f(x)~~');
-    type('1/2l');
+    type('x->oo');
+    expect(engine.getSnapshot().latex).toBe('x \\to \\infty');
+    // Punctuation shorthand `->` can be reverted with Ctrl+Z; `oo` is non-destructive word recognition
+    engine.backspace();
+    expect(engine.getSnapshot().latex).toBe('x \\to o');
+
+    engine.clear();
+    type('n pi x');
+    expect(engine.getSnapshot().latex).toBe('n \\pi x');
+    expect(engine.getSnapshot().interactiveLatex).toContain('\\pi');
+
+    // Space inside exponents works cleanly (never hijacked by default!)
+    engine.clear();
+    type('e^i pi');
+    expect(engine.getSnapshot().latex).toBe('e^{i \\pi}');
+
+    // Typing `pin`: `p` -> `pi` (\pi) -> `pin` (reverts cleanly to literal `pin`!) -> Backspace -> `\pi`!
+    engine.clear();
+    type('p');
+    expect(engine.getSnapshot().latex).toBe('p');
+    type('i');
+    expect(engine.getSnapshot().latex).toBe('\\pi');
+    type('n');
+    expect(engine.getSnapshot().latex).toBe('pin');
+    engine.backspace();
+    expect(engine.getSnapshot().latex).toBe('\\pi');
+
+    // `spin`, `spi`, `foo`, `sin` are NEVER corrupted!
+    for (const literal of ['spin', 'spi', 'foo', 'api', 'epi']) {
+      engine.clear();
+      type(literal);
+      expect(engine.getSnapshot().latex).toBe(literal);
+    }
+
+    engine.clear();
+    type('2pi <= alpha + beta');
+    expect(engine.getSnapshot().latex).toBe('2\\pi \\le \\alpha + \\beta');
+
+    engine.clear();
+    type('x in A, a ~ b, c ~~ d, e ~= f');
+    expect(engine.getSnapshot().latex).toBe('x \\in A, a \\sim b, c \\approx d, e \\cong f');
+  });
+
+  it('auto-closes (), [], {}, skips on closing bracket or Enter, deletes empty pairs, wraps selection, and smart-sizes', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // Flat `f(x)` typed naturally: `(` opens pair, `x` inside, `)` skips right out -> crisp `f(x)`
+    type('f(x)+1');
+    expect(engine.getSnapshot().latex).toBe('f(x) + 1');
+
+    // Empty pair Backspace removes both in one stroke
+    engine.clear();
+    type('(');
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['括号']);
+    engine.backspace();
+    expect(engine.getSnapshot().breadcrumbs).toEqual([]);
+    expect(engine.getSnapshot().latex).toBe('');
+
+    // Selection + `[` wraps selection and lands after closing `]`
+    type('a+b');
+    engine.selectAll();
+    type('[');
+    type('+c');
+    expect(engine.getSnapshot().latex).toBe('[a + b] + c');
+
+    // Tall content inside keyboard `(` / `[` auto-sizes to `\left(...\right)` / `\left[...\right]`!
+    engine.clear();
+    type('[(1/2)+3]');
+    expect(engine.getSnapshot().latex).toBe('\\left[\\left(\\frac{1}{2}\\right) + 3\\right]');
+  });
+
+  it('supports jump history (Alt+Left/Alt+Right, Esc -, Esc .) and Tab j jump alias', () => {
+    const engine = new MathSlotEngine();
+    engine.loadFormula('\\frac{1}{2} + x');
+    // Tab j enters jump mode (v0.7/v0.8 muscle memory)
+    engine.triggerLeader();
+    engine.handleLeaderKey('j');
+    const snap = engine.getSnapshot();
+    expect(snap.mode.kind).toBe('jump');
+    if (snap.mode.kind === 'jump') {
+      const numTarget = snap.mode.targets.find((t) => t.slotLabel === '分子')!;
+      engine.handleJumpKey(numTarget.label);
+      engine.insertText('+a');
+      expect(engine.getSnapshot().latex).toBe('\\frac{1 + a}{2} + x');
+
+      // Jump back to end of root via jumpBack (Alt+Left)
+      expect(engine.jumpBack()).toBe(true);
+      engine.insertText('+y');
+      expect(engine.getSnapshot().latex).toBe('\\frac{1 + a}{2} + x + y');
+
+      // Esc . jumps straight to end of formula
+      engine.enterJumpMode();
+      engine.handleJumpKey(numTarget.label);
+      engine.enterJumpMode();
+      engine.handleJumpKey('.');
+      engine.insertText('+z');
+      expect(engine.getSnapshot().latex).toBe('\\frac{1 + a}{2} + x + y + z');
+    }
+  });
+
+  it('writes the exact user-specified Fourier series smoothly with natural spaces (n pi x), auto-brackets, upright \\mathrm{d}x, and clean hierarchy', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // Target:
+    // f(x) \sim \frac{1}{2l} \int_{-l}^{l} f(x)\,\mathrm{d}x + \sum_{n=1}^{\infty} \left[\left(\frac{1}{l} \int_{-l}^{l} f(x) \cos \frac{n \pi x}{l}\,\mathrm{d}x\right) \cos \frac{n \pi x}{l} + \left(\frac{1}{l} \int_{-l}^{l} f(x) \sin \frac{n \pi x}{l}\,\mathrm{d}x\right) \sin \frac{n \pi x}{l}\right]
+    type('f(x) ~ 1/2l');
     engine.nextSlot(); // exit frac -> root
     engine.triggerLeader();
     engine.handleLeaderKey('i'); // \int_{}^{}
     type('-l');
     engine.nextSlot();
     type('l');
-    engine.nextSlot(); // exit \int -> root (clean 2-slot prefix!)
-    type('f(x) dx+');
+    engine.nextSlot(); // exit \int -> root
+    type('f(x) dx + ');
     engine.triggerLeader();
     engine.handleLeaderKey('s'); // \sum_{}^{}
     type('n=1');
     engine.nextSlot();
     type('oo');
-    engine.nextSlot(); // exit \sum -> root!
+    engine.nextSlot(); // exit \sum -> root
 
-    engine.triggerLeader();
-    engine.handleLeaderKey('a');
-    engine.handleLeaderKey('l'); // \left[ ... \right]
+    // Natural keyboard `[` and `(` auto-pair and auto-size!
+    type('[');
     expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
-
-    engine.triggerLeader();
-    engine.handleLeaderKey('p'); // \left( ... \right)
+    type('(');
     expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
 
     type('1/l');
     engine.nextSlot(); // back in paren!
     engine.triggerLeader();
-    engine.handleLeaderKey('i'); // \int_{-l}^{l} inside paren
+    engine.handleLeaderKey('i');
     type('-l');
     engine.nextSlot();
     type('l');
-    engine.nextSlot(); // exits \int -> STILL INSIDE paren (NOT outside paren!)
+    engine.nextSlot(); // exits \int -> STILL INSIDE paren!
     expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
 
-    type('f(x) cos');
-    engine.triggerLeader();
-    engine.handleLeaderKey('f');
-    type('npix'); // npi -> n\pi automatically!
-    engine.nextSlot();
-    type('l');
+    type('f(x) cos n pi x/l');
     engine.nextSlot(); // exit frac -> STILL inside paren!
     type(' dx');
     expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
 
-    engine.nextSlot(); // ONE clean Enter exits paren -> now in bracket!
+    type(')'); // Overtype `)` (or Enter) cleanly exits paren -> back in bracket!
     expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
 
-    type('cos');
-    engine.triggerLeader();
-    engine.handleLeaderKey('f');
-    type('npix');
-    engine.nextSlot();
-    type('l');
+    type(' cos n pi x/l');
     engine.nextSlot(); // back in bracket
-    type('+');
-
-    engine.triggerLeader();
-    engine.handleLeaderKey('p');
+    type(' + (');
     type('1/l');
     engine.nextSlot();
     engine.triggerLeader();
@@ -282,28 +356,19 @@ describe('MathSlotEngine keyboard flow', () => {
     engine.nextSlot();
     type('l');
     engine.nextSlot();
-    type('f(x) sin');
-    engine.triggerLeader();
-    engine.handleLeaderKey('f');
-    type('npix');
-    engine.nextSlot();
-    type('l');
+    type('f(x) sin n pi x/l');
     engine.nextSlot();
     type(' dx');
-    engine.nextSlot(); // ONE clean Enter exits paren -> back in bracket!
+    engine.nextSlot(); // ONE clean Enter also exits paren -> back in bracket!
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
 
-    type('sin');
-    engine.triggerLeader();
-    engine.handleLeaderKey('f');
-    type('npix');
-    engine.nextSlot();
-    type('l');
+    type(' sin n pi x/l');
     engine.nextSlot(); // back in bracket
-    engine.nextSlot(); // ONE clean Enter exits bracket -> root!
+    type(']'); // Overtype `]` (or Enter) cleanly exits bracket -> root!
     expect(engine.getSnapshot().breadcrumbs).toEqual([]);
 
     expect(engine.getSnapshot().latex).toBe(
-      'f(x) \\sim \\frac{1}{2l} \\int_{-l}^{l} f(x)\\,\\mathrm{d}x + \\sum_{n=1}^{\\infty} \\left[\\left(\\frac{1}{l} \\int_{-l}^{l} f(x) \\cos \\frac{n\\pi x}{l}\\,\\mathrm{d}x\\right) \\cos \\frac{n\\pi x}{l} + \\left(\\frac{1}{l} \\int_{-l}^{l} f(x) \\sin \\frac{n\\pi x}{l}\\,\\mathrm{d}x\\right) \\sin \\frac{n\\pi x}{l}\\right]',
+      'f(x) \\sim \\frac{1}{2l} \\int_{-l}^{l} f(x)\\,\\mathrm{d}x + \\sum_{n=1}^{\\infty} \\left[\\left(\\frac{1}{l} \\int_{-l}^{l} f(x) \\cos \\frac{n \\pi x}{l}\\,\\mathrm{d}x\\right) \\cos \\frac{n \\pi x}{l} + \\left(\\frac{1}{l} \\int_{-l}^{l} f(x) \\sin \\frac{n \\pi x}{l}\\,\\mathrm{d}x\\right) \\sin \\frac{n \\pi x}{l}\\right]',
     );
   });
 

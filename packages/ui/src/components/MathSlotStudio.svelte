@@ -253,6 +253,12 @@
         sync();
         return;
       }
+      if (e.key === 'Enter' && snapshot.mode.prefix !== '') {
+        e.preventDefault();
+        engine.acceptSubmenuDefault();
+        sync();
+        return;
+      }
       if (e.key === 'Backspace') {
         e.preventDefault();
         engine.stepLeaderBack();
@@ -323,14 +329,16 @@
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      engine.moveLeft(e.shiftKey);
+      if (e.altKey) engine.jumpBack();
+      else engine.moveLeft(e.shiftKey);
       sync();
       return;
     }
 
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      engine.moveRight(e.shiftKey);
+      if (e.altKey) engine.jumpForward();
+      else engine.moveRight(e.shiftKey);
       sync();
       return;
     }

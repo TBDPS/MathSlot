@@ -13,8 +13,8 @@ import {
   isStructEmpty,
   textToCharNodes,
 } from './ast';
-import { COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS } from './catalog';
-import { emitNodesCanonical, toInteractiveLatex, toLatex } from './latex';
+import { COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS, getSubmenuCommands } from './catalog';
+import { MATH_FUNCTIONS, emitNodesCanonical, toInteractiveLatex, toLatex } from './latex';
 import { importFormula } from './parser';
 import { matchTrailingShorthand } from './shorthands';
 import { getSlotOrder } from './slotOrder';
@@ -48,6 +48,8 @@ export class MathSlotEngine {
   private customCommands: CustomCommandDef[] = [];
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
+  private jumpHistory: Cursor[] = [];
+  private jumpHistoryIdx = -1;
   private focused = true;
 
   constructor(initialSettings: Partial<AppSettings> = {}) {
@@ -77,10 +79,11 @@ export class MathSlotEngine {
   }
 
   public getSnapshot(): EditorSnapshot {
-    const latex = toLatex(this.doc);
+    const latex = toLatex(this.doc, { autoShorthands: this.settings.autoShorthands });
     const interactiveLatex = toInteractiveLatex(this.doc, this.cursor, this.selection, {
       focused: this.focused,
       showJumpTargets: this.mode.kind === 'jump',
+      autoShorthands: this.settings.autoShorthands,
     });
     return {
       doc: this.doc,
@@ -207,19 +210,93 @@ export class MathSlotEngine {
   }
 
   public getSelectedLatex(): string {
-    if (!this.selection) return toLatex(this.doc);
+    if (!this.selection) return toLatex(this.doc, { autoShorthands: this.settings.autoShorthands });
     const slot = findSlot(this.doc.root, this.selection.slotId);
     if (!slot) return '';
-    return emitNodesCanonical(slot.children.slice(this.selection.start, this.selection.end));
+    return emitNodesCanonical(slot.children.slice(this.selection.start, this.selection.end), {
+      autoShorthands: this.settings.autoShorthands,
+    });
+  }
+
+  private recordJumpOrigin(origin: Cursor): void {
+    const prev = this.jumpHistory[this.jumpHistoryIdx];
+    if (prev && prev.slotId === origin.slotId && prev.offset === origin.offset) {
+      return;
+    }
+    this.jumpHistory = this.jumpHistory.slice(0, this.jumpHistoryIdx + 1);
+    this.jumpHistory.push({ ...origin });
+    if (this.jumpHistory.length > 64) {
+      this.jumpHistory.shift();
+    }
+    this.jumpHistoryIdx = this.jumpHistory.length - 1;
+  }
+
+  private jumpToCursor(target: Cursor): void {
+    const slot = findSlot(this.doc.root, target.slotId);
+    if (!slot) return;
+    const clamped: Cursor = {
+      slotId: slot.id,
+      offset: Math.max(0, Math.min(target.offset, slot.children.length)),
+    };
+    if (clamped.slotId !== this.cursor.slotId || clamped.offset !== this.cursor.offset) {
+      this.recordJumpOrigin(this.cursor);
+      this.cursor = clamped;
+      this.jumpHistory = this.jumpHistory.slice(0, this.jumpHistoryIdx + 1);
+      this.jumpHistory.push({ ...clamped });
+      this.jumpHistoryIdx = this.jumpHistory.length - 1;
+    }
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+  }
+
+  public jumpBack(): boolean {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    while (this.jumpHistoryIdx > 0) {
+      this.jumpHistoryIdx -= 1;
+      const entry = this.jumpHistory[this.jumpHistoryIdx];
+      const slot = findSlot(this.doc.root, entry.slotId);
+      if (slot) {
+        this.cursor = {
+          slotId: slot.id,
+          offset: Math.max(0, Math.min(entry.offset, slot.children.length)),
+        };
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public jumpForward(): boolean {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    while (this.jumpHistoryIdx + 1 < this.jumpHistory.length) {
+      this.jumpHistoryIdx += 1;
+      const entry = this.jumpHistory[this.jumpHistoryIdx];
+      const slot = findSlot(this.doc.root, entry.slotId);
+      if (slot) {
+        this.cursor = {
+          slotId: slot.id,
+          offset: Math.max(0, Math.min(entry.offset, slot.children.length)),
+        };
+        return true;
+      }
+    }
+    return false;
   }
 
   public setCursor(slotId: string, offset: number): void {
     const slot = findSlot(this.doc.root, slotId);
     if (!slot) return;
-    this.cursor = {
+    const next: Cursor = {
       slotId: slot.id,
       offset: Math.max(0, Math.min(offset, slot.children.length)),
     };
+    if (next.slotId !== this.cursor.slotId) {
+      this.jumpToCursor(next);
+      return;
+    }
+    this.cursor = next;
     this.selection = null;
     this.mode = { kind: 'edit' };
   }
@@ -248,6 +325,24 @@ export class MathSlotEngine {
 
   public handleJumpKey(key: string): boolean {
     if (this.mode.kind !== 'jump') return false;
+    // Quick navigation shortcuts inside Esc jump mode (v0.8.1 ergonomics)
+    if (this.mode.typed === '') {
+      if (key === '.' || key === ';' || key === '$') {
+        this.jumpToCursor({ slotId: this.doc.root.id, offset: this.doc.root.children.length });
+        return true;
+      }
+      if (key === '0' || key === '^') {
+        this.jumpToCursor({ slotId: this.doc.root.id, offset: 0 });
+        return true;
+      }
+      if (key === '-') {
+        return this.jumpBack();
+      }
+      if (key === '=' || key === '+') {
+        return this.jumpForward();
+      }
+    }
+
     const ch = key.toLowerCase();
     if (!/^[a-z]$/.test(ch)) {
       this.mode = { kind: 'edit' };
@@ -256,9 +351,7 @@ export class MathSlotEngine {
     const nextTyped = this.mode.typed + ch;
     const exact = this.mode.targets.find((t) => t.label === nextTyped);
     if (exact) {
-      this.cursor = { slotId: exact.slotId, offset: exact.offset };
-      this.selection = null;
-      this.mode = { kind: 'edit' };
+      this.jumpToCursor({ slotId: exact.slotId, offset: exact.offset });
       return true;
     }
     const remaining = this.mode.targets.filter((t) => t.label.startsWith(nextTyped));
@@ -270,12 +363,37 @@ export class MathSlotEngine {
     return true;
   }
 
+  public acceptSubmenuDefault(): boolean {
+    if (this.mode.kind !== 'leader' || this.mode.prefix === '') return false;
+    const { prefix } = this.mode;
+    this.mode = { kind: 'edit' };
+    if (prefix === 'k') {
+      const firstCustom = this.customCommands[0];
+      if (firstCustom) {
+        this.insertCommand(firstCustom.id);
+        return true;
+      }
+      return false;
+    }
+    const list = getSubmenuCommands(prefix);
+    if (list.length > 0) {
+      this.insertCommand(list[0].id);
+      return true;
+    }
+    return false;
+  }
+
   public handleLeaderKey(key: string): { handled: boolean; executedCommandId?: string } {
     if (this.mode.kind !== 'leader') return { handled: false };
     if (key.length !== 1) return { handled: false };
 
     const { prefix } = this.mode;
     if (prefix === '') {
+      // `Tab j` muscle-memory alias from v0.7/v0.8 -> enter Easymotion jump mode immediately!
+      if (key === 'j' || key === 'J') {
+        this.enterJumpMode();
+        return { handled: true };
+      }
       if (SUBMENU_KEYS.has(key) || key === 'k') {
         this.mode = { kind: 'leader', prefix: key };
         return { handled: true };
@@ -288,6 +406,11 @@ export class MathSlotEngine {
       }
       // Unknown leader key -> gracefully dismiss leader mode
       this.mode = { kind: 'edit' };
+      return { handled: true };
+    }
+
+    if (key === ' ') {
+      this.acceptSubmenuDefault();
       return { handled: true };
     }
 
@@ -348,6 +471,20 @@ export class MathSlotEngine {
           return;
         }
       }
+      // Auto-closing brackets `( )`, `[ ]`, `{ }` + overtype skip-out on closing `)`, `]`, `}`!
+      if (this.settings.autoBrackets) {
+        const openBracketCmd =
+          ch === '(' ? 'paren' : ch === '[' ? 'bracket' : ch === '{' ? 'brace' : null;
+        if (openBracketCmd && !this.isEscapedBeforeCursor()) {
+          this.insertAutoBracket(openBracketCmd);
+          return;
+        }
+        const closeBracketCmd =
+          ch === ')' ? 'paren' : ch === ']' ? 'bracket' : ch === '}' ? 'brace' : null;
+        if (closeBracketCmd && this.trySkipClosingBracket(closeBracketCmd)) {
+          return;
+        }
+      }
       if (this.settings.naturalScripts && (ch === '^' || ch === '_')) {
         this.insertNaturalScript(ch === '^' ? 'sup' : 'sub');
         return;
@@ -356,7 +493,7 @@ export class MathSlotEngine {
         this.insertNaturalFraction();
         return;
       }
-      // Inline `\alpha ` completion or Space-exits-script (e.g. `a_n ` exits subscript cleanly!)
+      // Inline `\alpha ` completion or optional Space-exits-script
       if (ch === ' ') {
         if (this.tryExpandInlineMacro()) {
           return;
@@ -443,6 +580,74 @@ export class MathSlotEngine {
     slot.children.splice(this.cursor.offset, 0, struct);
     const firstEmpty = struct.slots.find((s) => s.children.length === 0) ?? struct.slots[0];
     this.cursor = { slotId: firstEmpty.id, offset: 0 };
+  }
+
+  private isEscapedBeforeCursor(): boolean {
+    const slot = this.currentSlot();
+    if (this.cursor.offset <= 0) return false;
+    const prev = slot.children[this.cursor.offset - 1];
+    return prev.type === 'char' && prev.value === '\\';
+  }
+
+  private insertAutoBracket(commandId: 'paren' | 'bracket' | 'brace'): void {
+    const cmd = COMMANDS_BY_ID.get(commandId);
+    if (!cmd) return;
+    this.pushHistory();
+    const slot = this.currentSlot();
+    let innerNodes: MathNode[] = [];
+    const hadSelection = this.selection !== null && this.selection.slotId === slot.id;
+    if (hadSelection) {
+      innerNodes = this.deleteSelectionInternal();
+    }
+    const struct = createStructNode(cmd, [innerNodes]);
+    struct.autoSized = true;
+    slot.children.splice(this.cursor.offset, 0, struct);
+    if (hadSelection) {
+      // Wrapped selection -> cursor moves right after the closing bracket (matches v0.8.1!)
+      this.cursor = { slotId: slot.id, offset: this.cursor.offset + 1 };
+    } else {
+      this.cursor = { slotId: struct.slots[0].id, offset: 0 };
+    }
+  }
+
+  private trySkipClosingBracket(commandId: 'paren' | 'bracket' | 'brace'): boolean {
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+
+    const DELIMS = new Set(['paren', 'bracket', 'brace', 'abs', 'norm']);
+
+    // Walk up from current slot: if we're at the trailing end of the current slot
+    // (and any intermediate non-delimiter struct like `\frac{1}{2}` or `x^2` that sits
+    // at the end of the enclosing matching bracket), typing `)` / `]` / `}` cleanly jumps out!
+    let atTrailingEdge = this.cursor.offset === path[path.length - 1].slot.children.length;
+    if (!atTrailingEdge) return false;
+
+    for (let i = path.length - 1; i >= 1; i -= 1) {
+      const entry = path[i];
+      const struct = entry.parentStruct;
+      const parentSlot = entry.parentSlot;
+      if (!struct || !parentSlot) break;
+
+      if (struct.commandId === commandId) {
+        this.cursor = { slotId: parentSlot.id, offset: entry.nodeIndexInParent + 1 };
+        this.selection = null;
+        return true;
+      }
+
+      // Stop climbing if we hit a DIFFERENT delimiter container (e.g. `]` inside `(...)`)
+      if (DELIMS.has(struct.commandId)) {
+        break;
+      }
+
+      // Only climb past non-delimiter struct (e.g. `frac`, `sup`, `sub`, `sqrt`) if we are
+      // in its final slot AND it is the last node in its parent slot (trailing edge)
+      const isLastSlot = entry.slotIndexInStruct === struct.slots.length - 1;
+      const isLastNodeInParent = entry.nodeIndexInParent === parentSlot.children.length - 1;
+      if (!isLastSlot || !isLastNodeInParent) {
+        break;
+      }
+    }
+    return false;
   }
 
   private trySpaceExitScript(): boolean {
@@ -600,8 +805,51 @@ export class MathSlotEngine {
       ]);
       while (start > 0) {
         const c = slot.children[start - 1];
-        if (c.type === 'char' && /^[+=,;:\-<>()[\]]$/.test(c.value)) {
+        if (c.type === 'char' && /^[+=,;:\-<>()[\]~]$/.test(c.value)) {
           break;
+        }
+        // If we encounter a space right after a math function (`cos`, `sin`, ...) that itself follows
+        // another factor (e.g. `f(x) cos n pi x/l` or `(...) cos n pi x/l`), stop AFTER the function!
+        // Meanwhile standalone `sin x/x` keeps `\sin x` together in the numerator `\frac{\sin x}{x}`.
+        if (c.type === 'char' && c.value === ' ') {
+          let wEnd = start - 1;
+          while (wEnd > 0) {
+            const sp = slot.children[wEnd - 1];
+            if (sp.type === 'char' && sp.value === ' ') wEnd -= 1;
+            else break;
+          }
+          let wStart = wEnd;
+          while (wStart > 0) {
+            const lc = slot.children[wStart - 1];
+            if (lc.type === 'char' && /^[A-Za-z]$/.test(lc.value)) wStart -= 1;
+            else break;
+          }
+          if (wStart < wEnd) {
+            const word = slot.children
+              .slice(wStart, wEnd)
+              .map((n) => (n.type === 'char' ? n.value : ''))
+              .join('');
+            if (MATH_FUNCTIONS.has(word)) {
+              let beforeFunc = wStart - 1;
+              while (
+                beforeFunc >= 0 &&
+                slot.children[beforeFunc].type === 'char' &&
+                (slot.children[beforeFunc] as { value: string }).value === ' '
+              ) {
+                beforeFunc -= 1;
+              }
+              if (beforeFunc >= 0) {
+                const bf = slot.children[beforeFunc];
+                const isFactorBeforeFunc =
+                  (bf.type === 'struct' && !STOP_STRUCT_IDS.has(bf.commandId)) ||
+                  (bf.type === 'symbol' && !STOP_SYMBOL_IDS.has(bf.commandId)) ||
+                  (bf.type === 'char' && !/^[+=,;:\-<>([\~]$/.test(bf.value));
+                if (isFactorBeforeFunc) {
+                  break;
+                }
+              }
+            }
+          }
         }
         if (c.type === 'symbol' && STOP_SYMBOL_IDS.has(c.commandId)) {
           break;

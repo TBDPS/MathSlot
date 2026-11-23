@@ -24,6 +24,8 @@ export const MATH_FUNCTIONS = new Set([
   'cosh',
   'tanh',
   'coth',
+  'sech',
+  'csch',
   'log',
   'ln',
   'lg',
@@ -37,13 +39,147 @@ export const MATH_FUNCTIONS = new Set([
   'inf',
   'det',
   'gcd',
+  'lcm',
   'dim',
   'ker',
   'deg',
   'arg',
   'Pr',
   'hom',
+  'Re',
+  'Im',
 ]);
+
+const OPERATORNAME_FUNCTIONS: Readonly<Record<string, string>> = {
+  rank: '\\operatorname{rank}',
+  tr: '\\operatorname{tr}',
+  span: '\\operatorname{span}',
+  diag: '\\operatorname{diag}',
+  proj: '\\operatorname{proj}',
+  Res: '\\operatorname{Res}',
+  Cov: '\\operatorname{Cov}',
+};
+
+/**
+ * Isolated alphabetic bare-word -> LaTeX macro table (matching v0.8.1's proven word rules).
+ * Only matches an ENTIRE contiguous ASCII letter word (bounded by spaces, digits, operators,
+ * brackets, or start/end of slot), so `n pi x` -> `n \pi x`, `2pi` -> `2\pi`, `oo` -> `\infty`,
+ * while `spin`, `spi`, `pin`, `foo`, `sin` are NEVER corrupted!
+ */
+export const BARE_WORD_ATOMS: Readonly<Record<string, string>> = {
+  // Lowercase Greek (all 24 + standard TeX variants)
+  alpha: '\\alpha',
+  beta: '\\beta',
+  gamma: '\\gamma',
+  delta: '\\delta',
+  epsilon: '\\varepsilon',
+  varepsilon: '\\varepsilon',
+  zeta: '\\zeta',
+  eta: '\\eta',
+  theta: '\\theta',
+  vartheta: '\\vartheta',
+  iota: '\\iota',
+  kappa: '\\kappa',
+  varkappa: '\\varkappa',
+  lambda: '\\lambda',
+  mu: '\\mu',
+  nu: '\\nu',
+  xi: '\\xi',
+  pi: '\\pi',
+  varpi: '\\varpi',
+  rho: '\\rho',
+  varrho: '\\varrho',
+  sigma: '\\sigma',
+  varsigma: '\\varsigma',
+  tau: '\\tau',
+  upsilon: '\\upsilon',
+  phi: '\\phi',
+  varphi: '\\varphi',
+  chi: '\\chi',
+  psi: '\\psi',
+  omega: '\\omega',
+  // Uppercase Greek (all 11)
+  Gamma: '\\Gamma',
+  Delta: '\\Delta',
+  Theta: '\\Theta',
+  Lambda: '\\Lambda',
+  Xi: '\\Xi',
+  Pi: '\\Pi',
+  Sigma: '\\Sigma',
+  Upsilon: '\\Upsilon',
+  Phi: '\\Phi',
+  Psi: '\\Psi',
+  Omega: '\\Omega',
+  // Common symbolic words & ISO constants
+  oo: '\\infty',
+  infty: '\\infty',
+  nabla: '\\nabla',
+  partial: '\\partial',
+  forall: '\\forall',
+  exists: '\\exists',
+  emptyset: '\\varnothing',
+  hbar: '\\hbar',
+  ell: '\\ell',
+  ldots: '\\ldots',
+  cdots: '\\cdots',
+  dots: '\\ldots',
+  quad: '\\quad',
+  qquad: '\\qquad',
+  dd: '\\mathrm{d}',
+  ee: '\\mathrm{e}',
+  ii: '\\mathrm{i}',
+};
+
+export const BARE_WORD_BINOPS: Readonly<Record<string, string>> = {
+  xx: '\\times',
+  times: '\\times',
+  cdot: '\\cdot',
+  div: '\\div',
+  pm: '\\pm',
+  mp: '\\mp',
+  in: '\\in',
+  notin: '\\notin',
+  subset: '\\subset',
+  subseteq: '\\subseteq',
+  supset: '\\supset',
+  supseteq: '\\supseteq',
+  cup: '\\cup',
+  cap: '\\cap',
+  to: '\\to',
+  rightarrow: '\\to',
+  leftarrow: '\\leftarrow',
+  approx: '\\approx',
+  equiv: '\\equiv',
+  sim: '\\sim',
+  cong: '\\cong',
+  propto: '\\propto',
+  leq: '\\le',
+  le: '\\le',
+  geq: '\\ge',
+  ge: '\\ge',
+  neq: '\\neq',
+  ne: '\\neq',
+};
+
+export const DIFFERENTIAL_WORDS: Readonly<Record<string, string>> = {
+  dx: '\\mathrm{d}x',
+  dt: '\\mathrm{d}t',
+  dy: '\\mathrm{d}y',
+  dz: '\\mathrm{d}z',
+  du: '\\mathrm{d}u',
+  dv: '\\mathrm{d}v',
+  dr: '\\mathrm{d}r',
+  ds: '\\mathrm{d}s',
+  dp: '\\mathrm{d}p',
+  dq: '\\mathrm{d}q',
+  dV: '\\mathrm{d}V',
+  dS: '\\mathrm{d}S',
+  dtheta: '\\mathrm{d}\\theta',
+  dphi: '\\mathrm{d}\\phi',
+  dtau: '\\mathrm{d}\\tau',
+  domega: '\\mathrm{d}\\omega',
+  dxi: '\\mathrm{d}\\xi',
+};
 
 const BINARY_RELATION_SYMBOLS = new Set([
   'to',
@@ -116,7 +252,40 @@ const INTEGRAL_OPS = new Set([
   'contour_integral',
 ]);
 
+const TALL_STRUCT_IDS = new Set([
+  'frac',
+  'partial_frac',
+  'total_frac',
+  'binom',
+  'integral',
+  'double_integral',
+  'triple_integral',
+  'contour_integral',
+  'sum',
+  'product',
+  'limit',
+  'sqrt',
+  'nth_root',
+  'matrix_2x2',
+  'matrix_3x3',
+  'bmatrix_2x2',
+  'bmatrix_3x3',
+  'det_2x2',
+  'det_3x3',
+  'cases_2',
+  'cases_3',
+  'eval_bar',
+  'overbrace',
+  'underbrace',
+]);
+
+const DELIMITER_STRUCT_IDS = new Set(['paren', 'bracket', 'brace', 'abs', 'norm']);
+
 type SpacingLevel = 'display' | 'tight';
+
+export interface LatexEmitOptions {
+  autoShorthands?: boolean;
+}
 
 function isTightSlot(commandId: string, slotIndex: number): boolean {
   if ((commandId === 'sup' || commandId === 'sub') && slotIndex === 1) return true;
@@ -138,6 +307,20 @@ function isTightSlot(commandId: string, slotIndex: number): boolean {
   return false;
 }
 
+function slotHasTallContent(slot: SlotNode): boolean {
+  for (const child of slot.children) {
+    if (child.type === 'symbol' && INTEGRAL_OPS.has(child.commandId)) {
+      return true;
+    }
+    if (child.type === 'struct') {
+      if (TALL_STRUCT_IDS.has(child.commandId)) return true;
+      if (DELIMITER_STRUCT_IDS.has(child.commandId) && !child.autoSized) return true;
+      if (child.slots.some((s) => slotHasTallContent(s))) return true;
+    }
+  }
+  return false;
+}
+
 function escapeCharLatex(ch: string): string {
   switch (ch) {
     case '%':
@@ -155,7 +338,7 @@ function escapeCharLatex(ch: string): string {
     case '}':
       return '\\}';
     case '~':
-      return '\\sim ';
+      return '\\sim';
     case '^':
       return '\\hat{}';
     case '\\':
@@ -175,6 +358,7 @@ type TokenKind =
   | 'comma'
   | 'struct'
   | 'raw'
+  | 'diff'
   | 'space';
 
 interface EmitToken {
@@ -196,7 +380,22 @@ function findLastNonSpace(tokens: readonly EmitToken[]): EmitToken | undefined {
   return undefined;
 }
 
-function tokenizeSlotForCanonical(slot: SlotNode, level: SpacingLevel): EmitToken[] {
+function needsDiffThinSpaceAfter(prev: EmitToken | undefined): boolean {
+  if (!prev) return false;
+  return (
+    prev.kind === 'atom' ||
+    prev.kind === 'close' ||
+    prev.kind === 'struct' ||
+    prev.kind === 'raw' ||
+    prev.kind === 'diff'
+  );
+}
+
+function tokenizeSlotForCanonical(
+  slot: SlotNode,
+  level: SpacingLevel,
+  autoShorthands: boolean,
+): EmitToken[] {
   const tokens: EmitToken[] = [];
   const children = slot.children;
   let i = 0;
@@ -225,6 +424,19 @@ function tokenizeSlotForCanonical(slot: SlotNode, level: SpacingLevel): EmitToke
         }
         if (MATH_FUNCTIONS.has(word)) {
           tokens.push({ text: `\\${word}`, kind: 'func' });
+        } else if (OPERATORNAME_FUNCTIONS[word]) {
+          tokens.push({ text: OPERATORNAME_FUNCTIONS[word], kind: 'func' });
+        } else if (autoShorthands && DIFFERENTIAL_WORDS[word]) {
+          tokens.push({ text: DIFFERENTIAL_WORDS[word], kind: 'diff' });
+        } else if (autoShorthands && BARE_WORD_BINOPS[word]) {
+          const lastNonSpace = findLastNonSpace(tokens);
+          const unary = isUnaryContext(lastNonSpace);
+          tokens.push({
+            text: BARE_WORD_BINOPS[word],
+            kind: unary ? 'atom' : 'binop',
+          });
+        } else if (autoShorthands && BARE_WORD_ATOMS[word]) {
+          tokens.push({ text: BARE_WORD_ATOMS[word], kind: 'atom' });
         } else {
           tokens.push({ text: word, kind: 'atom' });
         }
@@ -233,6 +445,14 @@ function tokenizeSlotForCanonical(slot: SlotNode, level: SpacingLevel): EmitToke
 
       if (node.value === '=' || node.value === '<' || node.value === '>') {
         tokens.push({ text: node.value, kind: 'binop' });
+        i += 1;
+        continue;
+      }
+
+      if (node.value === '~') {
+        const lastNonSpace = findLastNonSpace(tokens);
+        const unary = isUnaryContext(lastNonSpace);
+        tokens.push({ text: '\\sim', kind: unary ? 'atom' : 'binop' });
         i += 1;
         continue;
       }
@@ -299,7 +519,7 @@ function tokenizeSlotForCanonical(slot: SlotNode, level: SpacingLevel): EmitToke
     // StructNode
     const isBigOp = PREFIX_BIGOPS.has(node.commandId);
     tokens.push({
-      text: emitStructCanonical(node, level),
+      text: emitStructCanonical(node, level, autoShorthands),
       kind: isBigOp ? 'bigop' : 'struct',
       structCmdId: node.commandId,
       isIntegral: INTEGRAL_OPS.has(node.commandId),
@@ -318,12 +538,16 @@ function startsWithAsciiLetter(s: string): boolean {
   return /^[a-zA-Z]/.test(s);
 }
 
-function isDifferentialWord(text: string): boolean {
+function isGenericDiffWord(text: string): boolean {
   return /^d[a-zA-Z]$/.test(text);
 }
 
-function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): string {
-  const rawTokens = tokenizeSlotForCanonical(slot, level);
+function emitSlotCanonical(
+  slot: SlotNode,
+  level: SpacingLevel = 'display',
+  autoShorthands = true,
+): string {
+  const rawTokens = tokenizeSlotForCanonical(slot, level, autoShorthands);
   const tokens: EmitToken[] = [];
 
   for (let i = 0; i < rawTokens.length; i += 1) {
@@ -357,18 +581,20 @@ function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): str
   for (let i = 0; i < tokens.length; i += 1) {
     const t = tokens[i];
     const prev = i > 0 ? tokens[i - 1] : undefined;
+    const prevNonSpace = prev?.kind === 'space' ? (i > 1 ? tokens[i - 2] : undefined) : prev;
     const next = tokens[i + 1];
 
     if (t.kind === 'space') {
-      // Check if space precedes an integral differential (`dx`, `dt`, `d\theta`, `\mathrm{d}x`)
-      if (
-        inIntegralScope &&
-        level === 'display' &&
+      const nextIsDiff =
         next &&
-        ((next.kind === 'atom' && isDifferentialWord(next.text)) ||
-          (next.kind === 'atom' && next.text === 'd' && tokens[i + 2] && (tokens[i + 2].kind === 'atom' || tokens[i + 2].kind === 'struct')) ||
-          (next.kind === 'raw' && next.text === '\\mathrm{d}'))
-      ) {
+        (next.kind === 'diff' ||
+          (inIntegralScope &&
+            level === 'display' &&
+            ((next.kind === 'atom' && isGenericDiffWord(next.text)) ||
+              (next.kind === 'atom' && next.text === 'd' && tokens[i + 2] && (tokens[i + 2].kind === 'atom' || tokens[i + 2].kind === 'struct')) ||
+              (next.kind === 'raw' && next.text === '\\mathrm{d}'))));
+
+      if (nextIsDiff && needsDiffThinSpaceAfter(prev)) {
         out += '\\,';
       } else if (out.length > 0 && !out.endsWith(' ')) {
         out += ' ';
@@ -378,7 +604,6 @@ function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): str
 
     if (t.kind === 'bigop') {
       if (t.isIntegral) inIntegralScope = true;
-      // Clean space before bigop if preceded by factor like `\frac{1}{2l} \int_{-l}^{l}`
       if (
         out.length > 0 &&
         !out.endsWith(' ') &&
@@ -390,7 +615,6 @@ function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): str
         out += ' ';
       }
       out += t.text;
-      // Clean space after bigop before integrand/summand
       if (next && next.kind !== 'close' && next.kind !== 'comma' && next.kind !== 'binop') {
         out += ' ';
       }
@@ -398,7 +622,14 @@ function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): str
     }
 
     if (t.kind === 'binop') {
-      if (t.text === '=' || t.text === '+' || t.text === '-' || t.text === '\\sim' || t.text === '\\le' || t.text === '\\ge') {
+      if (
+        t.text === '=' ||
+        t.text === '+' ||
+        t.text === '-' ||
+        t.text === '\\sim' ||
+        t.text === '\\le' ||
+        t.text === '\\ge'
+      ) {
         inIntegralScope = false;
       }
       if (level === 'display') {
@@ -457,34 +688,44 @@ function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): str
       continue;
     }
 
-    // Publication-grade upright differential `\,\mathrm{d}x` inside integrals!
-    if (inIntegralScope && level === 'display') {
-      if (t.kind === 'atom' && isDifferentialWord(t.text)) {
-        const variable = t.text.slice(1);
-        if (out.length > 0 && !out.endsWith('\\,') && !out.endsWith(' ')) {
-          out += '\\,';
-        } else if (out.endsWith(' ')) {
+    if (t.kind === 'diff') {
+      if (needsDiffThinSpaceAfter(prevNonSpace)) {
+        if (out.endsWith(' ')) {
           out = out.slice(0, -1) + '\\,';
+        } else if (out.length > 0 && !out.endsWith('\\,')) {
+          out += '\\,';
+        }
+      }
+      out += t.text;
+      inIntegralScope = false;
+      continue;
+    }
+
+    // Fallback generic integral differential (e.g. `da` or `d\alpha` or `\mathrm{d}x` inside an integral)
+    if (inIntegralScope && level === 'display') {
+      if (t.kind === 'atom' && isGenericDiffWord(t.text)) {
+        const variable = t.text.slice(1);
+        if (needsDiffThinSpaceAfter(prevNonSpace)) {
+          if (out.endsWith(' ')) out = out.slice(0, -1) + '\\,';
+          else if (out.length > 0 && !out.endsWith('\\,')) out += '\\,';
         }
         out += `\\mathrm{d}${variable}`;
         inIntegralScope = false;
         continue;
       }
       if (t.kind === 'atom' && t.text === 'd' && next && (next.kind === 'atom' || next.kind === 'struct')) {
-        if (out.length > 0 && !out.endsWith('\\,') && !out.endsWith(' ')) {
-          out += '\\,';
-        } else if (out.endsWith(' ')) {
-          out = out.slice(0, -1) + '\\,';
+        if (needsDiffThinSpaceAfter(prevNonSpace)) {
+          if (out.endsWith(' ')) out = out.slice(0, -1) + '\\,';
+          else if (out.length > 0 && !out.endsWith('\\,')) out += '\\,';
         }
         out += '\\mathrm{d}';
         inIntegralScope = false;
         continue;
       }
       if (t.kind === 'raw' && t.text === '\\mathrm{d}') {
-        if (out.length > 0 && !out.endsWith('\\,') && !out.endsWith(' ')) {
-          out += '\\,';
-        } else if (out.endsWith(' ')) {
-          out = out.slice(0, -1) + '\\,';
+        if (needsDiffThinSpaceAfter(prevNonSpace)) {
+          if (out.endsWith(' ')) out = out.slice(0, -1) + '\\,';
+          else if (out.length > 0 && !out.endsWith('\\,')) out += '\\,';
         }
         out += '\\mathrm{d}';
         inIntegralScope = false;
@@ -502,8 +743,8 @@ function emitSlotCanonical(slot: SlotNode, level: SpacingLevel = 'display'): str
   return out.replace(/ {2,}/g, ' ').trim();
 }
 
-function formatScriptBase(slot: SlotNode, level: SpacingLevel): string {
-  const inner = emitSlotCanonical(slot, level);
+function formatScriptBase(slot: SlotNode, level: SpacingLevel, autoShorthands: boolean): string {
+  const inner = emitSlotCanonical(slot, level, autoShorthands);
   if (!inner) return '{}';
   if (slot.children.length === 1) {
     const only = slot.children[0];
@@ -523,8 +764,8 @@ function formatScriptBase(slot: SlotNode, level: SpacingLevel): string {
   return `{${inner}}`;
 }
 
-function formatScriptArg(slot: SlotNode): string {
-  const inner = emitSlotCanonical(slot, 'tight');
+function formatScriptArg(slot: SlotNode, autoShorthands: boolean): string {
+  const inner = emitSlotCanonical(slot, 'tight', autoShorthands);
   if (!inner) return '{}';
   if (/^[A-Za-z0-9]$/.test(inner)) {
     return inner;
@@ -532,22 +773,42 @@ function formatScriptArg(slot: SlotNode): string {
   return `{${inner}}`;
 }
 
-function emitStructCanonical(node: StructNode, parentLevel: SpacingLevel): string {
+function emitStructCanonical(
+  node: StructNode,
+  parentLevel: SpacingLevel,
+  autoShorthands: boolean,
+): string {
   if (!node.customLatex) {
     if (node.commandId === 'sup' && node.slots.length === 2) {
-      return `${formatScriptBase(node.slots[0], parentLevel)}^${formatScriptArg(node.slots[1])}`;
+      return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}^${formatScriptArg(node.slots[1], autoShorthands)}`;
     }
     if (node.commandId === 'sub' && node.slots.length === 2) {
-      return `${formatScriptBase(node.slots[0], parentLevel)}_${formatScriptArg(node.slots[1])}`;
+      return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}_${formatScriptArg(node.slots[1], autoShorthands)}`;
     }
     if (node.commandId === 'subsup' && node.slots.length === 3) {
-      return `${formatScriptBase(node.slots[0], parentLevel)}_${formatScriptArg(node.slots[1])}^${formatScriptArg(node.slots[2])}`;
+      return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}_${formatScriptArg(node.slots[1], autoShorthands)}^${formatScriptArg(node.slots[2], autoShorthands)}`;
+    }
+
+    // Smart auto-sizing for keyboard-typed `( )`, `[ ]`, `{ }`:
+    // Flat content like `f(x)` emits crisp `(x)`, while tall content like `\frac`/`\int` emits `\left(...\right)`!
+    if (node.autoSized && node.slots.length === 1) {
+      const inner = emitSlotCanonical(node.slots[0], 'display', autoShorthands);
+      const tall = slotHasTallContent(node.slots[0]);
+      if (node.commandId === 'paren') {
+        return tall ? `\\left(${inner}\\right)` : `(${inner})`;
+      }
+      if (node.commandId === 'bracket') {
+        return tall ? `\\left[${inner}\\right]` : `[${inner}]`;
+      }
+      if (node.commandId === 'brace') {
+        return tall ? `\\left\\{${inner}\\right\\}` : `\\{${inner}\\}`;
+      }
     }
   }
 
   const template = node.customLatex ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
   if (!template) {
-    return node.slots.map((s) => emitSlotCanonical(s, parentLevel)).join(' ');
+    return node.slots.map((s) => emitSlotCanonical(s, parentLevel, autoShorthands)).join(' ');
   }
 
   return template.replace(/\$(\d+)/g, (_, idxStr: string) => {
@@ -555,11 +816,12 @@ function emitStructCanonical(node: StructNode, parentLevel: SpacingLevel): strin
     const slot = node.slots[idx];
     if (!slot) return '';
     const slotLevel: SpacingLevel = isTightSlot(node.commandId, idx) ? 'tight' : 'display';
-    return emitSlotCanonical(slot, slotLevel);
+    return emitSlotCanonical(slot, slotLevel, autoShorthands);
   });
 }
 
-export function emitNodeCanonical(node: MathNode): string {
+export function emitNodeCanonical(node: MathNode, options: LatexEmitOptions = {}): string {
+  const autoShorthands = options.autoShorthands ?? true;
   switch (node.type) {
     case 'char':
       return escapeCharLatex(node.value);
@@ -568,19 +830,21 @@ export function emitNodeCanonical(node: MathNode): string {
     case 'raw':
       return node.latex;
     case 'struct':
-      return emitStructCanonical(node, 'display');
+      return emitStructCanonical(node, 'display', autoShorthands);
   }
 }
 
-export function emitNodesCanonical(nodes: MathNode[]): string {
-  return emitSlotCanonical({ id: '_tmp', label: '', children: nodes }, 'display');
+export function emitNodesCanonical(nodes: MathNode[], options: LatexEmitOptions = {}): string {
+  const autoShorthands = options.autoShorthands ?? true;
+  return emitSlotCanonical({ id: '_tmp', label: '', children: nodes }, 'display', autoShorthands);
 }
 
-export function toLatex(doc: Document): string {
+export function toLatex(doc: Document, options: LatexEmitOptions = {}): string {
+  const autoShorthands = options.autoShorthands ?? true;
   const hasLineBreak = doc.root.children.some(
     (n) => n.type === 'raw' && n.latex.trim() === '\\\\',
   );
-  const inner = emitSlotCanonical(doc.root, 'display');
+  const inner = emitSlotCanonical(doc.root, 'display', autoShorthands);
   if (!hasLineBreak) return inner;
   return `\\begin{gathered} ${inner} \\end{gathered}`;
 }
@@ -603,6 +867,14 @@ export function formatExport(latex: string, style: DelimiterStyle): string {
 export interface InteractiveRenderOptions {
   focused?: boolean;
   showJumpTargets?: boolean;
+  autoShorthands?: boolean;
+}
+
+interface WordTokenSpan {
+  start: number;
+  end: number;
+  kind: 'func' | 'symbol' | 'binop' | 'diff';
+  latex: string;
 }
 
 interface InteractiveHints {
@@ -610,13 +882,20 @@ interface InteractiveHints {
   funcStarts: Set<number>;
   funcEnds: Set<number>;
   diffStarts: Set<number>;
+  wordSpans: Map<number, WordTokenSpan>;
+  keywordIndices: Set<number>;
 }
 
-function analyzeInteractiveHints(children: MathNode[]): InteractiveHints {
+function analyzeInteractiveHints(
+  children: MathNode[],
+  autoShorthands: boolean,
+): InteractiveHints {
   const upright = new Set<number>();
   const funcStarts = new Set<number>();
   const funcEnds = new Set<number>();
   const diffStarts = new Set<number>();
+  const wordSpans = new Map<number, WordTokenSpan>();
+  const keywordIndices = new Set<number>();
 
   let hasIntegral = false;
   let i = 0;
@@ -631,7 +910,7 @@ function analyzeInteractiveHints(children: MathNode[]): InteractiveHints {
       i += 1;
       continue;
     }
-    if (node.type === 'char' && (node.value === '=' || node.value === '+' || node.value === ',')) {
+    if (node.type === 'char' && (node.value === '=' || node.value === '+' || node.value === ',' || node.value === '~')) {
       hasIntegral = false;
       i += 1;
       continue;
@@ -647,12 +926,42 @@ function analyzeInteractiveHints(children: MathNode[]): InteractiveHints {
         word += (children[i] as { value: string }).value;
         i += 1;
       }
-      if (MATH_FUNCTIONS.has(word)) {
+      const end = i;
+
+      if (MATH_FUNCTIONS.has(word) || OPERATORNAME_FUNCTIONS[word]) {
         funcStarts.add(start);
-        funcEnds.add(i - 1);
-        for (let k = start; k < i; k += 1) upright.add(k);
-      } else if (hasIntegral && (isDifferentialWord(word) || (word === 'd' && i < children.length))) {
-        // Upright roman `d` with thin space before differential!
+        funcEnds.add(end - 1);
+        for (let k = start; k < end; k += 1) {
+          upright.add(k);
+          keywordIndices.add(k);
+        }
+      } else if (autoShorthands && DIFFERENTIAL_WORDS[word]) {
+        diffStarts.add(start);
+        wordSpans.set(start, {
+          start,
+          end,
+          kind: 'diff',
+          latex: DIFFERENTIAL_WORDS[word],
+        });
+        for (let k = start; k < end; k += 1) keywordIndices.add(k);
+        hasIntegral = false;
+      } else if (autoShorthands && BARE_WORD_BINOPS[word]) {
+        wordSpans.set(start, {
+          start,
+          end,
+          kind: 'binop',
+          latex: BARE_WORD_BINOPS[word],
+        });
+        for (let k = start; k < end; k += 1) keywordIndices.add(k);
+      } else if (autoShorthands && BARE_WORD_ATOMS[word]) {
+        wordSpans.set(start, {
+          start,
+          end,
+          kind: 'symbol',
+          latex: BARE_WORD_ATOMS[word],
+        });
+        for (let k = start; k < end; k += 1) keywordIndices.add(k);
+      } else if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && end < children.length))) {
         upright.add(start);
         diffStarts.add(start);
         hasIntegral = false;
@@ -661,7 +970,26 @@ function analyzeInteractiveHints(children: MathNode[]): InteractiveHints {
       i += 1;
     }
   }
-  return { upright, funcStarts, funcEnds, diffStarts };
+  return { upright, funcStarts, funcEnds, diffStarts, wordSpans, keywordIndices };
+}
+
+function isPrevExprForDiff(children: MathNode[], idx: number): boolean {
+  let k = idx - 1;
+  while (k >= 0 && children[k].type === 'char' && (children[k] as { value: string }).value === ' ') {
+    k -= 1;
+  }
+  if (k < 0) return false;
+  const prev = children[k];
+  if (prev.type === 'struct') {
+    return !PREFIX_BIGOPS.has(prev.commandId);
+  }
+  if (prev.type === 'symbol') {
+    return !INTEGRAL_OPS.has(prev.commandId) && !BINARY_RELATION_SYMBOLS.has(prev.commandId);
+  }
+  if (prev.type === 'char') {
+    return !/^[([\{+\-*/=<>,;|:~\\]$/.test(prev.value);
+  }
+  return true;
 }
 
 function wrapCaret(): string {
@@ -675,6 +1003,7 @@ function emitSlotInteractive(
   parentStructId: string | null,
   isRoot: boolean,
   focused: boolean,
+  autoShorthands: boolean,
 ): string {
   const isActive = cursor.slotId === slot.id;
   const isEmpty = slot.children.length === 0;
@@ -697,29 +1026,99 @@ function emitSlotInteractive(
     return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${emptyBox}}}`;
   }
 
-  const hints = analyzeInteractiveHints(slot.children);
+  const hints = analyzeInteractiveHints(slot.children, autoShorthands);
   const parts: string[] = [];
 
   for (let idx = 0; idx < slot.children.length; idx += 1) {
     if (isActive && focused && cursor.offset === idx && !selForSlot) {
       parts.push(wrapCaret());
     }
+
     const child = slot.children[idx];
     const prev = idx > 0 ? slot.children[idx - 1] : undefined;
     const next = idx + 1 < slot.children.length ? slot.children[idx + 1] : undefined;
+    const prevNonSpace = (() => {
+      for (let k = idx - 1; k >= 0; k -= 1) {
+        const n = slot.children[k];
+        if (!(n.type === 'char' && n.value === ' ')) return n;
+      }
+      return undefined;
+    })();
+    const nextNonSpace = (() => {
+      for (let k = idx + 1; k < slot.children.length; k += 1) {
+        const n = slot.children[k];
+        if (!(n.type === 'char' && n.value === ' ')) return n;
+      }
+      return undefined;
+    })();
 
-    // Thin space before upright differential `\,\mathrm{d}x`
-    if (hints.diffStarts.has(idx) && prev) {
+    // Collapsible bare-word symbol/differential token (e.g. `pi` -> `\pi`, `oo` -> `\infty`, `dx` -> `\mathrm{d}x`)
+    // Renders as crisp math symbol unless the caret or selection is strictly inside the word!
+    const wordSpan = hints.wordSpans.get(idx);
+    if (wordSpan) {
+      const caretInside =
+        isActive && focused && cursor.offset > wordSpan.start && cursor.offset < wordSpan.end;
+      const selSlicesWord =
+        selForSlot !== null &&
+        ((selForSlot.start > wordSpan.start && selForSlot.start < wordSpan.end) ||
+          (selForSlot.end > wordSpan.start && selForSlot.end < wordSpan.end));
+
+      if (!caretInside && !selSlicesWord) {
+        if (wordSpan.kind === 'diff' && isPrevExprForDiff(slot.children, idx)) {
+          parts.push('\\,');
+        }
+        const isSelected =
+          selForSlot !== null && selForSlot.start <= wordSpan.start && selForSlot.end >= wordSpan.end;
+        const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
+        const spanLen = wordSpan.end - wordSpan.start;
+        parts.push(
+          `\\htmlData{atom-slot=${slot.id},offset=${wordSpan.start},span=${spanLen}}{\\htmlClass{${atomClasses}}{${wordSpan.latex}}}`,
+        );
+        idx = wordSpan.end - 1;
+        continue;
+      }
+    }
+
+    // Space atom: ALWAYS gives clear visible feedback while typing adjacent to caret,
+    // and tightens to natural TeX math kerning once surrounding tokens are completed!
+    if (child.type === 'char' && child.value === ' ') {
+      const isSelected = selForSlot !== null && idx >= selForSlot.start && idx < selForSlot.end;
+      const caretAdjacent =
+        isActive && focused && (cursor.offset === idx + 1 || cursor.offset === idx);
+      const touchesKeywordOrOp =
+        hints.keywordIndices.has(idx - 1) ||
+        hints.keywordIndices.has(idx + 1) ||
+        prev?.type === 'symbol' ||
+        next?.type === 'symbol' ||
+        prev?.type === 'struct' ||
+        next?.type === 'struct' ||
+        (prev?.type === 'char' && /^[+=<>,\-~()[\]]$/.test(prev.value)) ||
+        (next?.type === 'char' && /^[+=<>,\-~()[\]]$/.test(next.value));
+
+      const spaceLatex = caretAdjacent
+        ? '\\htmlClass{ms-space-active}{\\,}'
+        : touchesKeywordOrOp
+          ? '\\kern 0.04em'
+          : '\\,';
+      const atomClasses = isSelected ? 'ms-atom ms-space-atom ms-selected' : 'ms-atom ms-space-atom';
+      parts.push(
+        `\\htmlData{atom-slot=${slot.id},offset=${idx}}{\\htmlClass{${atomClasses}}{${spaceLatex}}}`,
+      );
+      continue;
+    }
+
+    // Thin space before fallback upright differential `\,\mathrm{d}x`
+    if (hints.diffStarts.has(idx) && isPrevExprForDiff(slot.children, idx)) {
       parts.push('\\,');
     }
 
-    // Crisp visual operator gap before math function (`a_n \cos`, `) \cos`)
+    // Crisp visual operator gap before math function (`a_n \cos`, `f(x) \cos`, `) \cos`)
     if (
       hints.funcStarts.has(idx) &&
-      prev &&
-      (prev.type === 'struct' ||
-        prev.type === 'symbol' ||
-        (prev.type === 'char' && /[A-Za-z0-9)]/.test(prev.value)))
+      prevNonSpace &&
+      (prevNonSpace.type === 'struct' ||
+        prevNonSpace.type === 'symbol' ||
+        (prevNonSpace.type === 'char' && /[A-Za-z0-9)]/.test(prevNonSpace.value)))
     ) {
       parts.push('\\,');
     }
@@ -728,8 +1127,9 @@ function emitSlotInteractive(
     if (
       ((child.type === 'struct' && PREFIX_BIGOPS.has(child.commandId)) ||
         (child.type === 'symbol' && INTEGRAL_OPS.has(child.commandId))) &&
-      prev &&
-      (prev.type === 'struct' || (prev.type === 'char' && /[A-Za-z0-9)]/.test(prev.value)))
+      prevNonSpace &&
+      (prevNonSpace.type === 'struct' ||
+        (prevNonSpace.type === 'char' && /[A-Za-z0-9)]/.test(prevNonSpace.value)))
     ) {
       parts.push('\\,');
     }
@@ -742,6 +1142,7 @@ function emitSlotInteractive(
       parentStructId,
       focused,
       hints.upright.has(idx),
+      autoShorthands,
     );
     const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
     parts.push(
@@ -751,12 +1152,12 @@ function emitSlotInteractive(
     // Crisp visual gap after math function (`\cos \frac{...}`, `\sin x`)
     if (
       hints.funcEnds.has(idx) &&
-      next &&
-      (next.type === 'struct' ||
-        next.type === 'symbol' ||
-        (next.type === 'char' && /[A-Za-z0-9]/.test(next.value)))
+      nextNonSpace &&
+      (nextNonSpace.type === 'struct' ||
+        nextNonSpace.type === 'symbol' ||
+        (nextNonSpace.type === 'char' && /[A-Za-z0-9]/.test(nextNonSpace.value)))
     ) {
-      if (!(next.type === 'struct' && next.commandId === 'paren')) {
+      if (!(nextNonSpace.type === 'struct' && nextNonSpace.commandId === 'paren')) {
         parts.push('\\,');
       }
     }
@@ -765,7 +1166,7 @@ function emitSlotInteractive(
     if (
       ((child.type === 'struct' && PREFIX_BIGOPS.has(child.commandId)) ||
         (child.type === 'symbol' && INTEGRAL_OPS.has(child.commandId))) &&
-      next
+      nextNonSpace
     ) {
       parts.push('\\,');
     }
@@ -786,13 +1187,10 @@ function emitNodeInteractive(
   parentStructId: string | null,
   focused: boolean,
   isUprightChar: boolean,
+  autoShorthands: boolean,
 ): string {
   switch (node.type) {
     case 'char': {
-      // Ordinary space in TeX math mode is a zero-width separator (not a giant visible gap!)
-      if (node.value === ' ') {
-        return '';
-      }
       const escaped = escapeCharLatex(node.value);
       return isUprightChar ? `\\mathrm{${escaped}}` : escaped;
     }
@@ -801,21 +1199,38 @@ function emitNodeInteractive(
     case 'raw':
       return node.latex;
     case 'struct': {
-      const template = node.customLatex ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
-      let rendered: string;
-      if (!template) {
-        rendered = node.slots
-          .map((s) => emitSlotInteractive(s, cursor, selection, parentStructId, false, focused))
-          .join(' ');
-      } else {
-        rendered = template.replace(/\$(\d+)/g, (_, idxStr: string) => {
-          const idx = Number(idxStr) - 1;
-          const slot = node.slots[idx];
-          return slot
-            ? emitSlotInteractive(slot, cursor, selection, parentStructId, false, focused)
-            : '';
-        });
+      let template = node.customLatex ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
+      if (!node.customLatex && node.autoSized && node.slots.length === 1) {
+        const tall = slotHasTallContent(node.slots[0]);
+        if (node.commandId === 'paren') {
+          template = tall ? '\\left($1\\right)' : '($1)';
+        } else if (node.commandId === 'bracket') {
+          template = tall ? '\\left[$1\\right]' : '[$1]';
+        } else if (node.commandId === 'brace') {
+          template = tall ? '\\left\\{$1\\right\\}' : '\\{$1\\}';
+        }
       }
+      if (!template) {
+        return node.slots
+          .map((s) =>
+            emitSlotInteractive(s, cursor, selection, parentStructId, false, focused, autoShorthands),
+          )
+          .join(' ');
+      }
+      const rendered = template.replace(/\$(\d+)/g, (_, idxStr: string) => {
+        const idx = Number(idxStr) - 1;
+        const slot = node.slots[idx];
+        if (!slot) return '';
+        return emitSlotInteractive(
+          slot,
+          cursor,
+          selection,
+          parentStructId,
+          false,
+          focused,
+          autoShorthands,
+        );
+      });
       if (focused && parentStructId && node.id === parentStructId) {
         return `\\htmlClass{ms-parent-struct}{${rendered}}`;
       }
@@ -831,6 +1246,7 @@ export function toInteractiveLatex(
   options: InteractiveRenderOptions = {},
 ): string {
   const focused = options.focused ?? true;
+  const autoShorthands = options.autoShorthands ?? true;
   const path = findSlotPath(doc.root, cursor.slotId);
   const parentStructId =
     path && path.length > 1 ? (path[path.length - 1].parentStruct?.id ?? null) : null;
@@ -838,67 +1254,19 @@ export function toInteractiveLatex(
   const hasLineBreak = doc.root.children.some(
     (n) => n.type === 'raw' && n.latex.trim() === '\\\\',
   );
-  if (!hasLineBreak) {
-    return emitSlotInteractive(doc.root, cursor, selection, parentStructId, true, focused);
-  }
-
-  const lines: { children: MathNode[]; startOffset: number }[] = [];
-  let current: MathNode[] = [];
-  let startOffset = 0;
-
-  for (let i = 0; i < doc.root.children.length; i += 1) {
-    const child = doc.root.children[i];
-    if (child.type === 'raw' && child.latex.trim() === '\\\\') {
-      lines.push({ children: current, startOffset });
-      current = [];
-      startOffset = i + 1;
-    } else {
-      current.push(child);
-    }
-  }
-  lines.push({ children: current, startOffset });
-
-  const renderedLines = lines.map((line) => {
-    const parts: string[] = [];
-    const isActive = cursor.slotId === doc.root.id;
-    const selForSlot = selection && selection.slotId === doc.root.id ? selection : null;
-    const hints = analyzeInteractiveHints(line.children);
-
-    for (let localIdx = 0; localIdx < line.children.length; localIdx += 1) {
-      const globalIdx = line.startOffset + localIdx;
-      if (isActive && focused && cursor.offset === globalIdx && !selForSlot) {
-        parts.push(wrapCaret());
-      }
-      const child = line.children[localIdx];
-      const isSelected =
-        selForSlot !== null && globalIdx >= selForSlot.start && globalIdx < selForSlot.end;
-      const atomLatex = emitNodeInteractive(
-        child,
-        cursor,
-        selection,
-        parentStructId,
-        focused,
-        hints.upright.has(localIdx),
-      );
-      const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
-      parts.push(
-        `\\htmlData{atom-slot=${doc.root.id},offset=${globalIdx}}{\\htmlClass{${atomClasses}}{${atomLatex}}}`,
-      );
-    }
-    const endGlobalIdx = line.startOffset + line.children.length;
-    if (isActive && focused && cursor.offset === endGlobalIdx && !selForSlot) {
-      parts.push(wrapCaret());
-    }
-    return parts.length > 0 ? parts.join('') : '\\phantom{x}';
-  });
-
-  return `\\begin{gathered} ${renderedLines.join(' \\\\ ')} \\end{gathered}`;
+  const inner = emitSlotInteractive(
+    doc.root,
+    cursor,
+    selection,
+    parentStructId,
+    true,
+    focused,
+    autoShorthands,
+  );
+  if (!hasLineBreak) return inner;
+  return `\\begin{gathered} ${inner} \\end{gathered}`;
 }
 
-export function commandPreviewLatex(latexTemplate: string): string {
-  const placeholders = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
-  return latexTemplate.replace(/\$(\d+)/g, (_, idxStr: string) => {
-    const idx = Number(idxStr) - 1;
-    return placeholders[idx] ?? 'x';
-  });
+export function commandPreviewLatex(template: string): string {
+  return template.replace(/\$(\d+)/g, '\\square');
 }

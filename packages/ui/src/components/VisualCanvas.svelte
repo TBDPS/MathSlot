@@ -117,11 +117,13 @@
     if (atomEl && formulaEl.contains(atomEl)) {
       const slotId = atomEl.getAttribute('data-atom-slot');
       const offsetStr = atomEl.getAttribute('data-offset');
+      const spanStr = atomEl.getAttribute('data-span');
       if (slotId && offsetStr !== null) {
         const offset = Number(offsetStr);
+        const span = spanStr ? Math.max(1, Number(spanStr)) : 1;
         const rect = atomEl.getBoundingClientRect();
         const midX = rect.left + rect.width / 2;
-        onClickSlot(slotId, e.clientX >= midX ? offset + 1 : offset);
+        onClickSlot(slotId, e.clientX >= midX ? offset + span : offset);
         return;
       }
     }

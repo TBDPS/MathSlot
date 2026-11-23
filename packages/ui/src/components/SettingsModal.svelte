@@ -168,11 +168,20 @@
       <div class="section-sep"></div>
 
       <label class="toggle-row">
-        <span>快捷符号自动替换（oo → ∞、pi → π、-&gt; → →）</span>
+        <span>快捷符号识别（独立词 oo → ∞、pi → π、-&gt; → →）</span>
         <input
           type="checkbox"
           checked={settings.autoShorthands}
           onchange={(e) => onUpdate({ autoShorthands: (e.currentTarget as HTMLInputElement).checked })}
+        />
+      </label>
+
+      <label class="toggle-row">
+        <span>括号自动补全与跳出 ( ) [ ] &#123; &#125;</span>
+        <input
+          type="checkbox"
+          checked={settings.autoBrackets}
+          onchange={(e) => onUpdate({ autoBrackets: (e.currentTarget as HTMLInputElement).checked })}
         />
       </label>
 
