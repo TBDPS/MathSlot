@@ -33,6 +33,10 @@ export interface HostAdapter {
   readText?(): Promise<string>;
   /** Optional native PNG/RGBA image clipboard copy */
   copyImagePng?(rgba: Uint8Array, width: number, height: number, blob: Blob): Promise<void>;
+  /** Optional native export file save (returns saved path) */
+  saveExportFile?(filename: string, bytes: Uint8Array): Promise<string>;
+  /** Optional open downloads/export folder in OS file manager */
+  openDownloadsDir?(): Promise<void>;
   /** Optional desktop window always-on-top pin toggle */
   setAlwaysOnTop?(pinned: boolean): Promise<void>;
   /** Optional load external editable presets.json & commands.json from config folder */

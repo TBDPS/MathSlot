@@ -17,7 +17,7 @@
   } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
 
-  type DrawerTab = 'commands' | 'presets' | 'snippets' | 'custom' | 'history';
+  type DrawerTab = 'all' | 'commands' | 'presets' | 'snippets' | 'custom' | 'history';
 
   interface Props {
     leaderKey: LeaderKey;
@@ -53,7 +53,7 @@
     snippets,
     customCommands,
     history = [],
-    initialTab = 'commands',
+    initialTab = 'all',
     onInsertCommand,
     onInsertSnippet,
     onLoadFormula,
@@ -73,7 +73,7 @@
     onClose,
   }: Props = $props();
 
-  let tab = $state<DrawerTab>('commands');
+  let tab = $state<DrawerTab>('all');
   $effect(() => {
     tab = initialTab;
   });
@@ -147,16 +147,67 @@
     return history.filter((h) => h.latex.toLowerCase().includes(q));
   });
 
+  type UnifiedEntry =
+    | { kind: 'preset'; item: PresetFormula }
+    | { kind: 'command'; item: CommandDef }
+    | { kind: 'snippet'; item: Snippet }
+    | { kind: 'custom'; item: CustomCommandDef }
+    | { kind: 'history'; item: HistoryFormula };
+
+  const allPresetsShown = $derived(
+    query.trim() ? filteredPresets : filteredPresets.slice(0, 8),
+  );
+
+  const unifiedEntries = $derived.by<UnifiedEntry[]>(() => {
+    const out: UnifiedEntry[] = [];
+    for (const item of filteredSnippets) out.push({ kind: 'snippet', item });
+    for (const item of filteredCustom) out.push({ kind: 'custom', item });
+    if (query.trim()) {
+      for (const item of filteredCommands) out.push({ kind: 'command', item });
+      for (const item of allPresetsShown) out.push({ kind: 'preset', item });
+      for (const item of filteredHistory) out.push({ kind: 'history', item });
+    } else {
+      for (const item of allPresetsShown) out.push({ kind: 'preset', item });
+      for (const item of filteredCommands) out.push({ kind: 'command', item });
+    }
+    return out;
+  });
+
+  const unifiedOffsets = $derived.by(() => {
+    const snipStart = 0;
+    const customStart = filteredSnippets.length;
+    if (query.trim()) {
+      const cmdStart = customStart + filteredCustom.length;
+      const presetStart = cmdStart + filteredCommands.length;
+      const histStart = presetStart + allPresetsShown.length;
+      return { snipStart, customStart, presetStart, cmdStart, histStart };
+    }
+    const presetStart = customStart + filteredCustom.length;
+    const cmdStart = presetStart + allPresetsShown.length;
+    const histStart = cmdStart + filteredCommands.length;
+    return { snipStart, customStart, presetStart, cmdStart, histStart };
+  });
+
+  const totalAllCount = $derived(
+    filteredCommands.length +
+      filteredPresets.length +
+      filteredSnippets.length +
+      filteredCustom.length +
+      (query.trim() ? filteredHistory.length : 0),
+  );
+
   const currentCount = $derived(
-    tab === 'commands'
-      ? filteredCommands.length
-      : tab === 'presets'
-        ? filteredPresets.length
-        : tab === 'snippets'
-          ? filteredSnippets.length
-          : tab === 'custom'
-            ? filteredCustom.length
-            : filteredHistory.length,
+    tab === 'all'
+      ? unifiedEntries.length
+      : tab === 'commands'
+        ? filteredCommands.length
+        : tab === 'presets'
+          ? filteredPresets.length
+          : tab === 'snippets'
+            ? filteredSnippets.length
+            : tab === 'custom'
+              ? filteredCustom.length
+              : filteredHistory.length,
   );
 
   $effect(() => {
@@ -206,7 +257,18 @@
     }
     if (e.key === 'Enter' && currentCount > 0) {
       e.preventDefault();
-      if (tab === 'commands') {
+      if (tab === 'all') {
+        const entry = unifiedEntries[activeIndex];
+        if (!entry) return;
+        if (entry.kind === 'command') onInsertCommand(entry.item.id);
+        else if (entry.kind === 'preset') onLoadFormula(entry.item.source);
+        else if (entry.kind === 'snippet') {
+          if (onInsertSnippet) onInsertSnippet(entry.item);
+          else onLoadFormula(entry.item.latex);
+        } else if (entry.kind === 'custom') onInsertCommand(entry.item.id);
+        else onLoadFormula(entry.item.latex);
+        onClose();
+      } else if (tab === 'commands') {
         const item = filteredCommands[activeIndex];
         if (item) {
           onInsertCommand(item.id);
@@ -262,20 +324,23 @@
       </div>
 
       <div class="tabs-row">
+        <button type="button" class="tab-btn" class:active={tab === 'all'} onclick={() => (tab = 'all')}>
+          全部 <span>{totalAllCount}</span>
+        </button>
         <button type="button" class="tab-btn" class:active={tab === 'commands'} onclick={() => (tab = 'commands')}>
-          命令 <span>{commands.length}</span>
+          命令 <span>{filteredCommands.length}</span>
         </button>
         <button type="button" class="tab-btn" class:active={tab === 'presets'} onclick={() => (tab = 'presets')}>
-          公式库 <span>{presets.length}</span>
+          公式库 <span>{filteredPresets.length}</span>
         </button>
         <button type="button" class="tab-btn" class:active={tab === 'snippets'} onclick={() => (tab = 'snippets')}>
-          片段 <span>{snippets.length}</span>
+          片段 <span>{filteredSnippets.length}</span>
         </button>
         <button type="button" class="tab-btn" class:active={tab === 'custom'} onclick={() => (tab = 'custom')}>
-          自定义结构 <span>{customCommands.length}</span>
+          自定义结构 <span>{filteredCustom.length}</span>
         </button>
         <button type="button" class="tab-btn" class:active={tab === 'history'} onclick={() => (tab = 'history')}>
-          历史 <span>{history.length}</span>
+          历史 <span>{filteredHistory.length}</span>
         </button>
         <div class="tabs-actions">
           {#if (tab === 'commands' || tab === 'presets') && onOpenConfigDir}
@@ -365,7 +430,226 @@
     </div>
 
     <div class="palette-list">
-      {#if tab === 'commands'}
+      {#if tab === 'all'}
+        {#if unifiedEntries.length === 0}
+          <div class="empty-state">未找到匹配「{query}」的命令、公式或片段</div>
+        {:else}
+          {#if filteredSnippets.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>复用片段</span>
+                <span class="sec-count">{filteredSnippets.length}</span>
+              </div>
+              {#each filteredSnippets as snip, idx (snip.id)}
+                {@const uIdx = unifiedOffsets.snipStart + idx}
+                <div class="preset-row" class:selected={uIdx === activeIndex}>
+                  <button
+                    type="button"
+                    class="snip-main"
+                    onmouseenter={() => (activeIndex = uIdx)}
+                    onclick={() => {
+                      if (onInsertSnippet) onInsertSnippet(snip);
+                      else onLoadFormula(snip.latex);
+                      onClose();
+                    }}
+                  >
+                    <div class="preset-info">
+                      <span class="preset-name">{snip.name}</span>
+                      {#if snip.key}
+                        <span class="cmd-keys">
+                          <kbd>{leaderKey}</kbd><kbd>t</kbd><kbd>{snip.key}</kbd>
+                        </span>
+                      {/if}
+                    </div>
+                    <span class="preset-math">{@html renderLatexPreview(snip.latex, false)}</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if filteredCustom.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>自定义结构</span>
+                <span class="sec-count">{filteredCustom.length}</span>
+              </div>
+              {#each filteredCustom as cmd, idx (cmd.id)}
+                {@const uIdx = unifiedOffsets.customStart + idx}
+                <div class="preset-row" class:selected={uIdx === activeIndex}>
+                  <button
+                    type="button"
+                    class="snip-main"
+                    onmouseenter={() => (activeIndex = uIdx)}
+                    onclick={() => {
+                      onInsertCommand(cmd.id);
+                      onClose();
+                    }}
+                  >
+                    <div class="preset-info">
+                      <span class="preset-name">{cmd.label}</span>
+                      <span class="cmd-keys">
+                        {#if cmd.key}
+                          <kbd>{leaderKey}</kbd><kbd>k</kbd><kbd>{cmd.key}</kbd>
+                        {/if}
+                        {#if cmd.shorthand}
+                          <kbd>{cmd.shorthand}</kbd>
+                        {/if}
+                      </span>
+                    </div>
+                    <span class="preset-math">{@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}</span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if query.trim() && filteredCommands.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>命令与符号</span>
+                <span class="sec-count">{filteredCommands.length}</span>
+              </div>
+              <div class="cmd-grid">
+                {#each filteredCommands as cmd, idx (cmd.id)}
+                  {@const uIdx = unifiedOffsets.cmdStart + idx}
+                  <div class="cmd-tile-wrap" class:selected={uIdx === activeIndex}>
+                    <button
+                      type="button"
+                      class="cmd-tile"
+                      onmouseenter={() => (activeIndex = uIdx)}
+                      onclick={() => {
+                        onInsertCommand(cmd.id);
+                        onClose();
+                      }}
+                    >
+                      <div class="cmd-math">
+                        {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+                      </div>
+                      <div class="cmd-meta">
+                        <span class="cmd-name">{cmd.label}</span>
+                        {#if cmd.keys.length > 0}
+                          <span class="cmd-keys">
+                            <kbd>{leaderKey}</kbd>
+                            {#each cmd.keys as k}
+                              <kbd>{k}</kbd>
+                            {/each}
+                          </span>
+                        {/if}
+                      </div>
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          {#if allPresetsShown.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>预置公式库</span>
+                <span class="sec-count">{filteredPresets.length}</span>
+                {#if !query.trim() && filteredPresets.length > allPresetsShown.length}
+                  <button type="button" class="sec-more" onclick={() => (tab = 'presets')}>
+                    查看全部 {filteredPresets.length} 条 →
+                  </button>
+                {/if}
+              </div>
+              {#each allPresetsShown as preset, idx (preset.id)}
+                {@const uIdx = unifiedOffsets.presetStart + idx}
+                <div class="preset-row" class:selected={uIdx === activeIndex}>
+                  <button
+                    type="button"
+                    class="snip-main"
+                    onmouseenter={() => (activeIndex = uIdx)}
+                    onclick={() => {
+                      onLoadFormula(preset.source);
+                      onClose();
+                    }}
+                  >
+                    <div class="preset-info">
+                      <span class="preset-name">{preset.name}</span>
+                      <span class="preset-cat">{preset.category}</span>
+                    </div>
+                    <div class="preset-math">
+                      {@html renderLatexPreview(presetLatex(preset.source), false)}
+                    </div>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if !query.trim() && filteredCommands.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>命令与符号</span>
+                <span class="sec-count">{filteredCommands.length}</span>
+              </div>
+              <div class="cmd-grid">
+                {#each filteredCommands as cmd, idx (cmd.id)}
+                  {@const uIdx = unifiedOffsets.cmdStart + idx}
+                  <div class="cmd-tile-wrap" class:selected={uIdx === activeIndex}>
+                    <button
+                      type="button"
+                      class="cmd-tile"
+                      onmouseenter={() => (activeIndex = uIdx)}
+                      onclick={() => {
+                        onInsertCommand(cmd.id);
+                        onClose();
+                      }}
+                    >
+                      <div class="cmd-math">
+                        {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+                      </div>
+                      <div class="cmd-meta">
+                        <span class="cmd-name">{cmd.label}</span>
+                        {#if cmd.keys.length > 0}
+                          <span class="cmd-keys">
+                            <kbd>{leaderKey}</kbd>
+                            {#each cmd.keys as k}
+                              <kbd>{k}</kbd>
+                            {/each}
+                          </span>
+                        {/if}
+                      </div>
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          {#if query.trim() && filteredHistory.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>历史记录</span>
+                <span class="sec-count">{filteredHistory.length}</span>
+              </div>
+              {#each filteredHistory as item, idx (item.id)}
+                {@const uIdx = unifiedOffsets.histStart + idx}
+                <button
+                  type="button"
+                  class="preset-row"
+                  class:selected={uIdx === activeIndex}
+                  onmouseenter={() => (activeIndex = uIdx)}
+                  onclick={() => {
+                    onLoadFormula(item.latex);
+                    onClose();
+                  }}
+                >
+                  <div class="preset-info">
+                    <span class="preset-cat">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div class="preset-math">
+                    {@html renderLatexPreview(item.latex, false)}
+                  </div>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        {/if}
+      {:else if tab === 'commands'}
         <div class="cmd-grid">
           {#each filteredCommands as cmd, idx (cmd.id)}
             <div class="cmd-tile-wrap" class:selected={idx === activeIndex}>
@@ -828,6 +1112,44 @@
     flex: 1;
     overflow-y: auto;
     padding: 10px 12px 14px;
+  }
+
+  .all-section + .all-section {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ms-border-subtle);
+  }
+
+  .sec-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px 7px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--ms-fg-muted);
+  }
+
+  .sec-count {
+    font-family: var(--ms-font-mono);
+    font-size: 10.5px;
+    color: var(--ms-fg-faint);
+  }
+
+  .sec-more {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    color: var(--ms-accent);
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 5px;
+  }
+
+  .sec-more:hover {
+    background: var(--ms-accent-soft);
   }
 
   .cmd-grid {

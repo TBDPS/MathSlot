@@ -57,6 +57,33 @@ export function createDesktopHost(): HostAdapter {
       throw new Error('Clipboard image write unsupported');
     },
 
+    async saveExportFile(filename: string, bytes: Uint8Array): Promise<string> {
+      if (isTauriRuntime()) {
+        return tauriInvoke<string>('save_export_file', {
+          filename,
+          bytes: Array.from(bytes),
+        });
+      }
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      const blob = new Blob([copy]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return filename;
+    },
+
+    async openDownloadsDir(): Promise<void> {
+      if (isTauriRuntime()) {
+        await tauriInvoke('open_downloads_dir');
+      }
+    },
+
     async setAlwaysOnTop(pinned: boolean): Promise<void> {
       if (isTauriRuntime()) {
         await tauriInvoke('set_always_on_top', { pinned });

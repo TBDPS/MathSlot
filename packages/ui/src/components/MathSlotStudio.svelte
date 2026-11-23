@@ -24,7 +24,7 @@
     type UserPresetEntry,
   } from '@mathslot/core';
   import type { HostAdapter } from '../host';
-  import { latexToMathML, renderLatexToPng } from '../exportUtils';
+  import { latexToMathML, renderLatexToPng, renderLatexToSvg } from '../exportUtils';
   import VisualCanvas from './VisualCanvas.svelte';
   import MathRibbon from './MathRibbon.svelte';
   import CommandDrawer from './CommandDrawer.svelte';
@@ -36,6 +36,7 @@
   import CommandEditorModal from './CommandEditorModal.svelte';
   import SettingsModal from './SettingsModal.svelte';
   import HelpModal from './HelpModal.svelte';
+  import ExportModal from './ExportModal.svelte';
 
   interface Props {
     host: HostAdapter;
@@ -65,8 +66,9 @@
   });
 
   let drawerOpen = $state(false);
-  let drawerTab = $state<'commands' | 'presets' | 'snippets' | 'custom' | 'history'>('commands');
+  let drawerTab = $state<'all' | 'commands' | 'presets' | 'snippets' | 'custom' | 'history'>('all');
   let importOpen = $state(false);
+  let exportOpen = $state(false);
   let saveSnippetOpen = $state(false);
   let customModalOpen = $state(false);
   let editingCustom = $state<CustomCommandDef | null>(null);
@@ -289,7 +291,23 @@
       }
       flash('已复制高清 PNG 图片');
     } catch {
-      flash('PNG 复制失败，请使用 LaTeX 或 Word 公式');
+      flash('PNG 复制失败，可点「导出」保存图片或复制 SVG');
+    }
+    canvasRef?.focus();
+  }
+
+  async function handleCopySvg(): Promise<void> {
+    if (!snapshot.latex.trim()) return;
+    recordHistory(snapshot.latex);
+    try {
+      const rendered = await renderLatexToSvg(snapshot.latex, {
+        dark: resolvedTheme === 'dark',
+        embedFonts: true,
+      });
+      await host.copyText(rendered.svg);
+      flash('已复制纯矢量 SVG 代码');
+    } catch {
+      flash('SVG 复制失败');
     }
     canvasRef?.focus();
   }
@@ -643,7 +661,7 @@
     if (mod && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       moreMenuOpen = false;
-      drawerTab = 'commands';
+      drawerTab = 'all';
       drawerOpen = !drawerOpen;
       return;
     }
@@ -796,7 +814,7 @@
         aria-label="命令与公式库"
         onclick={() => {
           moreMenuOpen = false;
-          drawerTab = 'commands';
+          drawerTab = 'all';
           drawerOpen = true;
         }}
       >
@@ -1220,6 +1238,11 @@
       onCopy={() => void handleCopy()}
       onCopyMathML={() => void handleCopyMathML()}
       onCopyPng={() => void handleCopyPng()}
+      onCopySvg={() => void handleCopySvg()}
+      onOpenExport={() => {
+        moreMenuOpen = false;
+        exportOpen = true;
+      }}
     />
   {/if}
 
@@ -1294,6 +1317,23 @@
       onImport={handleLoadFormula}
       onClose={() => {
         importOpen = false;
+        canvasRef?.focus();
+      }}
+    />
+  {/if}
+
+  {#if exportOpen}
+    <ExportModal
+      latex={snapshot.latex}
+      delimiter={settings.delimiter}
+      isDark={resolvedTheme === 'dark'}
+      onCopyText={host.copyText}
+      onCopyImagePng={host.copyImagePng}
+      onSaveExportFile={host.saveExportFile}
+      onOpenDownloadsDir={host.openDownloadsDir}
+      onNotify={(msg) => flash(msg)}
+      onClose={() => {
+        exportOpen = false;
         canvasRef?.focus();
       }}
     />

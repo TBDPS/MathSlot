@@ -10,6 +10,8 @@
     onCopy: () => void;
     onCopyMathML?: () => void;
     onCopyPng?: () => void;
+    onCopySvg?: () => void;
+    onOpenExport?: () => void;
   }
 
   let {
@@ -21,6 +23,8 @@
     onCopy,
     onCopyMathML,
     onCopyPng,
+    onCopySvg,
+    onOpenExport,
   }: Props = $props();
 
   let draft = $state('');
@@ -164,6 +168,30 @@
         disabled={!latex.trim()}
       >
         PNG
+      </button>
+    {/if}
+
+    {#if onCopySvg}
+      <button
+        type="button"
+        class="dock-chip"
+        title="复制纯矢量 SVG 代码 (Figma / Inkscape / 网页)"
+        onclick={onCopySvg}
+        disabled={!latex.trim()}
+      >
+        SVG
+      </button>
+    {/if}
+
+    {#if onOpenExport}
+      <button
+        type="button"
+        class="dock-chip"
+        title="打开导出与保存选项（PNG / SVG / TeX / MathML）"
+        onclick={onOpenExport}
+        disabled={!latex.trim()}
+      >
+        导出
       </button>
     {/if}
 

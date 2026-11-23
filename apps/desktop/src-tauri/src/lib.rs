@@ -3,7 +3,39 @@ use std::borrow::Cow;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
 use tauri::Manager;
+
+/// Keeps the OS clipboard handle alive for the entire app lifetime.
+/// Critical on Linux (both X11 and Wayland): dropping `arboard::Clipboard` immediately
+/// relinquishes selection ownership and clears copied images/text before target apps paste.
+struct AppClipboard(Mutex<Option<arboard::Clipboard>>);
+
+impl AppClipboard {
+    fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    fn with_clipboard<T, F>(&self, mut f: F) -> Result<T, String>
+    where
+        F: FnMut(&mut arboard::Clipboard) -> Result<T, arboard::Error>,
+    {
+        let mut guard = self.0.lock().map_err(|_| "clipboard mutex poisoned".to_string())?;
+        if guard.is_none() {
+            *guard = Some(arboard::Clipboard::new().map_err(|e| e.to_string())?);
+        }
+        match f(guard.as_mut().unwrap()) {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                // Re-initialize once in case display/clipboard connection reset
+                let mut fresh = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+                let res = f(&mut fresh).map_err(|e| e.to_string())?;
+                *guard = Some(fresh);
+                Ok(res)
+            }
+        }
+    }
+}
 
 const STARTER_PRESETS_JSON: &str = r#"{
   "$comment": "MathSlot 用户公式库（可直接编辑，保存后在软件内点击「重载」立即生效，无需重新编译）。支持新增公式、按 id 覆盖内置公式，或设置 \"disabled\": true 隐藏内置条目。",
@@ -41,26 +73,107 @@ struct UserLibrariesPayload {
 }
 
 #[tauri::command]
-fn copy_to_clipboard(text: String) -> Result<(), String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.set_text(text).map_err(|e| e.to_string())
+fn copy_to_clipboard(state: tauri::State<'_, AppClipboard>, text: String) -> Result<(), String> {
+    state.with_clipboard(|cb| cb.set_text(text.clone()))
 }
 
 #[tauri::command]
-fn copy_image_to_clipboard(rgba: Vec<u8>, width: usize, height: usize) -> Result<(), String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    let img = arboard::ImageData {
-        width,
-        height,
-        bytes: Cow::Owned(rgba),
+fn copy_image_to_clipboard(
+    state: tauri::State<'_, AppClipboard>,
+    rgba: Vec<u8>,
+    width: usize,
+    height: usize,
+) -> Result<(), String> {
+    state.with_clipboard(|cb| {
+        let img = arboard::ImageData {
+            width,
+            height,
+            bytes: Cow::Borrowed(&rgba),
+        };
+        cb.set_image(img)
+    })
+}
+
+#[tauri::command]
+fn read_from_clipboard(state: tauri::State<'_, AppClipboard>) -> Result<String, String> {
+    state.with_clipboard(|cb| cb.get_text())
+}
+
+fn downloads_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().desktop_dir())
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| format!("failed to resolve downloads dir: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("failed to create downloads dir: {e}"))?;
+    Ok(dir)
+}
+
+#[tauri::command]
+fn save_export_file(app: tauri::AppHandle, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+    let dir = downloads_dir(&app)?;
+    // Sanitize filename to prevent path traversal
+    let safe_name: String = filename
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .collect();
+    let safe_name = if safe_name.trim().is_empty() {
+        "mathslot-formula.png".to_string()
+    } else {
+        safe_name
     };
-    clipboard.set_image(img).map_err(|e| e.to_string())
+
+    let mut path = dir.join(&safe_name);
+    if path.exists() {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("mathslot-formula")
+            .to_string();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{e}"))
+            .unwrap_or_default();
+        for idx in 2..=999 {
+            let candidate = dir.join(format!("{stem}-{idx}{ext}"));
+            if !candidate.exists() {
+                path = candidate;
+                break;
+            }
+        }
+    }
+
+    fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
-fn read_from_clipboard() -> Result<String, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.get_text().map_err(|e| e.to_string())
+fn open_downloads_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = downloads_dir(&app)?;
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -157,6 +270,7 @@ fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppClipboard::new())
         .setup(|app| {
             if let (Some(window), Some(icon)) = (
                 app.get_webview_window("main"),
@@ -170,6 +284,8 @@ pub fn run() {
             copy_to_clipboard,
             copy_image_to_clipboard,
             read_from_clipboard,
+            save_export_file,
+            open_downloads_dir,
             set_always_on_top,
             load_store,
             save_store,
