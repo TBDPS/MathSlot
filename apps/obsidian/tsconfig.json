@@ -1,22 +1,8 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "exactOptionalPropertyTypes": false,
-    "isolatedModules": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "allowJs": true,
-    "checkJs": false,
-    "verbatimModuleSyntax": true,
-    "types": ["vitest/globals"],
-    "paths": {
-      "@mathslot/ui": ["../../packages/ui/src/index.ts"],
-      "@mathslot/ui/tokens.css": ["../../packages/ui/src/theme/tokens.css"]
-    }
+    "noEmit": true,
+    "types": ["svelte"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.d.ts", "tests/**/*.ts", "e2e/**/*.ts"],
-  "exclude": ["node_modules", "dist", "dist-e2e", "src/wasm-pkg"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

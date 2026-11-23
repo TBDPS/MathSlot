@@ -1,12 +1,16 @@
 {
   "name": "@mathslot/obsidian",
-  "version": "0.7.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run",
-    "test:e2e": "../desktop/node_modules/.bin/playwright test -c playwright.config.ts"
+    "build": "vite build && node scripts/finalize.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mathslot/core": "*",
+    "@mathslot/ui": "*",
+    "katex": "^0.16.21",
+    "svelte": "^5.57.3"
   }
 }

@@ -1,24 +1,16 @@
-import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
   plugins: [svelte()],
-  resolve: {
-    conditions: ['browser'],
-    alias: {
-      '@mathslot/ui/tokens.css': resolve(import.meta.dirname, '../../packages/ui/src/theme/tokens.css'),
-      '@mathslot/ui': resolve(import.meta.dirname, '../../packages/ui/src/index.ts'),
-      '@mathslot/wasm': resolve(import.meta.dirname, '../obsidian/src/wasm-pkg/mathslot_wasm.js'),
-    },
-  },
+  clearScreen: false,
   server: {
-    port: 5173,
+    port: 1420,
     strictPort: true,
+    host: '127.0.0.1',
   },
   build: {
+    target: 'es2022',
     outDir: 'dist',
-    emptyOutDir: true,
-    sourcemap: false,
   },
 });

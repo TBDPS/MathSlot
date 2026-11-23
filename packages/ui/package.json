@@ -1,34 +1,20 @@
 {
   "name": "@mathslot/ui",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "svelte": "./src/index.ts",
       "default": "./src/index.ts"
-    }
-  },
-  "scripts": {
-    "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    },
+    "./styles.css": "./src/styles/tokens.css"
   },
   "dependencies": {
-    "@codemirror/commands": "^6.11.1",
-    "@codemirror/state": "^6.7.6",
-    "@codemirror/view": "^6.43.15",
-    "codemirror": "^6.0.2",
-    "mathjax-full": "^3.2.2",
-    "svelte": "^5.57.3"
+    "@mathslot/core": "*",
+    "katex": "^0.16.21"
   },
-  "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.3.1",
-    "jsdom": "^31.0.1",
-    "svelte-check": "^4.7.8",
-    "typescript": "^5.9.3",
-    "vite": "^8.3.8",
-    "vitest": "^5.1.0"
+  "peerDependencies": {
+    "svelte": "^5.0.0"
   }
 }

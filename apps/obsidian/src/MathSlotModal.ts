@@ -1,98 +1,76 @@
-import { Modal, Platform, finishRenderMath, renderMath, type App } from 'obsidian';
+import { Modal, Notice, type App, type Editor } from 'obsidian';
 import { mount, unmount } from 'svelte';
-import type { AppSettings, DelimiterStyle, ThemePreference, UserFormulaEntry } from '@mathslot/ui';
-import AppShell from './AppShell.svelte';
-import type { WasmEngineClient } from './wasmClient';
+import { MathSlotStudio, type HostAdapter, type PersistedStore } from '@mathslot/ui';
+import type { DelimiterStyle } from '@mathslot/core';
 
 export interface MathSlotModalOptions {
-  client: WasmEngineClient;
-  delimiterStyle?: DelimiterStyle;
-  initialLatex?: string;
-  initialSettingsOpen?: boolean;
-  initialImportOpen?: boolean;
-  initialUserFormulas?: UserFormulaEntry[];
-  onInsert: (formattedLatex: string, rawLatex: string) => void;
-  onRestoreBackup?: (backupPath: string | null) => Promise<UserFormulaEntry[] | void>;
-  onResetEmptyConfig?: () => Promise<UserFormulaEntry[] | void>;
-  onPersistSettings?: (settings: AppSettings) => Promise<void>;
-  onSaveSnippet?: (source: string, latex: string) => Promise<UserFormulaEntry[]>;
-  onImportConfigData?: (
-    rawJson: string,
-  ) => Promise<{ settings?: AppSettings; userFormulas?: UserFormulaEntry[] }>;
-  onExportConfigData?: (settings: AppSettings) => Promise<string>;
+  editor?: Editor;
+  initialFormula?: string;
+  forceDelimiter?: DelimiterStyle;
+  loadStore: () => Promise<PersistedStore>;
+  saveStore: (store: PersistedStore) => Promise<void>;
 }
 
 export class MathSlotModal extends Modal {
-  private readonly options: MathSlotModalOptions;
-  private mountedComponent: ReturnType<typeof mount> | null = null;
+  private instance: Record<string, unknown> | null = null;
+  private readonly opts: MathSlotModalOptions;
 
-  constructor(app: App, options: MathSlotModalOptions) {
+  constructor(app: App, opts: MathSlotModalOptions) {
     super(app);
-    this.options = options;
+    this.opts = opts;
   }
 
-  private detectTheme(): ThemePreference {
-    if (typeof document !== 'undefined' && document.body.classList.contains('theme-dark')) {
-      return 'dark';
-    }
-    return 'light';
-  }
+  onOpen(): void {
+    this.modalEl.addClass('mathslot-obsidian-modal');
+    this.contentEl.empty();
+    this.contentEl.addClass('mathslot-obsidian-content');
 
-  override async onOpen(): Promise<void> {
-    this.modalEl.classList.add('ms-obsidian-modal');
-    this.contentEl.replaceChildren();
-
-    let openImport = this.options.initialImportOpen ?? false;
-    const trimmedInitial = this.options.initialLatex?.trim() ?? '';
-    if (trimmedInitial.length > 0) {
-      if (openImport) {
-        await this.options.client.dispatch({
-          PreviewImportLatex: trimmedInitial,
-        });
-      } else {
-        const res = await this.options.client.dispatch({
-          ImportLatex: trimmedInitial,
-        });
-        if (res.snapshot.last_import?.blocked) {
-          openImport = true;
-        }
-      }
-    }
-
-    this.mountedComponent = mount(AppShell, {
-      target: this.contentEl,
-      props: {
-        client: this.options.client,
-        theme: this.detectTheme(),
-        isMobile: Platform.isMobile,
-        delimiterStyle: this.options.delimiterStyle,
-        initialSettingsOpen: this.options.initialSettingsOpen,
-        initialImportOpen: openImport,
-        initialImportLatex: trimmedInitial,
-        initialUserFormulas: this.options.initialUserFormulas ?? [],
-        onInsert: (formatted: string, raw: string) => {
-          this.options.onInsert(formatted, raw);
-        },
-        onRestoreBackup: this.options.onRestoreBackup,
-        onResetEmptyConfig: this.options.onResetEmptyConfig,
-        onPersistSettings: this.options.onPersistSettings,
-        onSaveSnippet: this.options.onSaveSnippet,
-        onImportConfigData: this.options.onImportConfigData,
-        onExportConfigData: this.options.onExportConfigData,
-        onClose: () => {
-          this.close();
-        },
-        hostRenderMath: (tex: string, display: boolean) => renderMath(tex, display),
-        hostFinishRenderMath: () => finishRenderMath(),
+    const host: HostAdapter = {
+      primaryActionLabel: this.opts.editor ? '插入笔记' : '复制',
+      initialFormula: this.opts.initialFormula,
+      hostDarkMode: () => document.body.classList.contains('theme-dark'),
+      copyText: async (text: string) => {
+        await navigator.clipboard.writeText(text);
       },
+      readText: async () => navigator.clipboard.readText(),
+      onPrimarySubmit: async (formattedLatex: string) => {
+        if (this.opts.editor) {
+          this.opts.editor.replaceSelection(formattedLatex);
+          new Notice('已插入公式');
+          this.close();
+          return;
+        }
+        await navigator.clipboard.writeText(formattedLatex);
+        new Notice('已复制公式');
+        this.close();
+      },
+      loadStore: async () => {
+        const stored = await this.opts.loadStore();
+        if (this.opts.forceDelimiter) {
+          return {
+            ...stored,
+            settings: {
+              ...stored.settings,
+              delimiter: this.opts.forceDelimiter,
+            },
+          };
+        }
+        return stored;
+      },
+      saveStore: this.opts.saveStore,
+    };
+
+    this.instance = mount(MathSlotStudio, {
+      target: this.contentEl,
+      props: { host },
     });
   }
 
-  override onClose(): void {
-    if (this.mountedComponent) {
-      unmount(this.mountedComponent);
-      this.mountedComponent = null;
+  onClose(): void {
+    if (this.instance) {
+      void unmount(this.instance);
+      this.instance = null;
     }
-    this.contentEl.replaceChildren();
+    this.contentEl.empty();
   }
 }

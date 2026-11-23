@@ -1,0 +1,156 @@
+/* MathSlot v2 — Layered High-Contrast Mathematical Studio Tokens */
+
+.ms-studio {
+  /* Layer 1: Canvas (bright serene drafting paper) */
+  --ms-bg: #faf9f5;
+  /* Layer 2: Chrome (topbar & bottom dock — clearly distinct warm stone) */
+  --ms-chrome: #ebe9e1;
+  /* Layer 3: Floating panels, ribbon & modals */
+  --ms-surface: #ffffff;
+  --ms-surface-elevated: #ffffff;
+  --ms-surface-muted: #e5e2d9;
+  /* Tactile button tiles inside ribbon & popovers */
+  --ms-tile: #f4f3ee;
+  --ms-tile-hover: #e7ebf5;
+  --ms-border: #c9c4b7;
+  --ms-border-subtle: #dcd8cc;
+  --ms-fg: #111318;
+  --ms-fg-muted: #3b4252;
+  --ms-fg-faint: #646c7d;
+  --ms-accent: #1d4ed8;
+  --ms-accent-hover: #1e40af;
+  --ms-accent-fg: #ffffff;
+  --ms-accent-soft: rgba(29, 78, 216, 0.1);
+  --ms-accent-ring: rgba(29, 78, 216, 0.34);
+  --ms-keycap-bg: #e6ecf8;
+  --ms-keycap-border: #b8c4dc;
+  --ms-keycap-fg: #1e3a8a;
+  --ms-jump-bg: #fef3c7;
+  --ms-jump-border: #d97706;
+  --ms-jump-fg: #92400e;
+  --ms-danger: #dc2626;
+  --ms-danger-soft: rgba(220, 38, 38, 0.1);
+  --ms-shadow-sm: 0 3px 10px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --ms-shadow-md: 0 14px 36px rgba(15, 23, 42, 0.15), 0 2px 8px rgba(15, 23, 42, 0.08);
+  --ms-shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.1);
+  --ms-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', sans-serif;
+  --ms-font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', ui-monospace, monospace;
+  --ms-radius-sm: 6px;
+  --ms-radius-md: 10px;
+  --ms-radius-lg: 14px;
+
+  font-family: var(--ms-font-sans);
+  color: var(--ms-fg);
+  background: var(--ms-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ms-studio[data-theme='dark'] {
+  /* Layer 1: Deep ink formula canvas */
+  --ms-bg: #0e1117;
+  /* Layer 2: Distinct elevated chrome for topbar & dock */
+  --ms-chrome: #161b24;
+  /* Layer 3: Floating ribbon & popovers */
+  --ms-surface: #1b212d;
+  --ms-surface-elevated: #1f2634;
+  --ms-surface-muted: #262e3e;
+  /* Tactile button tiles */
+  --ms-tile: #232a38;
+  --ms-tile-hover: #2d3648;
+  --ms-border: #364054;
+  --ms-border-subtle: #283040;
+  --ms-fg: #f0f2f6;
+  --ms-fg-muted: #a8b1c4;
+  --ms-fg-faint: #737d94;
+  --ms-accent: #60a5fa;
+  --ms-accent-hover: #93c5fd;
+  --ms-accent-fg: #0b1120;
+  --ms-accent-soft: rgba(96, 165, 250, 0.16);
+  --ms-accent-ring: rgba(96, 165, 250, 0.42);
+  --ms-keycap-bg: #172033;
+  --ms-keycap-border: #3b4a69;
+  --ms-keycap-fg: #93c5fd;
+  --ms-jump-bg: #2c2110;
+  --ms-jump-border: #f59e0b;
+  --ms-jump-fg: #fcd34d;
+  --ms-danger: #f87171;
+  --ms-danger-soft: rgba(248, 113, 113, 0.14);
+  --ms-shadow-sm: 0 3px 10px rgba(0, 0, 0, 0.45);
+  --ms-shadow-md: 0 14px 36px rgba(0, 0, 0, 0.6);
+  --ms-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.74);
+}
+
+/* Interactive KaTeX math slot & caret styles */
+.ms-studio .katex-display {
+  margin: 0 !important;
+}
+
+.ms-studio .ms-slot {
+  border-radius: 4px;
+  transition: background-color 110ms ease, box-shadow 110ms ease;
+}
+
+.ms-studio .ms-slot-active:not(.ms-slot-root) {
+  background: var(--ms-accent-soft);
+  box-shadow: inset 0 -2px 0 var(--ms-accent);
+  padding: 1px 3px;
+}
+
+.ms-studio .ms-atom {
+  cursor: text;
+  border-radius: 3px;
+}
+
+.ms-studio .ms-selected {
+  background: var(--ms-accent-ring);
+}
+
+.ms-studio .ms-empty-box {
+  color: var(--ms-fg-faint);
+  opacity: 0.72;
+  cursor: pointer;
+}
+
+.ms-studio .ms-empty-box-active {
+  color: var(--ms-accent);
+  opacity: 1;
+}
+
+.ms-studio .ms-caret-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0.92em;
+  vertical-align: -0.14em;
+  pointer-events: none;
+}
+
+.ms-studio .ms-caret-anchor::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: -0.06em;
+  bottom: -0.06em;
+  width: 2px;
+  border-radius: 1.5px;
+  background: var(--ms-accent);
+  animation: ms-caret-blink 1.05s steps(1) infinite;
+}
+
+@keyframes ms-caret-blink {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-studio .ms-caret-anchor::after {
+    animation: none;
+  }
+}

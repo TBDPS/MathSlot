@@ -1,0 +1,991 @@
+import {
+  buildJumpTargets,
+  cloneDocument,
+  countEmptySlots,
+  createCharNode,
+  createEmptyDocument,
+  createRawNode,
+  createStructNode,
+  createSymbolNode,
+  findSlot,
+  findSlotPath,
+  getBreadcrumbs,
+  isStructEmpty,
+  listAllSlots,
+  textToCharNodes,
+} from './ast';
+import { COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS } from './catalog';
+import { emitNodesCanonical, toInteractiveLatex, toLatex } from './latex';
+import { importFormula } from './parser';
+import { matchTrailingShorthand } from './shorthands';
+import { getSlotOrder } from './slotOrder';
+import type {
+  AppSettings,
+  Cursor,
+  CustomCommandDef,
+  Document,
+  EditorMode,
+  EditorSnapshot,
+  ImportResult,
+  MathNode,
+  Selection,
+  SlotNode,
+} from './types';
+import { DEFAULT_SETTINGS } from './types';
+
+interface HistoryEntry {
+  doc: Document;
+  cursor: Cursor;
+}
+
+const MAX_HISTORY = 200;
+
+export class MathSlotEngine {
+  private doc: Document;
+  private cursor: Cursor;
+  private selection: Selection | null = null;
+  private mode: EditorMode = { kind: 'edit' };
+  private settings: AppSettings;
+  private customCommands: CustomCommandDef[] = [];
+  private undoStack: HistoryEntry[] = [];
+  private redoStack: HistoryEntry[] = [];
+  private focused = true;
+
+  constructor(initialSettings: Partial<AppSettings> = {}) {
+    this.doc = createEmptyDocument();
+    this.cursor = { slotId: this.doc.root.id, offset: 0 };
+    this.settings = { ...DEFAULT_SETTINGS, ...initialSettings };
+  }
+
+  public setCustomCommands(commands: CustomCommandDef[]): void {
+    this.customCommands = [...commands];
+  }
+
+  public getCustomCommands(): CustomCommandDef[] {
+    return [...this.customCommands];
+  }
+
+  public getSettings(): AppSettings {
+    return { ...this.settings };
+  }
+
+  public updateSettings(patch: Partial<AppSettings>): void {
+    this.settings = { ...this.settings, ...patch };
+  }
+
+  public setFocused(focused: boolean): void {
+    this.focused = focused;
+  }
+
+  public getSnapshot(): EditorSnapshot {
+    const latex = toLatex(this.doc);
+    const interactiveLatex = toInteractiveLatex(this.doc, this.cursor, this.selection, {
+      focused: this.focused,
+      showJumpTargets: this.mode.kind === 'jump',
+    });
+    return {
+      doc: this.doc,
+      cursor: { ...this.cursor },
+      selection: this.selection ? { ...this.selection } : null,
+      mode: this.mode,
+      latex,
+      interactiveLatex,
+      breadcrumbs: getBreadcrumbs(this.doc.root, this.cursor.slotId),
+      emptySlotCount: countEmptySlots(this.doc.root),
+      canUndo: this.undoStack.length > 0,
+      canRedo: this.redoStack.length > 0,
+      isEmpty: this.doc.root.children.length === 0,
+    };
+  }
+
+  private pushHistory(): void {
+    this.undoStack.push({
+      doc: cloneDocument(this.doc),
+      cursor: { ...this.cursor },
+    });
+    if (this.undoStack.length > MAX_HISTORY) {
+      this.undoStack.shift();
+    }
+    this.redoStack = [];
+  }
+
+  private currentSlot(): SlotNode {
+    const slot = findSlot(this.doc.root, this.cursor.slotId);
+    if (slot) return slot;
+    this.cursor = { slotId: this.doc.root.id, offset: this.doc.root.children.length };
+    return this.doc.root;
+  }
+
+  private deleteSelectionInternal(): MathNode[] {
+    if (!this.selection) return [];
+    const slot = findSlot(this.doc.root, this.selection.slotId);
+    if (!slot) {
+      this.selection = null;
+      return [];
+    }
+    const { start, end } = this.selection;
+    const removed = slot.children.splice(start, end - start);
+    this.cursor = { slotId: slot.id, offset: start };
+    this.selection = null;
+    return removed;
+  }
+
+  public undo(): boolean {
+    const prev = this.undoStack.pop();
+    if (!prev) return false;
+    this.redoStack.push({
+      doc: cloneDocument(this.doc),
+      cursor: { ...this.cursor },
+    });
+    this.doc = prev.doc;
+    this.cursor = prev.cursor;
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return true;
+  }
+
+  public redo(): boolean {
+    const next = this.redoStack.pop();
+    if (!next) return false;
+    this.undoStack.push({
+      doc: cloneDocument(this.doc),
+      cursor: { ...this.cursor },
+    });
+    this.doc = next.doc;
+    this.cursor = next.cursor;
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return true;
+  }
+
+  public clear(): void {
+    if (this.doc.root.children.length === 0) return;
+    this.pushHistory();
+    this.doc = createEmptyDocument();
+    this.cursor = { slotId: this.doc.root.id, offset: 0 };
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+  }
+
+  public loadFormula(input: string): ImportResult {
+    const result = importFormula(input);
+    const hasHardError = result.diagnostics.some((d) => d.severity === 'error');
+    if (hasHardError) {
+      return result;
+    }
+    this.pushHistory();
+    this.doc = result.doc;
+    this.cursor = { slotId: this.doc.root.id, offset: this.doc.root.children.length };
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+    return result;
+  }
+
+  public pasteText(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    // If pasted text looks like LaTeX or MathSlot stream code, parse into interactive nodes
+    if (
+      trimmed.includes('\\') ||
+      trimmed.includes('▸') ||
+      trimmed.includes('^') ||
+      trimmed.includes('_') ||
+      (trimmed.startsWith('$') && trimmed.endsWith('$'))
+    ) {
+      const res = importFormula(trimmed);
+      const hasError = res.diagnostics.some((d) => d.severity === 'error');
+      if (!hasError && res.doc.root.children.length > 0) {
+        this.pushHistory();
+        this.deleteSelectionInternal();
+        const slot = this.currentSlot();
+        slot.children.splice(this.cursor.offset, 0, ...res.doc.root.children);
+        this.cursor.offset += res.doc.root.children.length;
+        this.mode = { kind: 'edit' };
+        return;
+      }
+    }
+    this.insertText(text);
+  }
+
+  public getSelectedLatex(): string {
+    if (!this.selection) return toLatex(this.doc);
+    const slot = findSlot(this.doc.root, this.selection.slotId);
+    if (!slot) return '';
+    return emitNodesCanonical(slot.children.slice(this.selection.start, this.selection.end));
+  }
+
+  public setCursor(slotId: string, offset: number): void {
+    const slot = findSlot(this.doc.root, slotId);
+    if (!slot) return;
+    this.cursor = {
+      slotId: slot.id,
+      offset: Math.max(0, Math.min(offset, slot.children.length)),
+    };
+    this.selection = null;
+    this.mode = { kind: 'edit' };
+  }
+
+  public triggerLeader(): void {
+    if (this.mode.kind === 'leader') {
+      this.mode = { kind: 'edit' };
+      return;
+    }
+    this.mode = { kind: 'leader', prefix: '' };
+  }
+
+  public exitMode(): void {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+  }
+
+  public enterJumpMode(): void {
+    const targets = buildJumpTargets(this.doc.root);
+    if (targets.length === 0) {
+      this.mode = { kind: 'edit' };
+      return;
+    }
+    this.mode = { kind: 'jump', typed: '', targets };
+  }
+
+  public handleJumpKey(key: string): boolean {
+    if (this.mode.kind !== 'jump') return false;
+    const ch = key.toLowerCase();
+    if (!/^[a-z]$/.test(ch)) {
+      this.mode = { kind: 'edit' };
+      return false;
+    }
+    const nextTyped = this.mode.typed + ch;
+    const exact = this.mode.targets.find((t) => t.label === nextTyped);
+    if (exact) {
+      this.cursor = { slotId: exact.slotId, offset: exact.offset };
+      this.selection = null;
+      this.mode = { kind: 'edit' };
+      return true;
+    }
+    const remaining = this.mode.targets.filter((t) => t.label.startsWith(nextTyped));
+    if (remaining.length === 0) {
+      this.mode = { kind: 'edit' };
+      return false;
+    }
+    this.mode = { kind: 'jump', typed: nextTyped, targets: remaining };
+    return true;
+  }
+
+  public handleLeaderKey(key: string): { handled: boolean; executedCommandId?: string } {
+    if (this.mode.kind !== 'leader') return { handled: false };
+    if (key.length !== 1) return { handled: false };
+
+    const { prefix } = this.mode;
+    if (prefix === '') {
+      if (SUBMENU_KEYS.has(key) || key === 'k') {
+        this.mode = { kind: 'leader', prefix: key };
+        return { handled: true };
+      }
+      const direct = COMMANDS_BY_KEYS.get(key);
+      if (direct) {
+        this.mode = { kind: 'edit' };
+        this.insertCommand(direct.id);
+        return { handled: true, executedCommandId: direct.id };
+      }
+      // Unknown leader key -> gracefully dismiss leader mode
+      this.mode = { kind: 'edit' };
+      return { handled: true };
+    }
+
+    if (prefix === 'k') {
+      const custom = this.customCommands.find((c) => c.key === key);
+      this.mode = { kind: 'edit' };
+      if (custom) {
+        this.insertCommand(custom.id);
+        return { handled: true, executedCommandId: custom.id };
+      }
+      return { handled: true };
+    }
+
+    const full = COMMANDS_BY_KEYS.get(prefix + key);
+    this.mode = { kind: 'edit' };
+    if (full) {
+      this.insertCommand(full.id);
+      return { handled: true, executedCommandId: full.id };
+    }
+    return { handled: true };
+  }
+
+  public stepLeaderBack(): void {
+    if (this.mode.kind !== 'leader') return;
+    if (this.mode.prefix.length > 0) {
+      this.mode = { kind: 'leader', prefix: '' };
+    } else {
+      this.mode = { kind: 'edit' };
+    }
+  }
+
+  public insertText(text: string): void {
+    if (!text) return;
+    if (this.mode.kind === 'jump') {
+      if (text.length === 1) {
+        this.handleJumpKey(text);
+      } else {
+        this.mode = { kind: 'edit' };
+      }
+      return;
+    }
+    if (this.mode.kind === 'leader') {
+      if (text.length === 1) {
+        this.handleLeaderKey(text);
+      } else {
+        this.mode = { kind: 'edit' };
+      }
+      return;
+    }
+
+    // Single-character smart triggers
+    if (text.length === 1) {
+      const ch = text;
+      if (ch === ';' && this.settings.semicolonNextSlot) {
+        const path = findSlotPath(this.doc.root, this.cursor.slotId);
+        if (path && path.length > 1) {
+          this.nextSlot();
+          return;
+        }
+      }
+      if (this.settings.naturalScripts && (ch === '^' || ch === '_')) {
+        this.insertNaturalScript(ch === '^' ? 'sup' : 'sub');
+        return;
+      }
+      if (this.settings.naturalFraction && this.settings.leaderKey !== '/' && ch === '/') {
+        this.insertNaturalFraction();
+        return;
+      }
+      // Inline `\alpha ` completion when typing space after `\macro`
+      if (ch === ' ') {
+        if (this.tryExpandInlineMacro()) {
+          return;
+        }
+      }
+    }
+
+    this.pushHistory();
+    this.deleteSelectionInternal();
+    const slot = this.currentSlot();
+    const nodes = textToCharNodes(text);
+    slot.children.splice(this.cursor.offset, 0, ...nodes);
+    this.cursor.offset += nodes.length;
+
+    if (this.settings.autoShorthands && text.length === 1) {
+      // Check user-defined custom shorthands first
+      const customMatched = this.matchCustomShorthand(slot.children, this.cursor.offset);
+      if (customMatched) {
+        this.pushHistory();
+        slot.children.splice(customMatched.start, this.cursor.offset - customMatched.start);
+        this.cursor.offset = customMatched.start;
+        this.insertCustomCommandInternal(customMatched.command);
+        return;
+      }
+
+      const matched = matchTrailingShorthand(slot.children, this.cursor.offset);
+      if (matched) {
+        // Push separate history step so a single Ctrl+Z reverts `\infty` back to literal `oo`
+        this.pushHistory();
+        const sym = createSymbolNode(matched.command);
+        slot.children.splice(matched.start, this.cursor.offset - matched.start, sym);
+        this.cursor.offset = matched.start + 1;
+      }
+    }
+  }
+
+  private matchCustomShorthand(
+    children: readonly MathNode[],
+    offset: number,
+  ): { start: number; command: CustomCommandDef } | null {
+    if (this.customCommands.length === 0 || offset <= 0) return null;
+    for (const cmd of this.customCommands) {
+      const trigger = cmd.shorthand?.trim();
+      if (!trigger || trigger.length > offset) continue;
+      let ok = true;
+      const start = offset - trigger.length;
+      for (let i = 0; i < trigger.length; i += 1) {
+        const n = children[start + i];
+        if (n.type !== 'char' || n.value !== trigger[i]) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      if (/^[a-zA-Z]+$/.test(trigger) && start > 0) {
+        const prev = children[start - 1];
+        if (prev.type === 'char' && /^[a-zA-Z]$/.test(prev.value)) continue;
+      }
+      return { start, command: cmd };
+    }
+    return null;
+  }
+
+  private insertCustomCommandInternal(custom: CustomCommandDef): void {
+    const slot = this.currentSlot();
+    if (custom.slots.length === 0) {
+      this.deleteSelectionInternal();
+      slot.children.splice(this.cursor.offset, 0, createRawNode(custom.latex));
+      this.cursor.offset += 1;
+      return;
+    }
+    const slotContents: MathNode[][] = custom.slots.map(() => []);
+    if (this.selection && this.selection.slotId === slot.id) {
+      slotContents[0] = this.deleteSelectionInternal();
+    }
+    const struct = createStructNode(
+      { id: custom.id, slots: custom.slots, latex: custom.latex },
+      slotContents,
+      custom.latex,
+    );
+    slot.children.splice(this.cursor.offset, 0, struct);
+    const firstEmpty = struct.slots.find((s) => s.children.length === 0) ?? struct.slots[0];
+    this.cursor = { slotId: firstEmpty.id, offset: 0 };
+  }
+
+  private tryExpandInlineMacro(): boolean {
+    const slot = this.currentSlot();
+    let start = this.cursor.offset - 1;
+    while (start >= 0) {
+      const n = slot.children[start];
+      if (n.type === 'char' && /[a-zA-Z]/.test(n.value)) {
+        start -= 1;
+      } else {
+        break;
+      }
+    }
+    if (start < 0) return false;
+    const bs = slot.children[start];
+    if (bs.type !== 'char' || bs.value !== '\\') return false;
+    const name = slot.children
+      .slice(start + 1, this.cursor.offset)
+      .map((n) => (n.type === 'char' ? n.value : ''))
+      .join('');
+    if (!name) return false;
+
+    const parsed = importFormula(`\\${name}`);
+    const hasErr = parsed.diagnostics.some((d) => d.severity === 'error');
+    const hasWarn = parsed.diagnostics.some((d) => d.severity === 'warning');
+    if (hasErr || hasWarn || parsed.doc.root.children.length === 0) return false;
+
+    this.pushHistory();
+    slot.children.splice(start, this.cursor.offset - start, ...parsed.doc.root.children);
+    this.cursor.offset = start + parsed.doc.root.children.length;
+    return true;
+  }
+
+  private insertNaturalScript(kind: 'sup' | 'sub'): void {
+    const cmd = COMMANDS_BY_ID.get(kind);
+    if (!cmd) return;
+    this.pushHistory();
+
+    const slot = this.currentSlot();
+    let baseNodes: MathNode[] = [];
+
+    if (this.selection && this.selection.slotId === slot.id) {
+      baseNodes = this.deleteSelectionInternal();
+    } else if (this.cursor.offset > 0) {
+      const prev = slot.children[this.cursor.offset - 1];
+      // If previous is already `sub` and user types `^`, upgrade cleanly to `subsup`!
+      if (kind === 'sup' && prev.type === 'struct' && prev.commandId === 'sub') {
+        const subsup = COMMANDS_BY_ID.get('subsup')!;
+        const upgraded = createStructNode(subsup, [
+          prev.slots[0].children,
+          prev.slots[1].children,
+          [],
+        ]);
+        slot.children.splice(this.cursor.offset - 1, 1, upgraded);
+        this.cursor = { slotId: upgraded.slots[2].id, offset: 0 };
+        return;
+      }
+      if (kind === 'sub' && prev.type === 'struct' && prev.commandId === 'sup') {
+        const subsup = COMMANDS_BY_ID.get('subsup')!;
+        const upgraded = createStructNode(subsup, [
+          prev.slots[0].children,
+          [],
+          prev.slots[1].children,
+        ]);
+        slot.children.splice(this.cursor.offset - 1, 1, upgraded);
+        this.cursor = { slotId: upgraded.slots[1].id, offset: 0 };
+        return;
+      }
+
+      if (
+        prev.type !== 'char' ||
+        !/^[\s+=,;:\-<>()[\]]$/.test(prev.value)
+      ) {
+        // Grab contiguous digits/letters or single symbol/struct atom
+        if (prev.type === 'char' && /[0-9]/.test(prev.value)) {
+          let start = this.cursor.offset - 1;
+          while (start > 0) {
+            const c = slot.children[start - 1];
+            if (c.type === 'char' && /[0-9]/.test(c.value)) start -= 1;
+            else break;
+          }
+          baseNodes = slot.children.splice(start, this.cursor.offset - start);
+          this.cursor.offset = start;
+        } else {
+          baseNodes = slot.children.splice(this.cursor.offset - 1, 1);
+          this.cursor.offset -= 1;
+        }
+      }
+    }
+
+    const struct = createStructNode(cmd, [baseNodes, []]);
+    slot.children.splice(this.cursor.offset, 0, struct);
+    this.cursor = {
+      slotId: baseNodes.length > 0 ? struct.slots[1].id : struct.slots[0].id,
+      offset: 0,
+    };
+  }
+
+  private insertNaturalFraction(): void {
+    const cmd = COMMANDS_BY_ID.get('frac');
+    if (!cmd) return;
+    this.pushHistory();
+
+    const slot = this.currentSlot();
+    let numNodes: MathNode[] = [];
+
+    if (this.selection && this.selection.slotId === slot.id) {
+      numNodes = this.deleteSelectionInternal();
+    } else if (this.cursor.offset > 0) {
+      let start = this.cursor.offset;
+      // Skip trailing spaces before `/`
+      let end = this.cursor.offset;
+      while (end > 0) {
+        const c = slot.children[end - 1];
+        if (c.type === 'char' && c.value === ' ') end -= 1;
+        else break;
+      }
+      start = end;
+      while (start > 0) {
+        const c = slot.children[start - 1];
+        if (c.type === 'char' && /^[+=,;:\-<>()[\]]$/.test(c.value)) {
+          break;
+        }
+        if (c.type === 'raw' && c.latex.trim() === '\\\\') {
+          break;
+        }
+        start -= 1;
+      }
+      // Trim leading spaces inside grabbed numerator
+      while (start < end) {
+        const c = slot.children[start];
+        if (c.type === 'char' && c.value === ' ') start += 1;
+        else break;
+      }
+      if (end > start) {
+        numNodes = slot.children.splice(start, this.cursor.offset - start);
+        // Remove trailing spaces we skipped from grabbed numerator
+        while (numNodes.length > 0) {
+          const last = numNodes[numNodes.length - 1];
+          if (last.type === 'char' && last.value === ' ') numNodes.pop();
+          else break;
+        }
+        this.cursor.offset = start;
+      }
+    }
+
+    const struct = createStructNode(cmd, [numNodes, []]);
+    if (numNodes.length > 0) {
+      // Numerator was already typed before `/`, so Enter after denominator should always exit cleanly
+      struct.fillOrder = [0, 1];
+    }
+    slot.children.splice(this.cursor.offset, 0, struct);
+    if (numNodes.length > 0) {
+      this.cursor = { slotId: struct.slots[1].id, offset: 0 };
+    } else {
+      const order = getSlotOrder(cmd.id, this.settings, struct.slots.length);
+      this.cursor = { slotId: struct.slots[order[0]].id, offset: 0 };
+    }
+  }
+
+  public insertCommand(commandId: string): boolean {
+    const custom = this.customCommands.find((c) => c.id === commandId);
+    if (custom) {
+      this.pushHistory();
+      this.mode = { kind: 'edit' };
+      this.insertCustomCommandInternal(custom);
+      return true;
+    }
+
+    const cmd = COMMANDS_BY_ID.get(commandId);
+    if (!cmd) return false;
+
+    this.pushHistory();
+    this.mode = { kind: 'edit' };
+
+    const slot = this.currentSlot();
+    if (cmd.slots.length === 0) {
+      this.deleteSelectionInternal();
+      const sym = createSymbolNode(cmd);
+      slot.children.splice(this.cursor.offset, 0, sym);
+      this.cursor.offset += 1;
+      return true;
+    }
+
+    const slotContents: MathNode[][] = cmd.slots.map(() => []);
+    let wrappedSlotIdx: number | null = null;
+
+    if (this.selection && this.selection.slotId === slot.id) {
+      const selected = this.deleteSelectionInternal();
+      const targetIdx = cmd.wrapSlot ?? 0;
+      if (targetIdx >= 0 && targetIdx < slotContents.length) {
+        slotContents[targetIdx] = selected;
+        wrappedSlotIdx = targetIdx;
+      }
+    } else if (
+      cmd.wrapSlot !== null &&
+      cmd.wrapSlot > 0 &&
+      this.cursor.offset < slot.children.length
+    ) {
+      // Smart prepend wrapping (e.g. `lim`, `int`, `sum`, `prod` inserted before `frac(sin x, x) = 1`)
+      let end = this.cursor.offset;
+      while (end < slot.children.length) {
+        const n = slot.children[end];
+        if (n.type === 'char' && (n.value === '=' || n.value === ',' || n.value === ';')) break;
+        if (n.type === 'raw' && n.latex.trim() === '\\\\') break;
+        end += 1;
+      }
+      // Trim trailing whitespace from wrapped term
+      while (end > this.cursor.offset) {
+        const last = slot.children[end - 1];
+        if (last.type === 'char' && last.value === ' ') end -= 1;
+        else break;
+      }
+      if (end > this.cursor.offset) {
+        slotContents[cmd.wrapSlot] = slot.children.splice(
+          this.cursor.offset,
+          end - this.cursor.offset,
+        );
+        wrappedSlotIdx = cmd.wrapSlot;
+      }
+    }
+
+    const struct = createStructNode(cmd, slotContents);
+    slot.children.splice(this.cursor.offset, 0, struct);
+
+    // Place cursor in the first empty slot according to the user's configured slot filling order
+    const order = getSlotOrder(cmd.id, this.settings, struct.slots.length);
+    const orderedSlots = order.map((idx) => struct.slots[idx]);
+    const firstEmpty = orderedSlots.find((s) => s.children.length === 0);
+    if (firstEmpty) {
+      this.cursor = { slotId: firstEmpty.id, offset: 0 };
+    } else if (wrappedSlotIdx !== null && struct.slots.length === 1) {
+      this.cursor = { slotId: slot.id, offset: this.cursor.offset + 1 };
+    } else {
+      const first = orderedSlots[0] ?? struct.slots[0];
+      this.cursor = { slotId: first.id, offset: first.children.length };
+    }
+    return true;
+  }
+
+  public nextSlot(): void {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path) return;
+
+    if (path.length === 1) {
+      // At root: insert clean multiline break `\\` if root is non-empty
+      if (this.doc.root.children.length > 0) {
+        this.pushHistory();
+        this.doc.root.children.splice(this.cursor.offset, 0, createRawNode('\\\\'));
+        this.cursor.offset += 1;
+      }
+      return;
+    }
+
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const parentSlot = cur.parentSlot!;
+    const order =
+      parentStruct.fillOrder ??
+      getSlotOrder(parentStruct.commandId, this.settings, parentStruct.slots.length);
+    const posInOrder = order.indexOf(cur.slotIndexInStruct);
+
+    if (posInOrder >= 0 && posInOrder + 1 < order.length) {
+      const next = parentStruct.slots[order[posInOrder + 1]];
+      this.cursor = { slotId: next.id, offset: next.children.length };
+    } else {
+      // Exit right after this struct in its parent slot
+      this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent + 1 };
+    }
+  }
+
+  public prevSlot(): void {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length === 1) return;
+
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const parentSlot = cur.parentSlot!;
+    const order =
+      parentStruct.fillOrder ??
+      getSlotOrder(parentStruct.commandId, this.settings, parentStruct.slots.length);
+    const posInOrder = order.indexOf(cur.slotIndexInStruct);
+
+    if (posInOrder > 0) {
+      const prev = parentStruct.slots[order[posInOrder - 1]];
+      this.cursor = { slotId: prev.id, offset: prev.children.length };
+    } else {
+      this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+    }
+  }
+
+  public backspace(): void {
+    if (this.mode.kind === 'leader') {
+      this.stepLeaderBack();
+      return;
+    }
+    if (this.mode.kind === 'jump') {
+      this.mode = { kind: 'edit' };
+      return;
+    }
+
+    if (this.selection) {
+      this.pushHistory();
+      this.deleteSelectionInternal();
+      return;
+    }
+
+    const slot = this.currentSlot();
+    if (this.cursor.offset > 0) {
+      const prev = slot.children[this.cursor.offset - 1];
+      if (prev.type === 'struct') {
+        if (isStructEmpty(prev)) {
+          this.pushHistory();
+          slot.children.splice(this.cursor.offset - 1, 1);
+          this.cursor.offset -= 1;
+        } else {
+          // Safe progressive deletion: enter the struct's last slot
+          const lastSlot = prev.slots[prev.slots.length - 1];
+          this.cursor = { slotId: lastSlot.id, offset: lastSlot.children.length };
+        }
+        return;
+      }
+
+      this.pushHistory();
+      slot.children.splice(this.cursor.offset - 1, 1);
+      this.cursor.offset -= 1;
+      return;
+    }
+
+    // At offset 0 inside a nested slot
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return;
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const parentSlot = cur.parentSlot!;
+
+    if (cur.slotIndexInStruct === 0) {
+      const otherSlotsEmpty = parentStruct.slots
+        .slice(1)
+        .every((s) => s.children.length === 0);
+      if (otherSlotsEmpty) {
+        // Smoothly unwrap slot 0 into parent slot
+        this.pushHistory();
+        const unwrapped = cur.slot.children;
+        parentSlot.children.splice(cur.nodeIndexInParent, 1, ...unwrapped);
+        this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+        return;
+      }
+      // Otherwise step outside before the struct
+      this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+      return;
+    }
+
+    // Move to end of previous sibling slot
+    const prevSibling = parentStruct.slots[cur.slotIndexInStruct - 1];
+    this.cursor = { slotId: prevSibling.id, offset: prevSibling.children.length };
+  }
+
+  public deleteForward(): void {
+    this.mode = { kind: 'edit' };
+    if (this.selection) {
+      this.pushHistory();
+      this.deleteSelectionInternal();
+      return;
+    }
+    const slot = this.currentSlot();
+    if (this.cursor.offset >= slot.children.length) return;
+    const next = slot.children[this.cursor.offset];
+    if (next.type === 'struct' && !isStructEmpty(next)) {
+      this.cursor = { slotId: next.slots[0].id, offset: 0 };
+      return;
+    }
+    this.pushHistory();
+    slot.children.splice(this.cursor.offset, 1);
+  }
+
+  public moveLeft(extendSelection = false): void {
+    this.mode = { kind: 'edit' };
+    const slot = this.currentSlot();
+
+    if (extendSelection) {
+      const anchor = this.selection
+        ? this.cursor.offset === this.selection.start
+          ? this.selection.end
+          : this.selection.start
+        : this.cursor.offset;
+      if (this.cursor.offset > 0) {
+        this.cursor.offset -= 1;
+        this.setSelectionRange(slot.id, anchor, this.cursor.offset);
+      }
+      return;
+    }
+
+    if (this.selection) {
+      this.cursor = { slotId: this.selection.slotId, offset: this.selection.start };
+      this.selection = null;
+      return;
+    }
+
+    if (this.cursor.offset > 0) {
+      const prev = slot.children[this.cursor.offset - 1];
+      if (prev.type === 'struct') {
+        const lastSlot = prev.slots[prev.slots.length - 1];
+        this.cursor = { slotId: lastSlot.id, offset: lastSlot.children.length };
+      } else {
+        this.cursor.offset -= 1;
+      }
+      return;
+    }
+
+    // At start of nested slot -> move to prev sibling slot or before struct
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return;
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const parentSlot = cur.parentSlot!;
+    if (cur.slotIndexInStruct > 0) {
+      const prevSlot = parentStruct.slots[cur.slotIndexInStruct - 1];
+      this.cursor = { slotId: prevSlot.id, offset: prevSlot.children.length };
+    } else {
+      this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+    }
+  }
+
+  public moveRight(extendSelection = false): void {
+    this.mode = { kind: 'edit' };
+    const slot = this.currentSlot();
+
+    if (extendSelection) {
+      const anchor = this.selection
+        ? this.cursor.offset === this.selection.end
+          ? this.selection.start
+          : this.selection.end
+        : this.cursor.offset;
+      if (this.cursor.offset < slot.children.length) {
+        this.cursor.offset += 1;
+        this.setSelectionRange(slot.id, anchor, this.cursor.offset);
+      }
+      return;
+    }
+
+    if (this.selection) {
+      this.cursor = { slotId: this.selection.slotId, offset: this.selection.end };
+      this.selection = null;
+      return;
+    }
+
+    if (this.cursor.offset < slot.children.length) {
+      const next = slot.children[this.cursor.offset];
+      if (next.type === 'struct') {
+        this.cursor = { slotId: next.slots[0].id, offset: 0 };
+      } else {
+        this.cursor.offset += 1;
+      }
+      return;
+    }
+
+    // At end of nested slot -> move to next sibling slot or after struct
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return;
+    const cur = path[path.length - 1];
+    const parentStruct = cur.parentStruct!;
+    const parentSlot = cur.parentSlot!;
+    if (cur.slotIndexInStruct + 1 < parentStruct.slots.length) {
+      const nextSlot = parentStruct.slots[cur.slotIndexInStruct + 1];
+      this.cursor = { slotId: nextSlot.id, offset: 0 };
+    } else {
+      this.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent + 1 };
+    }
+  }
+
+  public moveUp(): void {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    const slots = listAllSlots(this.doc.root);
+    const idx = slots.findIndex((s) => s.id === this.cursor.slotId);
+    if (idx > 0) {
+      const target = slots[idx - 1];
+      this.cursor = { slotId: target.id, offset: target.children.length };
+    }
+  }
+
+  public moveDown(): void {
+    this.mode = { kind: 'edit' };
+    this.selection = null;
+    const slots = listAllSlots(this.doc.root);
+    const idx = slots.findIndex((s) => s.id === this.cursor.slotId);
+    if (idx >= 0 && idx + 1 < slots.length) {
+      const target = slots[idx + 1];
+      this.cursor = { slotId: target.id, offset: 0 };
+    }
+  }
+
+  public moveHome(extendSelection = false): void {
+    this.mode = { kind: 'edit' };
+    const slot = this.currentSlot();
+    if (extendSelection) {
+      const anchor = this.selection ? this.selection.end : this.cursor.offset;
+      this.cursor.offset = 0;
+      this.setSelectionRange(slot.id, 0, anchor);
+    } else {
+      this.cursor.offset = 0;
+      this.selection = null;
+    }
+  }
+
+  public moveEnd(extendSelection = false): void {
+    this.mode = { kind: 'edit' };
+    const slot = this.currentSlot();
+    if (extendSelection) {
+      const anchor = this.selection ? this.selection.start : this.cursor.offset;
+      this.cursor.offset = slot.children.length;
+      this.setSelectionRange(slot.id, anchor, slot.children.length);
+    } else {
+      this.cursor.offset = slot.children.length;
+      this.selection = null;
+    }
+  }
+
+  public selectAll(): void {
+    this.mode = { kind: 'edit' };
+    const slot = this.currentSlot();
+    if (slot.children.length === 0) {
+      // If active slot is empty, select entire root formula
+      if (this.doc.root.children.length > 0) {
+        this.cursor = { slotId: this.doc.root.id, offset: this.doc.root.children.length };
+        this.selection = {
+          slotId: this.doc.root.id,
+          start: 0,
+          end: this.doc.root.children.length,
+        };
+      }
+      return;
+    }
+    this.cursor.offset = slot.children.length;
+    this.selection = { slotId: slot.id, start: 0, end: slot.children.length };
+  }
+
+  private setSelectionRange(slotId: string, a: number, b: number): void {
+    const start = Math.min(a, b);
+    const end = Math.max(a, b);
+    this.selection = start === end ? null : { slotId, start, end };
+  }
+}

@@ -1,46 +1,12 @@
-/target
-**/*.rs.bk
-*.log
-.DS_Store
-*.tmp
-*.bak
-
-# docs/ 是审计与验收证据，必须进版本库；不要忽略。
-
-# agent 运行时状态（不进库；REV-*.md 是证据，仍然进库）
-agent-state/turns.jsonl
-agent-state/reviews/.last
-agent-state/reviews/.pending
-agent-state/reviews/index.tsv
-
-
-# Python 缓存
-__pycache__/
-*.pyc
-
-# 夜间模式控制文件（运行时，不进库）
-agent-state/AUTORUN
-agent-state/DONE
-agent-state/STOPPED
-agent-state/.autorun-*
-
-# packages/ui 前端构建与依赖缓存
-packages/ui/node_modules/
-packages/ui/dist/
-packages/ui/.vite/
-
-# apps/desktop 前端构建、依赖缓存、Playwright 产物与 Tauri target
-apps/desktop/node_modules/
-apps/desktop/dist/
-apps/desktop/.vite/
-apps/desktop/.e2e-artifacts/
-apps/desktop/playwright-report/
-apps/desktop/test-results/
+node_modules/
+dist/
+.vite/
+.svelte-kit/
+coverage/
+test-results/
+playwright-report/
+.e2e-artifacts/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
-
-# apps/obsidian 测试与 E2E 产物
-apps/obsidian/.e2e-artifacts/
-apps/obsidian/dist-e2e/
-apps/obsidian/playwright-report/
-apps/obsidian/test-results/
+*.log
+.DS_Store
