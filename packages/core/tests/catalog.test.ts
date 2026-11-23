@@ -22,14 +22,14 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 129 unique commands with unique ids, released u/d/b keys, and curated submenu defaults', () => {
+  it('contains 129 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
     expect(COMMANDS.length).toBe(129);
     expect(COMMANDS_BY_ID.size).toBe(129);
-    expect(COMMANDS_BY_KEYS.size).toBe(126);
-    expect(DIRECT_COMMANDS.length).toBe(8);
+    expect(COMMANDS_BY_KEYS.size).toBe(127);
+    expect(DIRECT_COMMANDS.length).toBe(9);
     expect(COMMANDS_BY_KEYS.has('u')).toBe(false);
     expect(COMMANDS_BY_KEYS.has('d')).toBe(false);
-    expect(COMMANDS_BY_KEYS.has('b')).toBe(false);
+    expect(COMMANDS_BY_KEYS.get('b')?.id).toBe('subsup');
     expect(SUBMENUS.length).toBe(7);
 
     // Every auto-shorthand must resolve to a real command in COMMANDS_BY_ID

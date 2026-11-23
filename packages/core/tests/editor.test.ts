@@ -685,12 +685,20 @@ describe('MathSlotEngine keyboard flow', () => {
       for (const ch of s) engine.insertText(ch);
     };
 
-    // 1. u, d, b leader keys are released (no longer trigger sup/sub/subsup)
-    for (const k of ['u', 'd', 'b']) {
+    // 1. u and d leader keys are released, while b is kept for adaptive subsup!
+    for (const k of ['u', 'd']) {
       engine.triggerLeader();
       engine.handleLeaderKey(k);
       expect(engine.getSnapshot().latex).toBe('');
     }
+    type('x');
+    engine.triggerLeader();
+    engine.handleLeaderKey('b'); // wraps `x` into subsup!
+    engine.nextSlot(); // skip empty sub
+    type('2'); // only sup filled -> `x^2`!
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('x^2');
+    engine.clear();
 
     // 2. Ellipsis shorthands: `...` -> \cdots, `:::` / `vdots` -> \vdots, `ddots` -> \ddots
     type('... + ::: + ddots');
@@ -757,5 +765,56 @@ describe('MathSlotEngine keyboard flow', () => {
     expect(engine.getSnapshot().activeGrid?.rows).toBe(3);
     expect(engine.getSnapshot().activeGrid?.cols).toBe(3);
     expect(engine.getSnapshot().latex).toBe('\\begin{pmatrix} T & & \\\\ A & B & \\\\ & & \\end{pmatrix}');
+  });
+
+  it('supports native LaTeX inline command compatibility (\\int, \\int_, \\frac{, \\sqrt[, \\sum_, \\alpha_1, \\vdots, \\pmatrix)', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // 1. `\int_` immediately enters integral lower limit; `\int ` + Enter/Enter creates indefinite integral
+    type('\\int_0');
+    engine.nextSlot();
+    type('1');
+    engine.nextSlot();
+    type('f(x) dx');
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('\\int_{0}^{1} f(x)\\,\\mathrm{d}x');
+
+    // 2. `\frac{a` + Enter + `b` + Enter -> `\frac{a}{b}`
+    engine.clear();
+    type('\\frac{a');
+    engine.nextSlot();
+    type('b');
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('\\frac{a}{b}');
+
+    // 3. `\sqrt[3` + Enter + `8` + Enter -> `\sqrt[3]{8}`
+    engine.clear();
+    type('\\sqrt[3');
+    engine.nextSlot();
+    type('8');
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('\\sqrt[3]{8}');
+
+    // 4. `\alpha_1 + \beta^2 + \vdots ` -> `\alpha_1 + \beta^2 + \vdots`
+    engine.clear();
+    type('\\alpha_1');
+    engine.nextSlot();
+    type(' + \\beta^2');
+    engine.nextSlot();
+    type(' + \\vdots ');
+    expect(engine.getSnapshot().latex).toBe('\\alpha_1 + \\beta^2 + \\vdots');
+
+    // 5. `\int` + Enter expands into real interactive integral (cursor in lower limit!)
+    engine.clear();
+    type('\\int');
+    engine.nextSlot(); // expands \int!
+    engine.nextSlot(); // skip lower
+    engine.nextSlot(); // skip upper
+    type('x dx');
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('\\int x\\,\\mathrm{d}x');
   });
 });

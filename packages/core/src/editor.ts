@@ -839,6 +839,10 @@ export class MathSlotEngine {
           return;
         }
       }
+      // Inline LaTeX command compatibility (`\frac{`, `\sqrt[`, `\int_`, `\sum^`, `\alpha_1`, etc.)
+      if ((ch === '{' || ch === '[') && this.tryExpandInlineMacro(ch)) {
+        return;
+      }
       // Auto-closing brackets `( )`, `[ ]`, `{ }` + overtype skip-out on closing `)`, `]`, `}`!
       if (this.settings.autoBrackets) {
         const openBracketCmd =
@@ -854,6 +858,9 @@ export class MathSlotEngine {
         }
       }
       if (this.settings.naturalScripts && (ch === '^' || ch === '_')) {
+        if (this.tryExpandInlineMacro(ch)) {
+          return;
+        }
         this.insertNaturalScript(ch === '^' ? 'sup' : 'sub');
         return;
       }
@@ -861,9 +868,9 @@ export class MathSlotEngine {
         this.insertNaturalFraction();
         return;
       }
-      // Inline `\alpha ` completion or optional Space-exits-script
+      // Inline `\int `, `\frac `, `\alpha ` completion or optional Space-exits-script
       if (ch === ' ') {
-        if (this.tryExpandInlineMacro()) {
+        if (this.tryExpandInlineMacro('space')) {
           return;
         }
         if (this.settings.spaceExitsScript && this.trySpaceExitScript()) {
@@ -1046,7 +1053,9 @@ export class MathSlotEngine {
     return true;
   }
 
-  private tryExpandInlineMacro(): boolean {
+  private tryExpandInlineMacro(
+    trigger: 'space' | 'enter' | '_' | '^' | '{' | '[' = 'space',
+  ): boolean {
     const slot = this.currentSlot();
     let start = this.cursor.offset - 1;
     while (start >= 0) {
@@ -1066,6 +1075,104 @@ export class MathSlotEngine {
       .join('');
     if (!name) return false;
 
+    // 1. Direct LaTeX structural commands (`\int`, `\frac`, `\sqrt`, `\sum`, `\lim`, `\vec`, `\pmatrix`, ...)
+    const INLINE_STRUCT_MAP: Readonly<Record<string, string>> = {
+      frac: 'frac',
+      dfrac: 'frac',
+      tfrac: 'frac',
+      sqrt: 'sqrt',
+      binom: 'binom',
+      int: 'integral',
+      iint: 'double_integral',
+      iiint: 'triple_integral',
+      oint: 'contour_integral',
+      sum: 'sum',
+      prod: 'product',
+      lim: 'limit',
+      hat: 'hat',
+      bar: 'bar',
+      vec: 'vec',
+      tilde: 'tilde',
+      dot: 'dot',
+      ddot: 'ddot',
+      overline: 'overline',
+      underline: 'underline',
+      overbrace: 'overbrace',
+      underbrace: 'underbrace',
+      abs: 'abs',
+      norm: 'norm',
+      floor: 'floor',
+      ceil: 'ceil',
+      pmatrix: 'matrix_2x2',
+      bmatrix: 'bmatrix_2x2',
+      vmatrix: 'det_2x2',
+      cases: 'cases_2',
+    };
+
+    const structCmdId = INLINE_STRUCT_MAP[name];
+    if (structCmdId) {
+      // Only trigger on matching LaTeX delimiters or Space/Enter
+      const isBigOp =
+        structCmdId === 'integral' ||
+        structCmdId === 'sum' ||
+        structCmdId === 'product' ||
+        structCmdId === 'limit' ||
+        structCmdId === 'double_integral' ||
+        structCmdId === 'triple_integral' ||
+        structCmdId === 'contour_integral';
+      if ((trigger === '_' || trigger === '^') && !isBigOp) {
+        return false;
+      }
+      if (trigger === '[' && structCmdId !== 'sqrt') {
+        return false;
+      }
+      if (trigger === '{' && isBigOp) {
+        return false;
+      }
+
+      // Remove `\name` cleanly, then insert real interactive struct (single undo step!)
+      this.pushHistory();
+      slot.children.splice(start, this.cursor.offset - start);
+      this.cursor.offset = start;
+      const undoBeforeInsert = this.undoStack.length;
+      const ok = this.insertCommand(structCmdId);
+      if (ok && this.undoStack.length > undoBeforeInsert) {
+        // Collapse the inner history push so Ctrl+Z cleanly restores `\name`
+        this.undoStack.pop();
+      }
+      // Position cursor precisely for LaTeX delimiter triggers (`\int_`, `\int^`, `\sqrt[`, `\sqrt{`, `\frac{`)
+      const inserted = slot.children[start];
+      if (inserted && inserted.type === 'struct') {
+        if (trigger === '_' && inserted.slots.length >= 1) {
+          this.cursor = { slotId: inserted.slots[0].id, offset: 0 };
+        } else if (trigger === '^' && inserted.slots.length >= 2) {
+          if (inserted.slots.length === 3) inserted.fillOrder = [1, 0, 2];
+          this.cursor = { slotId: inserted.slots[1].id, offset: 0 };
+        } else if (trigger === '[' && structCmdId === 'sqrt' && inserted.slots.length === 2) {
+          inserted.fillOrder = [0, 1];
+          this.cursor = { slotId: inserted.slots[0].id, offset: 0 };
+        } else if (trigger === '{' && structCmdId === 'sqrt' && inserted.slots.length === 2) {
+          inserted.fillOrder = [1, 0];
+          this.cursor = { slotId: inserted.slots[1].id, offset: 0 };
+        } else if (trigger === '{' && inserted.slots.length >= 1) {
+          if (inserted.slots.length === 2) inserted.fillOrder = [0, 1];
+          this.cursor = { slotId: inserted.slots[0].id, offset: 0 };
+        }
+      }
+      return ok;
+    }
+
+    // 2. Standard math functions (`\sin`, `\cos`, `\ln`, `\log`, ...) -> upright function name chars
+    if (MATH_FUNCTIONS.has(name) && (trigger === 'space' || trigger === 'enter')) {
+      this.pushHistory();
+      const fnNodes = textToCharNodes(name);
+      slot.children.splice(start, this.cursor.offset - start, ...fnNodes);
+      this.cursor.offset = start + fnNodes.length;
+      return true;
+    }
+
+    // 3. Atomic LaTeX symbol macros (`\alpha`, `\pi`, `\vdots`, `\ddots`, `\infty`, `\le`, ...)
+    if (trigger === '{' || trigger === '[') return false;
     const parsed = importFormula(`\\${name}`);
     const hasErr = parsed.diagnostics.some((d) => d.severity === 'error');
     const hasWarn = parsed.diagnostics.some((d) => d.severity === 'warning');
@@ -1074,6 +1181,10 @@ export class MathSlotEngine {
     this.pushHistory();
     slot.children.splice(start, this.cursor.offset - start, ...parsed.doc.root.children);
     this.cursor.offset = start + parsed.doc.root.children.length;
+    // For `_` or `^` after a symbol (e.g. `\alpha_1` or `\pi^2`), expand `\alpha` AND let script proceed!
+    if (trigger === '_' || trigger === '^') {
+      return false;
+    }
     return true;
   }
 
@@ -1438,6 +1549,9 @@ export class MathSlotEngine {
   public nextSlot(): void {
     this.commitLeaderDefault();
     this.selection = null;
+    if (this.tryExpandInlineMacro('enter')) {
+      return;
+    }
     const path = findSlotPath(this.doc.root, this.cursor.slotId);
     if (!path) return;
 

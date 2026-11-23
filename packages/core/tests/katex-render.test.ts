@@ -7,8 +7,8 @@ import {
   commandPreviewLatex,
 } from '../src';
 
-describe('Real KaTeX rendering verification across all 121 commands and 88 presets', () => {
-  it('renders interactive KaTeX with zero errors for every single one of the 121 commands', () => {
+describe(`Real KaTeX rendering verification across all ${COMMANDS.length} commands and ${PRESETS.length} presets`, () => {
+  it(`renders interactive KaTeX with zero errors for every single one of the ${COMMANDS.length} commands`, () => {
     for (const cmd of COMMANDS) {
       const engine = new MathSlotEngine();
       engine.insertCommand(cmd.id);
@@ -38,7 +38,7 @@ describe('Real KaTeX rendering verification across all 121 commands and 88 prese
     }
   });
 
-  it('renders interactive KaTeX with zero errors for all 88 presets', () => {
+  it(`renders interactive KaTeX with zero errors for all ${PRESETS.length} presets`, () => {
     for (const preset of PRESETS) {
       const engine = new MathSlotEngine();
       engine.loadFormula(preset.source);

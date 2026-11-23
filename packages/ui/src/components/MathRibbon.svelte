@@ -52,6 +52,7 @@
   const QUICK_ITEMS: readonly { id: string; key: string; preview: string }[] = [
     { id: 'frac', key: 'f', preview: '\\frac{\\square}{\\square}' },
     { id: 'sqrt', key: 'r', preview: '\\sqrt{\\square}' },
+    { id: 'subsup', key: 'b', preview: 'x_{\\square}^{\\square}' },
     { id: 'paren', key: 'p', preview: '(\\square)' },
     { id: 'abs', key: 'v', preview: '|\\square|' },
     { id: 'integral', key: 'i', preview: '\\int' },

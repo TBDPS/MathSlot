@@ -38,24 +38,41 @@ function detectFormulaAtCursor(editor: Editor): DetectedFormula | null {
     }
   }
 
-  // 2. Check multi-line `$$ ... $$` block surrounding cursor.line (scan up to 30 lines up/down)
+  // 2. Check multi-line `$$ ... $$` block surrounding cursor.line using exact fence parity!
   const totalLines = editor.lineCount();
-  const minLine = Math.max(0, cursor.line - 30);
-  const maxLine = Math.min(totalLines - 1, cursor.line + 30);
+  let insideBlock = false;
   let openLine = -1;
-  for (let l = cursor.line; l >= minLine; l -= 1) {
-    if (editor.getLine(l).trim().startsWith('$$')) {
-      if (l < cursor.line && editor.getLine(l).trim() === '$$' && l > minLine) {
-        // Could be opening fence
+  for (let l = 0; l <= cursor.line; l += 1) {
+    const trimmed = editor.getLine(l).trim();
+    const isSingleLineBlock = trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length >= 4;
+    if (isSingleLineBlock) continue;
+    if (trimmed === '$$' || trimmed.startsWith('$$') || trimmed.endsWith('$$')) {
+      if (!insideBlock) {
+        insideBlock = true;
+        openLine = l;
+      } else {
+        if (l === cursor.line) {
+          // Cursor is right on the closing `$$` fence of an open block
+          const lines: string[] = [];
+          for (let k = openLine; k <= l; k += 1) lines.push(editor.getLine(k));
+          return {
+            raw: lines.join('\n'),
+            delimiter: 'block',
+            from: { line: openLine, ch: 0 },
+            to: { line: l, ch: editor.getLine(l).length },
+          };
+        }
+        insideBlock = false;
+        openLine = -1;
       }
-      openLine = l;
-      break;
     }
   }
-  if (openLine >= 0) {
+  if (insideBlock && openLine >= 0) {
+    const maxLine = Math.min(totalLines - 1, cursor.line + 40);
     let closeLine = -1;
-    for (let l = Math.max(openLine + 1, cursor.line); l <= maxLine; l += 1) {
-      if (editor.getLine(l).trim().endsWith('$$')) {
+    for (let l = openLine + 1; l <= maxLine; l += 1) {
+      const trimmed = editor.getLine(l).trim();
+      if (trimmed === '$$' || trimmed.endsWith('$$')) {
         closeLine = l;
         break;
       }
