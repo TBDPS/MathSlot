@@ -52,6 +52,29 @@
   flex-shrink: 0;
 }
 
+/* Override Obsidian's fixed button height (--input-height: 32px) on multi-line cards & preset rows */
+.mathslot-obsidian-modal .ms-studio .cat-cell,
+.mathslot-obsidian-modal .ms-studio .cmd-tile,
+.mathslot-obsidian-modal .ms-studio .preset-row,
+.mathslot-obsidian-modal .ms-studio .snip-main {
+  height: auto !important;
+  white-space: normal !important;
+}
+
+.mathslot-obsidian-modal .ms-studio .ribbon-btn {
+  height: 46px !important;
+}
+
+.mathslot-obsidian-modal .ms-studio .dock-tool-btn {
+  width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+}
+
+.mathslot-obsidian-modal .ms-studio .cat-popover {
+  max-height: min(290px, 48vh) !important;
+}
+
 .mathslot-obsidian-modal .ms-studio svg {
   flex-shrink: 0;
 }

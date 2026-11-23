@@ -1,0 +1,15 @@
+[Desktop Entry]
+Categories={{categories}}
+Comment={{comment}}
+Exec={{exec}}
+Icon={{icon}}
+Name={{name}}
+StartupWMClass=mathslot
+Terminal=false
+Type=Application
+Actions=x11;
+
+[Desktop Action x11]
+Name=MathSlot (X11 兼容模式 / 支持内置置顶)
+Exec=env GDK_BACKEND=x11 {{exec}}
+Icon={{icon}}

@@ -1901,6 +1901,7 @@ export class MathSlotEngine {
     const targetSlot = struct.slots[targetRow * cols + col] ?? struct.slots[0];
     this.cursor = { slotId: targetSlot.id, offset: targetSlot.children.length };
     this.selection = null;
+    this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     return true;
   }
@@ -1944,6 +1945,7 @@ export class MathSlotEngine {
     const targetSlot = struct.slots[row * nextCols + targetCol] ?? struct.slots[0];
     this.cursor = { slotId: targetSlot.id, offset: targetSlot.children.length };
     this.selection = null;
+    this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     return true;
   }

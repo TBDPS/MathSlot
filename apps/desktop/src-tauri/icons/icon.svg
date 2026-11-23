@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="48%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="46%" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="slotFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#a5b4fc" stop-opacity="0.22"/>
+    </linearGradient>
+    <linearGradient id="slotStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7dd3fc"/>
+      <stop offset="100%" stop-color="#e0f2fe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle background -->
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bg)"/>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#sheen)"/>
+  <rect x="30" y="30" width="452" height="452" rx="106" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="3"/>
+
+  <!-- Subtle outer math brackets -->
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 116 118 H 86 A 14 14 0 0 0 72 132 V 380 A 14 14 0 0 0 86 394 H 116"/>
+    <path d="M 396 118 H 426 A 14 14 0 0 1 440 132 V 380 A 14 14 0 0 1 426 394 H 396"/>
+  </g>
+
+  <!-- Soft geometric drop shadows (pure vector, 100% portable across all SVG renderers) -->
+  <path
+    d="M 270 162 H 134 L 212 266 L 134 370 H 270"
+    fill="none"
+    stroke="#0f172a"
+    stroke-opacity="0.26"
+    stroke-width="34"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <rect x="298" y="166" width="106" height="200" rx="26" fill="#0f172a" fill-opacity="0.22"/>
+
+  <!-- Crisp geometric Sigma glyph -->
+  <path
+    d="M 270 152 H 134 L 212 256 L 134 360 H 270"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="34"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Interactive MathSlot dashed container + live cursor -->
+  <rect
+    x="298"
+    y="156"
+    width="106"
+    height="200"
+    rx="26"
+    fill="url(#slotFill)"
+    stroke="url(#slotStroke)"
+    stroke-width="11"
+    stroke-dasharray="22 14"
+  />
+  <rect x="345" y="198" width="12" height="116" rx="6" fill="#ffffff"/>
+</svg>

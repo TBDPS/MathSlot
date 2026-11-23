@@ -224,8 +224,13 @@
       await host.setAlwaysOnTop(next);
       pinned = next;
       flash(next ? '已置顶窗口' : '已取消置顶');
-    } catch {
-      flash('当前环境不支持窗口置顶');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('WAYLAND_UNSUPPORTED')) {
+        flash('Wayland 限制应用自置顶：请右键窗口标题栏 → 保持在最前（或右键图标选 X11 模式启动）');
+      } else {
+        flash('当前环境不支持窗口置顶');
+      }
     }
     canvasRef?.focus();
   }
@@ -543,7 +548,12 @@
 
     if (e.key === 'Backspace') {
       e.preventDefault();
-      engine.backspace();
+      if (e.altKey && snapshot.activeGrid) {
+        if (e.shiftKey && snapshot.activeGrid.canEditCols) engine.removeGridCol();
+        else engine.removeGridRow();
+      } else {
+        engine.backspace();
+      }
       sync();
       return;
     }
@@ -557,35 +567,58 @@
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      if (e.altKey) engine.jumpBack();
-      else if (e.shiftKey && snapshot.activeGrid?.canEditCols) engine.addGridCol('left');
-      else engine.moveLeft(e.shiftKey);
+      if ((mod || e.altKey) && e.shiftKey && snapshot.activeGrid?.canEditCols) {
+        engine.removeGridCol();
+      } else if (e.altKey) {
+        engine.jumpBack();
+      } else if (e.shiftKey && snapshot.activeGrid?.canEditCols) {
+        engine.addGridCol('left');
+      } else {
+        engine.moveLeft(e.shiftKey);
+      }
       sync();
       return;
     }
 
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      if (e.altKey) engine.jumpForward();
-      else if (e.shiftKey && snapshot.activeGrid?.canEditCols) engine.addGridCol('right');
-      else engine.moveRight(e.shiftKey);
+      if ((mod || e.altKey) && e.shiftKey && snapshot.activeGrid?.canEditCols) {
+        engine.removeGridCol();
+      } else if (e.altKey) {
+        engine.jumpForward();
+      } else if (e.shiftKey && snapshot.activeGrid?.canEditCols) {
+        engine.addGridCol('right');
+      } else {
+        engine.moveRight(e.shiftKey);
+      }
       sync();
       return;
     }
 
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (e.altKey || mod) engine.escapeLevel();
-      else if (e.shiftKey && snapshot.activeGrid) engine.addGridRow('above');
-      else engine.moveUp();
+      if ((mod || e.altKey) && e.shiftKey && snapshot.activeGrid) {
+        engine.removeGridRow();
+      } else if (e.altKey || mod) {
+        engine.escapeLevel();
+      } else if (e.shiftKey && snapshot.activeGrid) {
+        engine.addGridRow('above');
+      } else {
+        engine.moveUp();
+      }
       sync();
       return;
     }
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (e.shiftKey && snapshot.activeGrid) engine.addGridRow('below');
-      else engine.moveDown();
+      if ((mod || e.altKey) && e.shiftKey && snapshot.activeGrid) {
+        engine.removeGridRow();
+      } else if (e.shiftKey && snapshot.activeGrid) {
+        engine.addGridRow('below');
+      } else {
+        engine.moveDown();
+      }
       sync();
       return;
     }
@@ -806,64 +839,6 @@
       </button>
 
       {#if !host.compactToolbar}
-        <button
-          type="button"
-          class="icon-btn"
-          class:active={snapshot.mode.kind === 'jump'}
-          title="槽位跳转 (Esc)"
-          aria-label="槽位跳转"
-          disabled={snapshot.isEmpty}
-          onclick={() => {
-            if (snapshot.mode.kind === 'jump') engine.exitMode();
-            else engine.enterJumpMode();
-            sync();
-            canvasRef?.focus();
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-            <circle cx="12" cy="12" r="7" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-            <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-          </svg>
-        </button>
-
-        <button
-          type="button"
-          class="icon-btn"
-          class:active={settings.showHierarchyBoxes}
-          title={settings.showHierarchyBoxes ? '隐藏层级虚线框' : '显示层级虚线框'}
-          aria-label="切换层级虚线框"
-          onclick={() => {
-            updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
-            canvasRef?.focus();
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-            <rect x="3" y="4" width="18" height="16" rx="2.5" stroke-dasharray="3 2.5" />
-            <rect x="7" y="8" width="10" height="8" rx="1.5" />
-          </svg>
-        </button>
-
-        <button
-          type="button"
-          class="icon-btn"
-          title="清空画布"
-          aria-label="清空画布"
-          disabled={snapshot.isEmpty}
-          onclick={() => {
-            recordHistory(snapshot.latex);
-            engine.clear();
-            sync();
-            canvasRef?.focus();
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
-            <path d="M3 6h18" />
-            <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-          </svg>
-        </button>
-
         {#if host.setAlwaysOnTop}
           <button
             type="button"
@@ -978,55 +953,6 @@
                 <span class="menu-hint">{history.length}</span>
               </button>
 
-              <button
-                type="button"
-                class="menu-item"
-                role="menuitem"
-                disabled={snapshot.isEmpty}
-                onclick={() => {
-                  moreMenuOpen = false;
-                  if (snapshot.mode.kind === 'jump') engine.exitMode();
-                  else engine.enterJumpMode();
-                  sync();
-                  canvasRef?.focus();
-                }}
-              >
-                <span>槽位跳转</span>
-                <span class="menu-hint">Esc</span>
-              </button>
-
-              <button
-                type="button"
-                class="menu-item"
-                role="menuitem"
-                onclick={() => {
-                  moreMenuOpen = false;
-                  updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
-                  canvasRef?.focus();
-                }}
-              >
-                <span>层级虚线框</span>
-                <span class="menu-hint" class:on={settings.showHierarchyBoxes}>
-                  {settings.showHierarchyBoxes ? '开' : '关'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                class="menu-item"
-                role="menuitem"
-                disabled={snapshot.isEmpty}
-                onclick={() => {
-                  moreMenuOpen = false;
-                  recordHistory(snapshot.latex);
-                  engine.clear();
-                  sync();
-                  canvasRef?.focus();
-                }}
-              >
-                <span>清空画布</span>
-              </button>
-
               <div class="menu-sep"></div>
 
               <button
@@ -1084,62 +1010,169 @@
     </div>
   </header>
 
-  <VisualCanvas
-    bind:this={canvasRef}
-    {snapshot}
-    shiftedUp={ribbonPopoverOpen}
-    showHierarchyBoxes={settings.showHierarchyBoxes}
-    onKeyEvent={handleKeyEvent}
-    onTextInput={(text) => {
-      engine.insertText(text);
-      sync();
-    }}
-    onPaste={(text) => {
-      engine.pasteText(text);
-      sync();
-    }}
-    onClickSlot={(slotId, offset) => {
-      engine.setCursor(slotId, offset);
-      sync();
-    }}
-    onDragSelect={(slotId, anchor, focus) => {
-      engine.setSelection(slotId, anchor, focus);
-      sync();
-    }}
-    onDoubleClickAtom={(slotId, offset) => {
-      engine.selectWordOrAtomAt(slotId, offset);
-      sync();
-    }}
-    onJumpTarget={(label) => {
-      engine.handleJumpKey(label);
-      sync();
-      canvasRef?.focus();
-    }}
-    onFocusChange={(focused) => {
-      engine.setFocused(focused);
-      sync();
-    }}
-    onAddGridRow={() => {
-      engine.addGridRow();
-      sync();
-      canvasRef?.focus();
-    }}
-    onRemoveGridRow={() => {
-      engine.removeGridRow();
-      sync();
-      canvasRef?.focus();
-    }}
-    onAddGridCol={() => {
-      engine.addGridCol();
-      sync();
-      canvasRef?.focus();
-    }}
-    onRemoveGridCol={() => {
-      engine.removeGridCol();
-      sync();
-      canvasRef?.focus();
-    }}
-  />
+  <div class="canvas-wrap">
+    <div class="left-edit-dock" role="toolbar" aria-label="画布编辑工具">
+      <button
+        type="button"
+        class="dock-tool-btn"
+        title="撤销 (Ctrl+Z)"
+        aria-label="撤销"
+        disabled={!snapshot.canUndo}
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          engine.undo();
+          sync();
+          canvasRef?.focus();
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M9 14 4 9l5-5" />
+          <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class="dock-tool-btn"
+        title="重做 (Ctrl+Y)"
+        aria-label="重做"
+        disabled={!snapshot.canRedo}
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          engine.redo();
+          sync();
+          canvasRef?.focus();
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="m15 14 5-5-5-5" />
+          <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+        </svg>
+      </button>
+
+      <span class="dock-sep"></span>
+
+      <button
+        type="button"
+        class="dock-tool-btn"
+        class:active={snapshot.mode.kind === 'jump'}
+        title="槽位跳转 (Esc)"
+        aria-label="槽位跳转"
+        disabled={snapshot.isEmpty}
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          if (snapshot.mode.kind === 'jump') engine.exitMode();
+          else engine.enterJumpMode();
+          sync();
+          canvasRef?.focus();
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class="dock-tool-btn"
+        class:active={settings.showHierarchyBoxes}
+        title={settings.showHierarchyBoxes ? '隐藏层级虚线框' : '显示层级虚线框'}
+        aria-label="切换层级虚线框"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
+          canvasRef?.focus();
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <rect x="3" y="4" width="18" height="16" rx="2.5" stroke-dasharray="3 2.5" />
+          <rect x="7" y="8" width="10" height="8" rx="1.5" />
+        </svg>
+      </button>
+
+      <span class="dock-sep"></span>
+
+      <button
+        type="button"
+        class="dock-tool-btn danger"
+        title="清空画布"
+        aria-label="清空画布"
+        disabled={snapshot.isEmpty}
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          recordHistory(snapshot.latex);
+          engine.clear();
+          sync();
+          canvasRef?.focus();
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+          <path d="M3 6h18" />
+          <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+        </svg>
+      </button>
+    </div>
+
+    <VisualCanvas
+      bind:this={canvasRef}
+      {snapshot}
+      shiftedUp={ribbonPopoverOpen}
+      showHierarchyBoxes={settings.showHierarchyBoxes}
+      onKeyEvent={handleKeyEvent}
+      onTextInput={(text) => {
+        engine.insertText(text);
+        sync();
+      }}
+      onPaste={(text) => {
+        engine.pasteText(text);
+        sync();
+      }}
+      onClickSlot={(slotId, offset) => {
+        engine.setCursor(slotId, offset);
+        sync();
+      }}
+      onDragSelect={(slotId, anchor, focus) => {
+        engine.setSelection(slotId, anchor, focus);
+        sync();
+      }}
+      onDoubleClickAtom={(slotId, offset) => {
+        engine.selectWordOrAtomAt(slotId, offset);
+        sync();
+      }}
+      onJumpTarget={(label) => {
+        engine.handleJumpKey(label);
+        sync();
+        canvasRef?.focus();
+      }}
+      onFocusChange={(focused) => {
+        engine.setFocused(focused);
+        sync();
+      }}
+      onAddGridRow={() => {
+        engine.addGridRow();
+        sync();
+        canvasRef?.focus();
+      }}
+      onRemoveGridRow={() => {
+        engine.removeGridRow();
+        sync();
+        canvasRef?.focus();
+      }}
+      onAddGridCol={() => {
+        engine.addGridCol();
+        sync();
+        canvasRef?.focus();
+      }}
+      onRemoveGridCol={() => {
+        engine.removeGridCol();
+        sync();
+        canvasRef?.focus();
+      }}
+    />
+  </div>
 
   <MathRibbon
     leaderKey={settings.leaderKey}
@@ -1528,11 +1561,6 @@
     color: var(--ms-fg-muted);
   }
 
-  .menu-hint.on {
-    color: var(--ms-accent);
-    font-weight: 600;
-  }
-
   .menu-sep {
     height: 1px;
     background: var(--ms-border-subtle);
@@ -1612,6 +1640,80 @@
   .primary-cta:disabled {
     opacity: 0.38;
     cursor: default;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .left-edit-dock {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 4px;
+    border-radius: 11px;
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    box-shadow: var(--ms-shadow-sm);
+    opacity: 0.88;
+    transition: opacity 110ms ease, box-shadow 110ms ease;
+  }
+
+  .left-edit-dock:hover {
+    opacity: 1;
+    box-shadow: var(--ms-shadow-md);
+  }
+
+  .dock-tool-btn {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--ms-fg-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 80ms ease, color 80ms ease;
+  }
+
+  .dock-tool-btn:hover:not(:disabled) {
+    background: var(--ms-surface-muted);
+    color: var(--ms-fg);
+  }
+
+  .dock-tool-btn.active {
+    background: var(--ms-accent-soft);
+    color: var(--ms-accent);
+  }
+
+  .dock-tool-btn.danger:hover:not(:disabled) {
+    background: var(--ms-danger-soft);
+    color: var(--ms-danger);
+  }
+
+  .dock-tool-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .dock-sep {
+    width: 18px;
+    height: 1px;
+    background: var(--ms-border-subtle);
+    margin: 2px 0;
   }
 
   .toast {

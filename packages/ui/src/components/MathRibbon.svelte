@@ -290,47 +290,49 @@
     </div>
   {/if}
 
-  <div
-    class="ribbon-bar"
-    class:leader-active={leaderActive}
-    role="toolbar"
-    aria-label="快捷数学符号"
-  >
-    <div class="ribbon-group">
-      {#each QUICK_ITEMS as item (item.id)}
-        {@const cmd = COMMANDS_BY_ID.get(item.id)}
-        <button
-          type="button"
-          class="ribbon-btn"
-          title={`${cmd?.label ?? item.id}（${leaderKey} ${item.key}）`}
-          aria-label={cmd?.label ?? item.id}
-          onmousedown={(e) => e.preventDefault()}
-          onclick={() => pickCommand(item.id)}
-        >
-          <span class="btn-glyph">{@html renderLatexPreview(item.preview, false)}</span>
-          <kbd class="btn-key" class:hot={leaderActive && !leaderPrefix}>{item.key}</kbd>
-        </button>
-      {/each}
-    </div>
+  <div class="ribbon-bar-host">
+    <div
+      class="ribbon-bar"
+      class:leader-active={leaderActive}
+      role="toolbar"
+      aria-label="快捷数学符号"
+    >
+      <div class="ribbon-group">
+        {#each QUICK_ITEMS as item (item.id)}
+          {@const cmd = COMMANDS_BY_ID.get(item.id)}
+          <button
+            type="button"
+            class="ribbon-btn"
+            title={`${cmd?.label ?? item.id}（${leaderKey} ${item.key}）`}
+            aria-label={cmd?.label ?? item.id}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => pickCommand(item.id)}
+          >
+            <span class="btn-glyph">{@html renderLatexPreview(item.preview, false)}</span>
+            <kbd class="btn-key" class:hot={leaderActive && !leaderPrefix}>{item.key}</kbd>
+          </button>
+        {/each}
+      </div>
 
-    <span class="ribbon-sep"></span>
+      <span class="ribbon-sep"></span>
 
-    <div class="ribbon-group">
-      {#each CATEGORY_GROUPS as grp (grp.category)}
-        <button
-          type="button"
-          class="ribbon-btn ribbon-cat"
-          class:active={activeCategory === grp.category}
-          title={`${grp.label}（${leaderKey} ${grp.key}）`}
-          aria-label={grp.label}
-          aria-expanded={activeCategory === grp.category}
-          onmousedown={(e) => e.preventDefault()}
-          onclick={() => clickCategory(grp)}
-        >
-          <span class="btn-glyph">{@html renderLatexPreview(grp.preview, false)}</span>
-          <kbd class="btn-key" class:hot={leaderActive && (!leaderPrefix || leaderPrefix === grp.key)}>{grp.key}</kbd>
-        </button>
-      {/each}
+      <div class="ribbon-group">
+        {#each CATEGORY_GROUPS as grp (grp.category)}
+          <button
+            type="button"
+            class="ribbon-btn ribbon-cat"
+            class:active={activeCategory === grp.category}
+            title={`${grp.label}（${leaderKey} ${grp.key}）`}
+            aria-label={grp.label}
+            aria-expanded={activeCategory === grp.category}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => clickCategory(grp)}
+          >
+            <span class="btn-glyph">{@html renderLatexPreview(grp.preview, false)}</span>
+            <kbd class="btn-key" class:hot={leaderActive && (!leaderPrefix || leaderPrefix === grp.key)}>{grp.key}</kbd>
+          </button>
+        {/each}
+      </div>
     </div>
   </div>
 </div>
@@ -338,12 +340,18 @@
 <style>
   .ribbon-wrap {
     position: relative;
-    container-type: inline-size;
     display: flex;
     justify-content: center;
     padding: 0 10px 12px;
     flex-shrink: 0;
-    z-index: 20;
+    z-index: 30;
+  }
+
+  .ribbon-bar-host {
+    width: 100%;
+    container-type: inline-size;
+    display: flex;
+    justify-content: center;
   }
 
   .ribbon-bar {
@@ -471,11 +479,11 @@
 
   .cat-popover {
     position: absolute;
-    bottom: calc(100% + 6px);
+    bottom: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
-    width: min(680px, calc(100% - 16px));
-    max-height: 274px;
+    width: min(720px, calc(100% - 20px));
+    max-height: min(300px, 46vh);
     display: flex;
     flex-direction: column;
     border-radius: var(--ms-radius-lg);
@@ -483,6 +491,7 @@
     border: 1px solid var(--ms-border);
     box-shadow: var(--ms-shadow-md);
     overflow: hidden;
+    z-index: 35;
     animation: pop-in 100ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
@@ -579,19 +588,30 @@
   }
 
   .cat-grid {
+    flex: 1 1 auto;
+    min-height: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(114px, 1fr));
+    grid-auto-rows: max-content;
+    align-content: start;
     gap: 7px;
     padding: 10px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .cat-grid.matrix-grid {
+    grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
   }
 
   .cat-cell {
+    height: auto;
+    min-height: 84px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    gap: 4px;
+    gap: 5px;
     padding: 7px 6px 8px;
     border: 1px solid var(--ms-border-subtle);
     border-radius: 9px;
@@ -600,6 +620,10 @@
     cursor: pointer;
     overflow: hidden;
     transition: background-color 80ms ease, border-color 80ms ease;
+  }
+
+  .cat-grid.matrix-grid .cat-cell {
+    min-height: 102px;
   }
 
   .cat-cell:hover {
@@ -667,18 +691,31 @@
 
   .cat-math {
     font-size: 14px;
-    min-height: 26px;
+    min-height: 28px;
     max-width: 100%;
+    overflow: hidden;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: var(--ms-fg);
   }
 
+  .cat-math :global(.katex) {
+    font-size: 1em;
+  }
+
   .cat-grid.matrix-grid .cat-math {
-    font-size: 9.5px;
-    min-height: 36px;
+    font-size: 10px;
+    min-height: 44px;
     padding: 2px 0;
+  }
+
+  .cat-grid.matrix-grid .cat-math :global(.katex) {
+    font-size: 0.92em;
+  }
+
+  .cat-grid.matrix-grid .cat-math :global(.katex .mtable) {
+    font-size: 0.85em;
   }
 
   .cat-label {

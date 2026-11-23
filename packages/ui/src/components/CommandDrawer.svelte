@@ -610,19 +610,19 @@
 
 <style>
   .backdrop {
-    position: fixed;
+    position: absolute;
     inset: 0;
     background: rgba(15, 23, 42, 0.36);
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding-top: min(9vh, 64px);
+    padding: min(6vh, 40px) 14px 16px;
     z-index: 50;
   }
 
   .palette {
-    width: min(670px, calc(100vw - 32px));
-    max-height: min(78vh, 630px);
+    width: min(700px, 100%);
+    max-height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--ms-surface);
@@ -837,6 +837,8 @@
   }
 
   .cmd-tile {
+    height: auto;
+    min-height: 74px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -848,6 +850,7 @@
     color: var(--ms-fg);
     cursor: pointer;
     text-align: left;
+    overflow: hidden;
     transition: border-color 90ms ease, background-color 90ms ease;
   }
 
@@ -897,6 +900,8 @@
 
   .preset-row {
     width: 100%;
+    height: auto;
+    min-height: 46px;
     box-sizing: border-box;
     display: flex;
     align-items: center;
@@ -909,6 +914,11 @@
     color: var(--ms-fg);
     cursor: pointer;
     text-align: left;
+    overflow: hidden;
+  }
+
+  .preset-row + .preset-row {
+    margin-top: 2px;
   }
 
   .preset-row.selected,
@@ -921,13 +931,17 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    min-width: 140px;
+    min-width: 132px;
+    max-width: 210px;
+    flex-shrink: 0;
   }
 
   .preset-name {
     font-size: 13px;
     font-weight: 500;
     color: var(--ms-fg);
+    white-space: normal;
+    line-height: 1.35;
   }
 
   .preset-cat {
@@ -936,14 +950,33 @@
   }
 
   .preset-math {
-    font-size: 13.5px;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 390px;
+    font-size: 13px;
+    line-height: 1.35;
+    padding: 4px 2px;
     overflow-x: auto;
-    max-width: 360px;
+    overflow-y: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
     white-space: nowrap;
+  }
+
+  .preset-math :global(.katex) {
+    font-size: 0.94em;
+    flex-shrink: 0;
+  }
+
+  .preset-math :global(.katex .mtable) {
+    font-size: 0.76em;
   }
 
   .snip-main {
     flex: 1;
+    height: auto;
+    min-height: 36px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -955,6 +988,7 @@
     text-align: left;
     padding: 0;
     min-width: 0;
+    overflow: hidden;
   }
 
   .row-actions {

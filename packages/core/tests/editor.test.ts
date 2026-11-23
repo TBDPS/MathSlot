@@ -817,4 +817,33 @@ describe('MathSlotEngine keyboard flow', () => {
     engine.nextSlot();
     expect(engine.getSnapshot().latex).toBe('\\int x\\,\\mathrm{d}x');
   });
+
+  it('adds and removes matrix rows and columns symmetrically (including after Tab m live default)', () => {
+    const engine = new MathSlotEngine();
+    // Tab m inserts default 2x2 pmatrix
+    engine.triggerLeader();
+    engine.handleLeaderKey('m');
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(2);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(2);
+
+    // Add row below (3x2) and col right (3x3)
+    expect(engine.addGridRow('below')).toBe(true);
+    expect(engine.addGridCol('right')).toBe(true);
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(3);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(3);
+
+    // Remove current row (2x3) and current col (2x2)
+    expect(engine.removeGridRow()).toBe(true);
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(2);
+    expect(engine.removeGridCol()).toBe(true);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(2);
+
+    // Remove down to 1x1 and refuse going below 1x1
+    expect(engine.removeGridRow()).toBe(true);
+    expect(engine.removeGridRow()).toBe(false);
+    expect(engine.removeGridCol()).toBe(true);
+    expect(engine.removeGridCol()).toBe(false);
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(1);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(1);
+  });
 });

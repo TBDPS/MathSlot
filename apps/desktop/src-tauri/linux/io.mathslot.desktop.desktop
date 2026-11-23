@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=MathSlot
+Exec=mathslot
+Icon=mathslot
+Type=Application
+NoDisplay=true
+StartupWMClass=io.mathslot.desktop

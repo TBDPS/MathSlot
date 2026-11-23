@@ -65,6 +65,15 @@ fn read_from_clipboard() -> Result<String, String> {
 
 #[tauri::command]
 fn set_always_on_top(window: tauri::WebviewWindow, pinned: bool) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let on_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+            && std::env::var("GDK_BACKEND").as_deref() != Ok("x11");
+        if on_wayland {
+            let _ = window.set_always_on_top(pinned);
+            return Err("WAYLAND_UNSUPPORTED".to_string());
+        }
+    }
     window.set_always_on_top(pinned).map_err(|e| e.to_string())
 }
 
@@ -148,6 +157,15 @@ fn open_config_dir(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let (Some(window), Some(icon)) = (
+                app.get_webview_window("main"),
+                app.default_window_icon().cloned(),
+            ) {
+                let _ = window.set_icon(icon);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             copy_to_clipboard,
             copy_image_to_clipboard,
