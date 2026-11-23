@@ -1,12 +1,14 @@
 import { Modal, Notice, type App, type Editor, type EditorPosition } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { MathSlotStudio, type HostAdapter, type PersistedStore } from '@mathslot/ui';
-import type { DelimiterStyle } from '@mathslot/core';
+import { formatFormulaForEditorInsertion, type DelimiterStyle } from '@mathslot/core';
 
 export interface MathSlotModalOptions {
   editor?: Editor;
   initialFormula?: string;
   replaceRange?: { from: EditorPosition; to: EditorPosition };
+  linePrefix?: string;
+  includeFirstLinePrefix?: boolean;
   forceDelimiter?: DelimiterStyle;
   loadStore: () => Promise<PersistedStore>;
   saveStore: (store: PersistedStore) => Promise<void>;
@@ -32,6 +34,7 @@ export class MathSlotModal extends Modal {
         : this.opts.editor
           ? '插入笔记'
           : '复制',
+      compactToolbar: true,
       initialFormula: this.opts.initialFormula,
       hostDarkMode: () => document.body.classList.contains('theme-dark'),
       copyText: async (text: string) => {
@@ -40,15 +43,20 @@ export class MathSlotModal extends Modal {
       readText: async () => navigator.clipboard.readText(),
       onPrimarySubmit: async (formattedLatex: string) => {
         if (this.opts.editor) {
+          const output = formatFormulaForEditorInsertion(
+            formattedLatex,
+            this.opts.linePrefix ?? '',
+            Boolean(this.opts.includeFirstLinePrefix),
+          );
           if (this.opts.replaceRange) {
             this.opts.editor.replaceRange(
-              formattedLatex,
+              output,
               this.opts.replaceRange.from,
               this.opts.replaceRange.to,
             );
             new Notice('已更新公式');
           } else {
-            this.opts.editor.replaceSelection(formattedLatex);
+            this.opts.editor.replaceSelection(output);
             new Notice('已插入公式');
           }
           this.close();

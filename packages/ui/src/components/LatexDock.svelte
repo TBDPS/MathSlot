@@ -25,10 +25,36 @@
 
   let draft = $state('');
   let editing = $state(false);
+  let expanded = $state(false);
+  let canExpand = $state(false);
+  let textareaEl = $state<HTMLTextAreaElement | null>(null);
+
+  const displayedValue = $derived(editing ? draft : latex);
 
   $effect(() => {
     if (!editing) {
       draft = latex;
+    }
+  });
+
+  function syncHeight(): void {
+    if (!textareaEl) return;
+    textareaEl.style.height = 'auto';
+    const maxHeight = expanded ? 220 : 104;
+    const needed = textareaEl.scrollHeight;
+    canExpand = needed > 104 || displayedValue.includes('\n');
+    const clamped = Math.max(24, Math.min(needed, maxHeight));
+    textareaEl.style.height = `${clamped}px`;
+    textareaEl.style.overflowY = needed > maxHeight ? 'auto' : 'hidden';
+  }
+
+  $effect(() => {
+    // Track dependencies: displayedValue & expanded & textareaEl
+    void displayedValue;
+    void expanded;
+    void textareaEl;
+    if (textareaEl) {
+      syncHeight();
     }
   });
 
@@ -53,38 +79,61 @@
   }
 
   function handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       commit();
-      (e.currentTarget as HTMLInputElement).blur();
+      (e.currentTarget as HTMLTextAreaElement).blur();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       draft = latex;
       editing = false;
-      (e.currentTarget as HTMLInputElement).blur();
+      (e.currentTarget as HTMLTextAreaElement).blur();
     }
   }
 </script>
 
-<div class="latex-dock">
-  <input
+<svelte:window onresize={syncHeight} />
+
+<div class="latex-dock" class:expanded>
+  <textarea
+    bind:this={textareaEl}
     class="latex-input"
-    type="text"
-    value={editing ? draft : latex}
-    placeholder="LaTeX"
+    rows="1"
+    spellcheck="false"
+    value={displayedValue}
+    placeholder="LaTeX（Enter 应用，Shift+Enter 换行）"
     aria-label="LaTeX 源码"
     onfocus={() => {
       editing = true;
       draft = latex;
     }}
     oninput={(e) => {
-      draft = (e.currentTarget as HTMLInputElement).value;
+      draft = (e.currentTarget as HTMLTextAreaElement).value;
+      syncHeight();
     }}
     onblur={commit}
     onkeydown={handleKeyDown}
-  />
+  ></textarea>
 
   <div class="dock-actions">
+    {#if canExpand}
+      <button
+        type="button"
+        class="dock-icon-btn"
+        title={expanded ? '收起公式源码栏' : '展开公式源码栏'}
+        aria-label={expanded ? '收起公式源码栏' : '展开公式源码栏'}
+        onclick={() => (expanded = !expanded)}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          {#if expanded}
+            <path d="m6 9 6 6 6-6" />
+          {:else}
+            <path d="m18 15-6-6-6 6" />
+          {/if}
+        </svg>
+      </button>
+    {/if}
+
     <button
       type="button"
       class="dock-chip"
@@ -149,24 +198,39 @@
 
 <style>
   .latex-dock {
-    height: 44px;
+    min-height: 44px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
-    padding: 0 14px;
+    padding: 8px 14px;
     border-top: 1px solid var(--ms-border);
     background: var(--ms-chrome);
+    flex-shrink: 0;
   }
 
   .latex-input {
     flex: 1;
     min-width: 0;
+    min-height: 24px;
+    max-height: 104px;
+    padding: 3px 0 2px;
+    margin: 0;
     border: none;
     outline: none;
+    resize: none;
     background: transparent;
     color: var(--ms-fg-muted);
     font-family: var(--ms-font-mono);
     font-size: 12.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    box-sizing: border-box;
+  }
+
+  .latex-dock.expanded .latex-input {
+    max-height: 220px;
   }
 
   .latex-input:focus {
@@ -182,6 +246,7 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+    padding-top: 0;
   }
 
   .dock-chip {

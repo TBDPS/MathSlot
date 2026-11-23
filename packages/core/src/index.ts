@@ -8,3 +8,4 @@ export * from './ast';
 export * from './latex';
 export * from './parser';
 export * from './editor';
+export * from './obsidianMath';

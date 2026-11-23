@@ -8,8 +8,26 @@
   border-radius: 14px !important;
 }
 
+/* Position Obsidian's native close button (×) cleanly inside the reserved 52px top-right slot of .ms-topbar */
+.modal.mathslot-obsidian-modal > .modal-close-button,
 .mathslot-obsidian-modal .modal-close-button {
-  display: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: absolute !important;
+  top: 9px !important;
+  right: 8px !important;
+  width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 7px !important;
+  line-height: 1 !important;
+  z-index: 60 !important;
+}
+
+.mathslot-obsidian-modal .ms-topbar {
+  padding-right: 52px !important;
 }
 
 .mathslot-obsidian-content {
@@ -24,7 +42,8 @@
 
 /* Shield MathSlot controls from Obsidian's global button / input / svg theme rules */
 .mathslot-obsidian-modal .ms-studio button {
-  margin: 0;
+  margin-top: 0;
+  margin-bottom: 0;
   box-shadow: none;
   min-width: 0;
   line-height: 1.2;

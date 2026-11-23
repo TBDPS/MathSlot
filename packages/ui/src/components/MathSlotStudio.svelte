@@ -675,8 +675,8 @@
 
 <svelte:window onkeydown={handleWindowKeyDown} onpointerdown={handleWindowPointerDown} />
 
-<div class="ms-studio studio-shell" data-theme={resolvedTheme}>
-  <header class="topbar">
+<div class="ms-studio studio-shell" class:compact-obsidian={!!host.compactToolbar} data-theme={resolvedTheme}>
+  <header class="topbar ms-topbar">
     <div class="brand">
       <svg class="brand-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M7 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2" />
@@ -773,6 +773,25 @@
         </svg>
       </button>
 
+      {#if !host.compactToolbar}
+        <button
+          type="button"
+          class="icon-btn"
+          title="历史公式记录"
+          aria-label="历史公式记录"
+          onclick={() => {
+            drawerTab = 'history';
+            drawerOpen = true;
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+        </button>
+      {/if}
+
       <button
         type="button"
         class="text-btn"
@@ -785,6 +804,101 @@
       >
         导入
       </button>
+
+      {#if !host.compactToolbar}
+        <button
+          type="button"
+          class="icon-btn"
+          class:active={snapshot.mode.kind === 'jump'}
+          title="槽位跳转 (Esc)"
+          aria-label="槽位跳转"
+          disabled={snapshot.isEmpty}
+          onclick={() => {
+            if (snapshot.mode.kind === 'jump') engine.exitMode();
+            else engine.enterJumpMode();
+            sync();
+            canvasRef?.focus();
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <circle cx="12" cy="12" r="7" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+            <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="icon-btn"
+          class:active={settings.showHierarchyBoxes}
+          title={settings.showHierarchyBoxes ? '隐藏层级虚线框' : '显示层级虚线框'}
+          aria-label="切换层级虚线框"
+          onclick={() => {
+            updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
+            canvasRef?.focus();
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <rect x="3" y="4" width="18" height="16" rx="2.5" stroke-dasharray="3 2.5" />
+            <rect x="7" y="8" width="10" height="8" rx="1.5" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          class="icon-btn"
+          title="清空画布"
+          aria-label="清空画布"
+          disabled={snapshot.isEmpty}
+          onclick={() => {
+            recordHistory(snapshot.latex);
+            engine.clear();
+            sync();
+            canvasRef?.focus();
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M3 6h18" />
+            <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+          </svg>
+        </button>
+
+        {#if host.setAlwaysOnTop}
+          <button
+            type="button"
+            class="icon-btn"
+            class:active={pinned}
+            title={pinned ? '取消窗口置顶' : '窗口置顶'}
+            aria-label="切换窗口置顶"
+            onclick={() => void togglePin()}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+              <path d="M12 17v5" />
+              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z" />
+            </svg>
+          </button>
+        {/if}
+
+        <button
+          type="button"
+          class="icon-btn"
+          title={resolvedTheme === 'dark' ? '切换浅色外观' : '切换深色外观'}
+          aria-label="切换外观"
+          onclick={toggleTheme}
+        >
+          {#if resolvedTheme === 'dark'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          {:else}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          {/if}
+        </button>
+      {/if}
 
       <button
         type="button"
@@ -803,172 +917,158 @@
         </svg>
       </button>
 
-      <div class="more-wrap" bind:this={moreMenuWrapEl}>
+      {#if !host.compactToolbar}
         <button
           type="button"
           class="icon-btn"
-          class:active={moreMenuOpen}
-          title="更多功能与设置"
-          aria-label="更多功能"
-          aria-expanded={moreMenuOpen}
-          onclick={() => (moreMenuOpen = !moreMenuOpen)}
+          title="偏好设置"
+          aria-label="偏好设置"
+          onclick={() => (settingsOpen = true)}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="5" cy="12" r="1.4" fill="currentColor" />
-            <circle cx="12" cy="12" r="1.4" fill="currentColor" />
-            <circle cx="19" cy="12" r="1.4" fill="currentColor" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
+      {:else}
+        <div class="more-wrap" bind:this={moreMenuWrapEl}>
+          <button
+            type="button"
+            class="icon-btn"
+            class:active={moreMenuOpen}
+            title="更多功能与设置"
+            aria-label="更多功能"
+            aria-expanded={moreMenuOpen}
+            onclick={() => (moreMenuOpen = !moreMenuOpen)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="5" cy="12" r="1.4" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.4" fill="currentColor" />
+              <circle cx="19" cy="12" r="1.4" fill="currentColor" />
+            </svg>
+          </button>
 
-        {#if moreMenuOpen}
-          <div class="more-menu" role="menu" aria-label="更多功能">
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              onclick={() => {
-                moreMenuOpen = false;
-                drawerTab = 'presets';
-                drawerOpen = true;
-              }}
-            >
-              <span>预置公式库</span>
-              <span class="menu-hint">{effectivePresets.length}</span>
-            </button>
-
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              onclick={() => {
-                moreMenuOpen = false;
-                drawerTab = 'history';
-                drawerOpen = true;
-              }}
-            >
-              <span>历史记录</span>
-              <span class="menu-hint">{history.length}</span>
-            </button>
-
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              disabled={snapshot.isEmpty}
-              onclick={() => {
-                moreMenuOpen = false;
-                if (snapshot.mode.kind === 'jump') engine.exitMode();
-                else engine.enterJumpMode();
-                sync();
-                canvasRef?.focus();
-              }}
-            >
-              <span>槽位跳转</span>
-              <span class="menu-hint">Esc</span>
-            </button>
-
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              onclick={() => {
-                moreMenuOpen = false;
-                updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
-                canvasRef?.focus();
-              }}
-            >
-              <span>层级虚线框</span>
-              <span class="menu-hint" class:on={settings.showHierarchyBoxes}>
-                {settings.showHierarchyBoxes ? '开' : '关'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              disabled={snapshot.isEmpty}
-              onclick={() => {
-                moreMenuOpen = false;
-                recordHistory(snapshot.latex);
-                engine.clear();
-                sync();
-                canvasRef?.focus();
-              }}
-            >
-              <span>清空画布</span>
-            </button>
-
-            <div class="menu-sep"></div>
-
-            {#if host.setAlwaysOnTop}
+          {#if moreMenuOpen}
+            <div class="more-menu" role="menu" aria-label="更多功能">
               <button
                 type="button"
                 class="menu-item"
                 role="menuitem"
                 onclick={() => {
                   moreMenuOpen = false;
-                  void togglePin();
+                  drawerTab = 'presets';
+                  drawerOpen = true;
                 }}
               >
-                <span>窗口置顶</span>
-                <span class="menu-hint" class:on={pinned}>{pinned ? '已置顶' : '关'}</span>
+                <span>预置公式库</span>
+                <span class="menu-hint">{effectivePresets.length}</span>
               </button>
-            {/if}
 
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              onclick={() => {
-                moreMenuOpen = false;
-                toggleTheme();
-              }}
-            >
-              <span>切换外观</span>
-              <span class="menu-hint">{resolvedTheme === 'dark' ? '深色' : '浅色'}</span>
-            </button>
-
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              onclick={() => {
-                moreMenuOpen = false;
-                helpOpen = true;
-              }}
-            >
-              <span>使用文档与快速开始</span>
-            </button>
-
-            {#if host.openConfigDir}
               <button
                 type="button"
                 class="menu-item"
                 role="menuitem"
                 onclick={() => {
                   moreMenuOpen = false;
-                  void host.openConfigDir?.();
+                  drawerTab = 'history';
+                  drawerOpen = true;
                 }}
               >
-                <span>打开配置目录</span>
+                <span>历史记录</span>
+                <span class="menu-hint">{history.length}</span>
               </button>
-            {/if}
 
-            <button
-              type="button"
-              class="menu-item"
-              role="menuitem"
-              onclick={() => {
-                moreMenuOpen = false;
-                settingsOpen = true;
-              }}
-            >
-              <span>偏好设置</span>
-            </button>
-          </div>
-        {/if}
-      </div>
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                disabled={snapshot.isEmpty}
+                onclick={() => {
+                  moreMenuOpen = false;
+                  if (snapshot.mode.kind === 'jump') engine.exitMode();
+                  else engine.enterJumpMode();
+                  sync();
+                  canvasRef?.focus();
+                }}
+              >
+                <span>槽位跳转</span>
+                <span class="menu-hint">Esc</span>
+              </button>
+
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
+                  canvasRef?.focus();
+                }}
+              >
+                <span>层级虚线框</span>
+                <span class="menu-hint" class:on={settings.showHierarchyBoxes}>
+                  {settings.showHierarchyBoxes ? '开' : '关'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                disabled={snapshot.isEmpty}
+                onclick={() => {
+                  moreMenuOpen = false;
+                  recordHistory(snapshot.latex);
+                  engine.clear();
+                  sync();
+                  canvasRef?.focus();
+                }}
+              >
+                <span>清空画布</span>
+              </button>
+
+              <div class="menu-sep"></div>
+
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  toggleTheme();
+                }}
+              >
+                <span>切换外观</span>
+                <span class="menu-hint">{resolvedTheme === 'dark' ? '深色' : '浅色'}</span>
+              </button>
+
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  helpOpen = true;
+                }}
+              >
+                <span>使用文档与快速开始</span>
+              </button>
+
+              <button
+                type="button"
+                class="menu-item"
+                role="menuitem"
+                onclick={() => {
+                  moreMenuOpen = false;
+                  settingsOpen = true;
+                }}
+              >
+                <span>偏好设置</span>
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       <button
         type="button"
@@ -1271,6 +1371,23 @@
     border-bottom: 1px solid var(--ms-border);
     background: var(--ms-chrome);
     flex-shrink: 0;
+  }
+
+  /* Reserve dedicated top-right space for Obsidian's native modal close button (×) */
+  .studio-shell.compact-obsidian .topbar {
+    position: relative;
+    padding-right: 52px;
+  }
+
+  .studio-shell.compact-obsidian .topbar::after {
+    content: '';
+    position: absolute;
+    right: 43px;
+    top: 13px;
+    bottom: 13px;
+    width: 1px;
+    background: var(--ms-border);
+    pointer-events: none;
   }
 
   .brand {

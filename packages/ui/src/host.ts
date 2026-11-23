@@ -25,6 +25,8 @@ export interface ExternalUserLibraries {
 export interface HostAdapter {
   /** Primary submit button label: '复制' on Desktop, '插入笔记' in Obsidian */
   primaryActionLabel: string;
+  /** Compact toolbar mode (Obsidian plugin modal): folds secondary actions into top-right overflow menu and reserves room for modal close button */
+  compactToolbar?: boolean;
   /** Copy text to OS clipboard */
   copyText(text: string): Promise<void>;
   /** Optional clipboard read for 1-click paste in Import modal */
