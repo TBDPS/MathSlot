@@ -122,6 +122,8 @@ export const BARE_WORD_ATOMS: Readonly<Record<string, string>> = {
   ell: '\\ell',
   ldots: '\\ldots',
   cdots: '\\cdots',
+  vdots: '\\vdots',
+  ddots: '\\ddots',
   dots: '\\ldots',
   quad: '\\quad',
   qquad: '\\qquad',
@@ -272,6 +274,8 @@ const TALL_STRUCT_IDS = new Set([
   'bmatrix_3x3',
   'det_2x2',
   'det_3x3',
+  'matrix_ellipsis',
+  'det_ellipsis',
   'cases_2',
   'cases_3',
   'eval_bar',
@@ -1574,5 +1578,11 @@ export function toInteractiveLatex(
 }
 
 export function commandPreviewLatex(template: string): string {
+  if (template.includes('\\ddots') && template.includes('\\begin{pmatrix}')) {
+    return '\\begin{pmatrix} \\square & \\cdots & \\square \\\\ \\vdots & \\ddots & \\vdots \\\\ \\square & \\cdots & \\square \\end{pmatrix}';
+  }
+  if (template.includes('\\ddots') && template.includes('\\begin{vmatrix}')) {
+    return '\\begin{vmatrix} \\square & \\cdots & \\square \\\\ \\vdots & \\ddots & \\vdots \\\\ \\square & \\cdots & \\square \\end{vmatrix}';
+  }
   return template.replace(/\$(\d+)/g, '\\square');
 }

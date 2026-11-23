@@ -1382,7 +1382,35 @@ export class MathSlotEngine {
     // If command is user-defined or overridden with a custom template, preserve its template on the node!
     const builtin = COMMANDS_BY_ID.get(cmd.id);
     const customTpl = !builtin || builtin.latex !== cmd.latex ? cmd.latex : undefined;
+
+    // Pre-populate ⋯, ⋮, ⋱ and attach dynamic 4×4 grid metadata for ellipsis matrix / determinant templates!
+    if ((cmd.id === 'matrix_ellipsis' || cmd.id === 'det_ellipsis') && !customTpl && slotContents.length === 16) {
+      const cdotsCmd = COMMANDS_BY_ID.get('cdots');
+      const vdotsCmd = COMMANDS_BY_ID.get('vdots');
+      const ddotsCmd = COMMANDS_BY_ID.get('ddots');
+      if (cdotsCmd) {
+        slotContents[2] = [createSymbolNode(cdotsCmd)];
+        slotContents[6] = [createSymbolNode(cdotsCmd)];
+        slotContents[14] = [createSymbolNode(cdotsCmd)];
+      }
+      if (vdotsCmd) {
+        slotContents[8] = [createSymbolNode(vdotsCmd)];
+        slotContents[9] = [createSymbolNode(vdotsCmd)];
+        slotContents[11] = [createSymbolNode(vdotsCmd)];
+      }
+      if (ddotsCmd) {
+        slotContents[10] = [createSymbolNode(ddotsCmd)];
+      }
+    }
+
     const struct = createStructNode(cmd, slotContents, customTpl);
+    if ((cmd.id === 'matrix_ellipsis' || cmd.id === 'det_ellipsis') && !customTpl) {
+      struct.grid = {
+        env: cmd.id === 'det_ellipsis' ? 'vmatrix' : 'pmatrix',
+        rows: 4,
+        cols: 4,
+      };
+    }
     slot.children.splice(this.cursor.offset, 0, struct);
 
     // Place cursor in the first empty slot according to the user's configured slot filling order
@@ -1726,12 +1754,12 @@ export class MathSlotEngine {
     }
   }
 
-  public addGridRow(): boolean {
+  public addGridRow(where: 'below' | 'above' = 'below'): boolean {
     const ctx = this.findActiveGridContext();
     if (!ctx || ctx.rows >= 12) return false;
     this.pushHistory();
     const { struct, env, rows, cols, row } = ctx;
-    const insertRow = row + 1;
+    const insertRow = where === 'above' ? row : row + 1;
     const newSlots: SlotNode[] = [];
     for (let c = 0; c < cols; c += 1) {
       newSlots.push(createSlot(env === 'cases' ? (c === 0 ? `表达式${insertRow + 1}` : `条件${insertRow + 1}`) : `(${insertRow + 1},${c + 1})`));
@@ -1741,6 +1769,7 @@ export class MathSlotEngine {
     this.relabelGridSlots(struct, env, rows + 1, cols);
     this.cursor = { slotId: newSlots[0].id, offset: 0 };
     this.selection = null;
+    this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     return true;
   }
@@ -1762,12 +1791,12 @@ export class MathSlotEngine {
     return true;
   }
 
-  public addGridCol(): boolean {
+  public addGridCol(where: 'right' | 'left' = 'right'): boolean {
     const ctx = this.findActiveGridContext();
     if (!ctx || ctx.env === 'cases' || ctx.cols >= 10) return false;
     this.pushHistory();
     const { struct, env, rows, cols, row, col } = ctx;
-    const insertCol = col + 1;
+    const insertCol = where === 'left' ? col : col + 1;
     const nextCols = cols + 1;
     let focusSlot: SlotNode | null = null;
     for (let r = rows - 1; r >= 0; r -= 1) {
@@ -1781,6 +1810,7 @@ export class MathSlotEngine {
       this.cursor = { slotId: focusSlot.id, offset: 0 };
     }
     this.selection = null;
+    this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     return true;
   }

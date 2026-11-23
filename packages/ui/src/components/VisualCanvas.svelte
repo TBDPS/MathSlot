@@ -546,10 +546,10 @@
       <span class="grid-dim">
         {snapshot.activeGrid.rows}×{snapshot.activeGrid.cols} · ({snapshot.activeGrid.row + 1},{snapshot.activeGrid.col + 1})
       </span>
-      <button type="button" class="grid-btn" title="下方加一行 (Alt+Enter)" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridRow?.()}>+行</button>
+      <button type="button" class="grid-btn" title="加一行（Shift+↓ 下方 / Shift+↑ 上方）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridRow?.()}>+行</button>
       <button type="button" class="grid-btn" title="删除当前行" disabled={snapshot.activeGrid.rows <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridRow?.()}>−行</button>
       {#if snapshot.activeGrid.canEditCols}
-        <button type="button" class="grid-btn" title="右侧加一列 (Alt+Shift+Enter)" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridCol?.()}>+列</button>
+        <button type="button" class="grid-btn" title="加一列（Shift+→ 右侧 / Shift+← 左侧）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridCol?.()}>+列</button>
         <button type="button" class="grid-btn" title="删除当前列" disabled={snapshot.activeGrid.cols <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridCol?.()}>−列</button>
       {/if}
     </div>

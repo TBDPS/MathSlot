@@ -170,6 +170,8 @@ const BUILTIN_GRID_META: Readonly<Record<string, GridMeta>> = {
   bmatrix_3x3: { env: 'bmatrix', rows: 3, cols: 3 },
   det_2x2: { env: 'vmatrix', rows: 2, cols: 2 },
   det_3x3: { env: 'vmatrix', rows: 3, cols: 3 },
+  matrix_ellipsis: { env: 'pmatrix', rows: 4, cols: 4 },
+  det_ellipsis: { env: 'vmatrix', rows: 4, cols: 4 },
   cases_2: { env: 'cases', rows: 2, cols: 2 },
   cases_3: { env: 'cases', rows: 3, cols: 2 },
 };

@@ -91,7 +91,10 @@ export function parseStreamCode(source: string): ImportResult {
           }
         }
         if (!cmd) {
-          cmd = COMMANDS_BY_KEYS.get(k1);
+          if (k1 === 'u') cmd = COMMANDS_BY_ID.get('sup');
+          else if (k1 === 'd') cmd = COMMANDS_BY_ID.get('sub');
+          else if (k1 === 'b') cmd = COMMANDS_BY_ID.get('subsup');
+          else cmd = COMMANDS_BY_KEYS.get(k1);
           if (k1 === 'r' && cmd?.id === 'sqrt') {
             legacySingleSqrt = true;
           }

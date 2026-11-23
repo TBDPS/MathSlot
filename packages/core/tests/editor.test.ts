@@ -2,13 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { MathSlotEngine, formatExport, importFormula, toLatex } from '../src';
 
 describe('MathSlotEngine keyboard flow', () => {
-  it('writes Euler identity via Tab leader chords and Enter slot stepping', () => {
+  it('writes Euler identity via natural ^ and Tab leader chords', () => {
     const engine = new MathSlotEngine();
-    // Tab u -> sup -> e -> Enter -> i -> Tab g p -> Enter -> + 1 = 0
-    engine.triggerLeader();
-    engine.handleLeaderKey('u');
+    // e^i -> Tab g p -> Enter -> + 1 = 0
     engine.insertText('e');
-    engine.nextSlot();
+    engine.insertText('^');
     engine.insertText('i');
     engine.triggerLeader();
     engine.handleLeaderKey('g');
@@ -679,5 +677,85 @@ describe('MathSlotEngine keyboard flow', () => {
     engine.handleLeaderKey('a');
     engine.handleLeaderKey('c');
     expect(engine.getSnapshot().latex).toBe('\\vec{x}');
+  });
+
+  it('releases u/d/b keys, supports 4-directional Shift+Arrow grid growth, ellipsis shorthands, and n-order Vandermonde determinant via Tab m j', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // 1. u, d, b leader keys are released (no longer trigger sup/sub/subsup)
+    for (const k of ['u', 'd', 'b']) {
+      engine.triggerLeader();
+      engine.handleLeaderKey(k);
+      expect(engine.getSnapshot().latex).toBe('');
+    }
+
+    // 2. Ellipsis shorthands: `...` -> \cdots, `:::` / `vdots` -> \vdots, `ddots` -> \ddots
+    type('... + ::: + ddots');
+    expect(engine.getSnapshot().latex).toBe('\\cdots + \\vdots + \\ddots');
+
+    // 3. Build Vandermonde determinant with `Tab m j` (`det_ellipsis`) + `addGridRow('below')` & `addGridRow('above')` / `addGridCol('left')`!
+    engine.clear();
+    engine.triggerLeader();
+    engine.handleLeaderKey('m');
+    engine.handleLeaderKey('j');
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(4);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(4);
+    expect(engine.getSnapshot().latex).toContain('\\begin{vmatrix}');
+    expect(engine.getSnapshot().latex).toContain('\\cdots');
+    expect(engine.getSnapshot().latex).toContain('\\vdots');
+    expect(engine.getSnapshot().latex).toContain('\\ddots');
+
+    // Fill row 1: 1, 1, (cdots), 1
+    type('1');
+    engine.nextSlot();
+    type('1');
+    engine.nextSlot(); // skips over prefilled \cdots
+    engine.nextSlot();
+    type('1');
+    engine.nextSlot(); // row 2 col 1
+    type('x_1');
+    engine.nextSlot(); // exit sub
+    engine.nextSlot(); // row 2 col 2
+    type('x_2');
+    engine.nextSlot();
+    engine.nextSlot(); // skip \cdots
+    engine.nextSlot(); // row 2 col 4
+    type('x_n');
+    engine.nextSlot();
+
+    // Insert row below row 2 (`Shift+↓`) for x_1^2, x_2^2, \cdots, x_n^2 -> now 5×4!
+    engine.addGridRow('below');
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(5);
+    type('x_1');
+    engine.nextSlot();
+    type('^2');
+    engine.nextSlot();
+    engine.nextSlot();
+    type('x_2');
+    engine.nextSlot();
+    type('^2');
+    engine.nextSlot();
+    engine.nextSlot();
+    type('...');
+    engine.nextSlot();
+    type('x_n');
+    engine.nextSlot();
+    type('^2');
+    engine.nextSlot();
+
+    // Verify 4-directional add above / left too!
+    engine.clear();
+    engine.insertCommand('matrix_2x2');
+    type('B');
+    engine.addGridCol('left');
+    type('A');
+    engine.addGridRow('above');
+    type('T');
+    expect(engine.getSnapshot().activeGrid?.rows).toBe(3);
+    expect(engine.getSnapshot().activeGrid?.cols).toBe(3);
+    expect(engine.getSnapshot().latex).toBe('\\begin{pmatrix} T & & \\\\ A & B & \\\\ & & \\end{pmatrix}');
   });
 });

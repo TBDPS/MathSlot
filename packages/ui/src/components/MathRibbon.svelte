@@ -52,9 +52,6 @@
   const QUICK_ITEMS: readonly { id: string; key: string; preview: string }[] = [
     { id: 'frac', key: 'f', preview: '\\frac{\\square}{\\square}' },
     { id: 'sqrt', key: 'r', preview: '\\sqrt{\\square}' },
-    { id: 'sup', key: 'u', preview: 'x^{\\square}' },
-    { id: 'sub', key: 'd', preview: 'x_{\\square}' },
-    { id: 'subsup', key: 'b', preview: 'x_{\\square}^{\\square}' },
     { id: 'paren', key: 'p', preview: '(\\square)' },
     { id: 'abs', key: 'v', preview: '|\\square|' },
     { id: 'integral', key: 'i', preview: '\\int' },
@@ -259,7 +256,7 @@
           </div>
         {/if}
       {:else}
-        <div class="cat-grid">
+        <div class="cat-grid" class:matrix-grid={activeCategory === 'matrix'}>
           {#each popoverCommands as cmd (cmd.id)}
             {@const shorthand = SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
             {@const isDefault =
@@ -455,7 +452,7 @@
     left: 50%;
     transform: translateX(-50%);
     width: min(700px, calc(100vw - 24px));
-    max-height: 254px;
+    max-height: 274px;
     display: flex;
     flex-direction: column;
     border-radius: var(--ms-radius-lg);
@@ -578,6 +575,7 @@
     background: var(--ms-tile);
     color: var(--ms-fg);
     cursor: pointer;
+    overflow: hidden;
     transition: background-color 80ms ease, border-color 80ms ease;
   }
 
@@ -645,16 +643,25 @@
   }
 
   .cat-math {
-    font-size: 16px;
+    font-size: 14px;
     min-height: 26px;
+    max-width: 100%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: var(--ms-fg);
   }
 
+  .cat-grid.matrix-grid .cat-math {
+    font-size: 9.5px;
+    min-height: 36px;
+    padding: 2px 0;
+  }
+
   .cat-label {
     font-size: 11px;
+    line-height: 1.35;
+    flex-shrink: 0;
     color: var(--ms-fg-muted);
     max-width: 100%;
     white-space: nowrap;

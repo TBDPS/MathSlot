@@ -16,6 +16,7 @@ export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
   // Multi-char punctuation / arrow / relation shorthands (instant, zero word collision)
   { trigger: '<=>', commandId: 'iff', kind: 'punct' },
   { trigger: '...', commandId: 'cdots', kind: 'punct' },
+  { trigger: ':::', commandId: 'vdots', kind: 'punct' },
   { trigger: '->', commandId: 'to', kind: 'punct' },
   { trigger: '=>', commandId: 'implies', kind: 'punct' },
   { trigger: '<=', commandId: 'leq', kind: 'punct' },
@@ -92,6 +93,8 @@ export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
   { trigger: 'cong', commandId: 'cong', kind: 'word' },
   { trigger: 'pm', commandId: 'pm', kind: 'word' },
   { trigger: 'mp', commandId: 'mp', kind: 'word' },
+  { trigger: 'vdots', commandId: 'vdots', kind: 'word' },
+  { trigger: 'ddots', commandId: 'ddots', kind: 'word' },
 ];
 
 export const SHORTHAND_BY_COMMAND_ID: ReadonlyMap<string, string> = (() => {

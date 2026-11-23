@@ -22,11 +22,14 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 125 unique commands with unique ids, key chords, and curated submenu defaults', () => {
-    expect(COMMANDS.length).toBe(125);
-    expect(COMMANDS_BY_ID.size).toBe(125);
-    expect(COMMANDS_BY_KEYS.size).toBe(125);
-    expect(DIRECT_COMMANDS.length).toBe(11);
+  it('contains 129 unique commands with unique ids, released u/d/b keys, and curated submenu defaults', () => {
+    expect(COMMANDS.length).toBe(129);
+    expect(COMMANDS_BY_ID.size).toBe(129);
+    expect(COMMANDS_BY_KEYS.size).toBe(126);
+    expect(DIRECT_COMMANDS.length).toBe(8);
+    expect(COMMANDS_BY_KEYS.has('u')).toBe(false);
+    expect(COMMANDS_BY_KEYS.has('d')).toBe(false);
+    expect(COMMANDS_BY_KEYS.has('b')).toBe(false);
     expect(SUBMENUS.length).toBe(7);
 
     // Every auto-shorthand must resolve to a real command in COMMANDS_BY_ID
@@ -59,8 +62,8 @@ describe('MathSlot catalog & presets integrity', () => {
     expect(searchCommands('pmatrix').some((c) => c.id === 'matrix_2x2')).toBe(true);
   });
 
-  it('imports all 88 presets cleanly into valid ASTs and clean canonical LaTeX', () => {
-    expect(PRESETS.length).toBe(88);
+  it('imports all 89 presets cleanly into valid ASTs and clean canonical LaTeX', () => {
+    expect(PRESETS.length).toBe(89);
     for (const preset of PRESETS) {
       const res = importFormula(preset.source);
       const errors = res.diagnostics.filter((d) => d.severity === 'error');

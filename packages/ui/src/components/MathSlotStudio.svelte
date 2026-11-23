@@ -554,6 +554,7 @@
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (e.altKey) engine.jumpBack();
+      else if (e.shiftKey && snapshot.activeGrid?.canEditCols) engine.addGridCol('left');
       else engine.moveLeft(e.shiftKey);
       sync();
       return;
@@ -562,6 +563,7 @@
     if (e.key === 'ArrowRight') {
       e.preventDefault();
       if (e.altKey) engine.jumpForward();
+      else if (e.shiftKey && snapshot.activeGrid?.canEditCols) engine.addGridCol('right');
       else engine.moveRight(e.shiftKey);
       sync();
       return;
@@ -570,6 +572,7 @@
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (e.altKey || mod) engine.escapeLevel();
+      else if (e.shiftKey && snapshot.activeGrid) engine.addGridRow('above');
       else engine.moveUp();
       sync();
       return;
@@ -577,7 +580,8 @@
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      engine.moveDown();
+      if (e.shiftKey && snapshot.activeGrid) engine.addGridRow('below');
+      else engine.moveDown();
       sync();
       return;
     }

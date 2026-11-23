@@ -24,9 +24,9 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
 export const COMMANDS: readonly CommandDef[] = [
   {"id": "frac", "keys": ["f"], "label": "分数", "category": "structure", "glyph": "a/b", "slots": ["分子", "分母"], "latex": "\\frac{$1}{$2}", "doc": "分数：分子在前，分母在后", "examples": ["▸f1;2;"], "wrapSlot": 0},
   {"id": "sqrt", "keys": ["r"], "label": "根号", "category": "structure", "glyph": "√x", "slots": ["根指数", "被开方式"], "optionalSlots": [0], "latex": "\\sqrt[$1]{$2}", "doc": "根号：根指数留空自动按二次根号 \\sqrt{x} 渲染，填写后按 N 次根渲染", "examples": ["▸rx;", "▸r3;8;"], "wrapSlot": 1},
-  {"id": "sup", "keys": ["u"], "label": "上标", "category": "structure", "glyph": "x^n", "slots": ["底数", "指数"], "latex": "{$1}^{$2}", "doc": "上标指数：底数在前，指数在后", "examples": ["▸ux;2;"], "wrapSlot": 0},
-  {"id": "sub", "keys": ["d"], "label": "下标", "category": "structure", "glyph": "x_n", "slots": ["主体", "下标"], "latex": "{$1}_{$2}", "doc": "下标索引：主体在前，下标在后", "examples": ["▸dx;i;"], "wrapSlot": 0},
-  {"id": "subsup", "keys": ["b"], "label": "上下标", "category": "structure", "glyph": "x_n^m", "slots": ["主体", "下标", "上标"], "optionalSlots": [1, 2], "latex": "{$1}_{$2}^{$3}", "doc": "上下标：下标或上标留空时自动省略", "examples": ["▸bx;i;2;"], "wrapSlot": 0},
+  {"id": "sup", "keys": [], "label": "上标", "category": "structure", "glyph": "x^n", "slots": ["底数", "指数"], "latex": "{$1}^{$2}", "doc": "上标指数：直接输入 ^ 自动创建", "examples": ["x^2"], "wrapSlot": 0},
+  {"id": "sub", "keys": [], "label": "下标", "category": "structure", "glyph": "x_n", "slots": ["主体", "下标"], "latex": "{$1}_{$2}", "doc": "下标索引：直接输入 _ 自动创建", "examples": ["x_i"], "wrapSlot": 0},
+  {"id": "subsup", "keys": [], "label": "上下标", "category": "structure", "glyph": "x_n^m", "slots": ["主体", "下标", "上标"], "optionalSlots": [1, 2], "latex": "{$1}_{$2}^{$3}", "doc": "上下标：直接输入 _ 和 ^ 自动合并，留空自动省略", "examples": ["x_i^2"], "wrapSlot": 0},
   {"id": "paren", "keys": ["p"], "label": "括号", "category": "structure", "glyph": "(x)", "slots": ["括号内"], "latex": "\\left($1\\right)", "doc": "自适应圆括号", "examples": ["▸px;"], "wrapSlot": 0},
   {"id": "abs", "keys": ["v"], "label": "绝对值", "category": "structure", "glyph": "|x|", "slots": ["绝对值内"], "latex": "\\left|$1\\right|", "doc": "自适应绝对值竖线", "examples": ["▸vx;"], "wrapSlot": 0},
   {"id": "integral", "keys": ["i"], "label": "积分", "category": "structure", "glyph": "∫", "slots": ["下限", "上限", "被积式"], "optionalSlots": [0, 1], "latex": "\\int_{$1}^{$2} $3", "doc": "积分：上下限留空自动按不定积分 \\int 渲染", "examples": ["▸i0;1;f(x) dx;"], "wrapSlot": 2},
@@ -48,6 +48,8 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "cases_3", "keys": ["m", "f"], "label": "三分段函数", "category": "matrix", "glyph": "{cases×3", "slots": ["表达式1", "条件1", "表达式2", "条件2", "表达式3", "条件3"], "latex": "\\begin{cases} $1 & $2 \\\\ $3 & $4 \\\\ $5 & $6 \\end{cases}", "doc": "三分段函数：式1、条件1、式2、条件2、式3、条件3", "examples": ["▸mf1;x>0;0;x=0;-1;x<0;"], "wrapSlot": 0},
   {"id": "bmatrix_3x3", "keys": ["m", "g"], "label": "3×3 方块阵", "category": "matrix", "glyph": "[3×3]", "slots": ["(1,1)", "(1,2)", "(1,3)", "(2,1)", "(2,2)", "(2,3)", "(3,1)", "(3,2)", "(3,3)"], "latex": "\\begin{bmatrix} $1 & $2 & $3 \\\\ $4 & $5 & $6 \\\\ $7 & $8 & $9 \\end{bmatrix}", "doc": "3×3 方括号矩阵", "examples": ["▸mg1;2;3;4;5;6;7;8;9;"], "wrapSlot": null},
   {"id": "det_3x3", "keys": ["m", "h"], "label": "3×3 行列式", "category": "matrix", "glyph": "|3×3|", "slots": ["(1,1)", "(1,2)", "(1,3)", "(2,1)", "(2,2)", "(2,3)", "(3,1)", "(3,2)", "(3,3)"], "latex": "\\begin{vmatrix} $1 & $2 & $3 \\\\ $4 & $5 & $6 \\\\ $7 & $8 & $9 \\end{vmatrix}", "doc": "3×3 单竖线行列式", "examples": ["▸mh1;2;3;4;5;6;7;8;9;"], "wrapSlot": null},
+  {"id": "matrix_ellipsis", "keys": ["m", "i"], "label": "省略矩阵", "category": "matrix", "glyph": "(n×m)", "slots": ["(1,1)", "(1,2)", "(1,3)", "(1,4)", "(2,1)", "(2,2)", "(2,3)", "(2,4)", "(3,1)", "(3,2)", "(3,3)", "(3,4)", "(4,1)", "(4,2)", "(4,3)", "(4,4)"], "latex": "\\begin{pmatrix} $1 & $2 & \\cdots & $4 \\\\ $5 & $6 & \\cdots & $8 \\\\ \\vdots & \\vdots & \\ddots & \\vdots \\\\ $13 & $14 & \\cdots & $16 \\end{pmatrix}", "doc": "带省略号的 n×m 矩阵（已预填 ⋯ ⋮ ⋱，支持 Shift+方向键增删行列）", "examples": ["▸mi"], "wrapSlot": null},
+  {"id": "det_ellipsis", "keys": ["m", "j"], "label": "省略行列式", "category": "matrix", "glyph": "|n×n|", "slots": ["(1,1)", "(1,2)", "(1,3)", "(1,4)", "(2,1)", "(2,2)", "(2,3)", "(2,4)", "(3,1)", "(3,2)", "(3,3)", "(3,4)", "(4,1)", "(4,2)", "(4,3)", "(4,4)"], "latex": "\\begin{vmatrix} $1 & $2 & \\cdots & $4 \\\\ $5 & $6 & \\cdots & $8 \\\\ \\vdots & \\vdots & \\ddots & \\vdots \\\\ $13 & $14 & \\cdots & $16 \\end{vmatrix}", "doc": "带省略号的 n 阶行列式（如范德蒙德行列式，已预填 ⋯ ⋮ ⋱，支持 Shift+方向键增删行列）", "examples": ["▸mj"], "wrapSlot": null},
   {"id": "hat", "keys": ["a", "a"], "label": "帽子", "category": "accent", "glyph": "hat", "slots": ["帽子内"], "latex": "\\hat{$1}", "doc": "帽子标注：\\hat{x}", "examples": ["▸aax;"], "wrapSlot": 0},
   {"id": "bar", "keys": ["a", "b"], "label": "上横线", "category": "accent", "glyph": "bar", "slots": ["横线内"], "latex": "\\bar{$1}", "doc": "上横线标注：\\bar{x}", "examples": ["▸abx;"], "wrapSlot": 0},
   {"id": "vec", "keys": ["a", "c"], "label": "向量箭头", "category": "accent", "glyph": "vec", "slots": ["向量内"], "latex": "\\vec{$1}", "doc": "向量箭头标注：\\vec{x}", "examples": ["▸acx;"], "wrapSlot": 0},
@@ -116,7 +118,9 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "parallel", "keys": ["o", "o"], "label": "平行", "category": "symbol", "glyph": "∥", "slots": [], "latex": "\\parallel", "doc": "平行符号：\\parallel (也可直输 ||)", "examples": ["▸oo"], "wrapSlot": null},
   {"id": "perp", "keys": ["o", "p"], "label": "垂直", "category": "symbol", "glyph": "⊥", "slots": [], "latex": "\\perp", "doc": "垂直/正交符号：\\perp (也可直输 _|_)", "examples": ["▸op"], "wrapSlot": null},
   {"id": "mp", "keys": ["o", "q"], "label": "负正", "category": "symbol", "glyph": "∓", "slots": [], "latex": "\\mp", "doc": "负正号：\\mp (也可直输 -+)", "examples": ["▸oq"], "wrapSlot": null},
-  {"id": "cdots", "keys": ["o", "r"], "label": "省略号", "category": "symbol", "glyph": "⋯", "slots": [], "latex": "\\cdots", "doc": "居中省略号：\\cdots (也可直输 ...)", "examples": ["▸or"], "wrapSlot": null},
+  {"id": "cdots", "keys": ["o", "r"], "label": "横省略号", "category": "symbol", "glyph": "⋯", "slots": [], "latex": "\\cdots", "doc": "居中横省略号：\\cdots (也可直输 ... 或 cdots)", "examples": ["▸or"], "wrapSlot": null},
+  {"id": "vdots", "keys": ["o", "s"], "label": "竖省略号", "category": "symbol", "glyph": "⋮", "slots": [], "latex": "\\vdots", "doc": "竖向省略号：\\vdots (也可直输 ::: 或 vdots)", "examples": ["▸os"], "wrapSlot": null},
+  {"id": "ddots", "keys": ["o", "t"], "label": "斜省略号", "category": "symbol", "glyph": "⋱", "slots": [], "latex": "\\ddots", "doc": "斜向省略号：\\ddots (也可直输 ddots)", "examples": ["▸ot"], "wrapSlot": null},
   {"id": "equiv", "keys": ["x", "a"], "label": "恒等", "category": "relation", "glyph": "≡", "slots": [], "latex": "\\equiv", "doc": "恒等于/同余：\\equiv", "examples": ["▸xa"], "wrapSlot": null},
   {"id": "approx", "keys": ["x", "b"], "label": "近似", "category": "relation", "glyph": "≈", "slots": [], "latex": "\\approx", "doc": "约等于：\\approx", "examples": ["▸xb"], "wrapSlot": null},
   {"id": "sim", "keys": ["x", "c"], "label": "相似", "category": "relation", "glyph": "∼", "slots": [], "latex": "\\sim", "doc": "相似于：\\sim", "examples": ["▸xc"], "wrapSlot": null},
@@ -154,7 +158,7 @@ export const COMMANDS_BY_ID: ReadonlyMap<string, CommandDef> = new Map(
 );
 
 export const COMMANDS_BY_KEYS: ReadonlyMap<string, CommandDef> = new Map(
-  COMMANDS.map((c) => [c.keys.join(''), c]),
+  COMMANDS.filter((c) => c.keys.length > 0).map((c) => [c.keys.join(''), c]),
 );
 
 export const DIRECT_COMMANDS: readonly CommandDef[] = COMMANDS.filter(
