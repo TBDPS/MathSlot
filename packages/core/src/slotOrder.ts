@@ -37,8 +37,8 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
     label: '积分 / 求和',
     commandIds: ['integral', 'sum', 'product'],
     options: [
-      { label: '下限 → 上限', order: [0, 1] },
-      { label: '上限 → 下限', order: [1, 0] },
+      { label: '下限 → 上限 → 主体', order: [0, 1, 2] },
+      { label: '上限 → 下限 → 主体', order: [1, 0, 2] },
     ],
   },
   {
@@ -46,8 +46,8 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
     label: '极限',
     commandIds: ['limit'],
     options: [
-      { label: '变量 → 目标', order: [0, 1] },
-      { label: '目标 → 变量', order: [1, 0] },
+      { label: '变量 → 目标 → 主体', order: [0, 1, 2] },
+      { label: '主体 → 变量 → 目标', order: [2, 0, 1] },
     ],
   },
   {

@@ -320,19 +320,113 @@ export class MathSlotEngine {
       this.mode = { kind: 'edit' };
       return;
     }
-    this.mode = { kind: 'jump', typed: '', targets };
+    this.mode = {
+      kind: 'jump',
+      scopePath: [],
+      scopeSlotId: this.doc.root.id,
+      typed: '',
+      targets,
+      activeIdx: 0,
+    };
+  }
+
+  private drillIntoJumpScope(slotId: string, label: string): boolean {
+    if (this.mode.kind !== 'jump') return false;
+    const subSlot = findSlot(this.doc.root, slotId);
+    if (!subSlot) return false;
+    const subTargets = buildJumpTargets(subSlot);
+    if (subTargets.length === 0) {
+      this.jumpToCursor({ slotId: subSlot.id, offset: subSlot.children.length });
+      return true;
+    }
+    this.mode = {
+      kind: 'jump',
+      scopePath: [...this.mode.scopePath, { slotId, label }],
+      scopeSlotId: slotId,
+      typed: '',
+      targets: subTargets,
+      activeIdx: 0,
+    };
+    return true;
+  }
+
+  public stepJumpBack(): void {
+    if (this.mode.kind !== 'jump') return;
+    if (this.mode.typed.length > 0) {
+      const scopeSlot = findSlot(this.doc.root, this.mode.scopeSlotId) ?? this.doc.root;
+      this.mode = {
+        ...this.mode,
+        typed: '',
+        targets: buildJumpTargets(scopeSlot),
+        activeIdx: 0,
+      };
+      return;
+    }
+    if (this.mode.scopePath.length === 0) {
+      this.mode = { kind: 'edit' };
+      return;
+    }
+    const nextPath = this.mode.scopePath.slice(0, -1);
+    const parentSlotId = nextPath.length > 0 ? nextPath[nextPath.length - 1].slotId : this.doc.root.id;
+    const parentSlot = findSlot(this.doc.root, parentSlotId) ?? this.doc.root;
+    this.mode = {
+      kind: 'jump',
+      scopePath: nextPath,
+      scopeSlotId: parentSlot.id,
+      typed: '',
+      targets: buildJumpTargets(parentSlot),
+      activeIdx: 0,
+    };
+  }
+
+  public moveJumpSelection(delta: -1 | 1): void {
+    if (this.mode.kind !== 'jump' || this.mode.targets.length === 0) return;
+    const len = this.mode.targets.length;
+    const nextIdx = (this.mode.activeIdx + delta + len) % len;
+    this.mode = { ...this.mode, activeIdx: nextIdx };
+  }
+
+  public drillJumpSelection(): boolean {
+    if (this.mode.kind !== 'jump') return false;
+    const target = this.mode.targets[this.mode.activeIdx];
+    if (!target || !target.isComposite) return false;
+    return this.drillIntoJumpScope(target.slotId, target.slotLabel);
+  }
+
+  public confirmJumpSelection(): boolean {
+    if (this.mode.kind !== 'jump') return false;
+    // If user drilled into a composite scope and pressed Enter immediately, jump to end of that scope!
+    if (this.mode.scopePath.length > 0 && this.mode.activeIdx === 0) {
+      const scopeSlot = findSlot(this.doc.root, this.mode.scopeSlotId);
+      if (scopeSlot) {
+        this.jumpToCursor({ slotId: scopeSlot.id, offset: scopeSlot.children.length });
+        return true;
+      }
+    }
+    const target = this.mode.targets[this.mode.activeIdx];
+    if (!target) {
+      this.mode = { kind: 'edit' };
+      return false;
+    }
+    if (target.isComposite) {
+      return this.drillIntoJumpScope(target.slotId, target.slotLabel);
+    }
+    this.jumpToCursor({ slotId: target.slotId, offset: target.offset });
+    return true;
   }
 
   public handleJumpKey(key: string): boolean {
     if (this.mode.kind !== 'jump') return false;
+    const scopeSlot = findSlot(this.doc.root, this.mode.scopeSlotId) ?? this.doc.root;
+
     // Quick navigation shortcuts inside Esc jump mode (v0.8.1 ergonomics)
     if (this.mode.typed === '') {
       if (key === '.' || key === ';' || key === '$') {
-        this.jumpToCursor({ slotId: this.doc.root.id, offset: this.doc.root.children.length });
+        this.jumpToCursor({ slotId: scopeSlot.id, offset: scopeSlot.children.length });
         return true;
       }
       if (key === '0' || key === '^') {
-        this.jumpToCursor({ slotId: this.doc.root.id, offset: 0 });
+        this.jumpToCursor({ slotId: scopeSlot.id, offset: 0 });
         return true;
       }
       if (key === '-') {
@@ -351,6 +445,9 @@ export class MathSlotEngine {
     const nextTyped = this.mode.typed + ch;
     const exact = this.mode.targets.find((t) => t.label === nextTyped);
     if (exact) {
+      if (exact.isComposite) {
+        return this.drillIntoJumpScope(exact.slotId, exact.slotLabel);
+      }
       this.jumpToCursor({ slotId: exact.slotId, offset: exact.offset });
       return true;
     }
@@ -359,7 +456,12 @@ export class MathSlotEngine {
       this.mode = { kind: 'edit' };
       return false;
     }
-    this.mode = { kind: 'jump', typed: nextTyped, targets: remaining };
+    this.mode = {
+      ...this.mode,
+      typed: nextTyped,
+      targets: remaining,
+      activeIdx: 0,
+    };
     return true;
   }
 
@@ -1240,9 +1342,14 @@ export class MathSlotEngine {
       this.cursor = { slotId: num.id, offset: num.children.length };
       return;
     }
-    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && sIdx === 0) {
+    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && (sIdx === 0 || sIdx === 2)) {
       const upper = parentStruct.slots[1];
       this.cursor = { slotId: upper.id, offset: upper.children.length };
+      return;
+    }
+    if (cmdId === 'limit' && (sIdx === 0 || sIdx === 1)) {
+      const body = parentStruct.slots[2];
+      this.cursor = { slotId: body.id, offset: body.children.length };
       return;
     }
     if (cmdId === 'subsup' && (sIdx === 1 || sIdx === 0)) {
@@ -1306,9 +1413,14 @@ export class MathSlotEngine {
       this.cursor = { slotId: den.id, offset: den.children.length };
       return;
     }
-    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && sIdx === 1) {
+    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && (sIdx === 1 || sIdx === 2)) {
       const lower = parentStruct.slots[0];
       this.cursor = { slotId: lower.id, offset: lower.children.length };
+      return;
+    }
+    if (cmdId === 'limit' && sIdx === 2) {
+      const varSlot = parentStruct.slots[0];
+      this.cursor = { slotId: varSlot.id, offset: varSlot.children.length };
       return;
     }
     if (cmdId === 'subsup' && (sIdx === 2 || sIdx === 0)) {

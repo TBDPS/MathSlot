@@ -28,6 +28,19 @@
   --ms-jump-bg: #fef3c7;
   --ms-jump-border: #d97706;
   --ms-jump-fg: #92400e;
+  /* Depth-coded always-visible hierarchy dashed box tokens */
+  --ms-lvl-1: rgba(37, 99, 235, 0.36);
+  --ms-lvl-1-active: rgba(29, 78, 216, 0.78);
+  --ms-lvl-1-fill: rgba(37, 99, 235, 0.045);
+  --ms-lvl-2: rgba(124, 58, 237, 0.4);
+  --ms-lvl-2-active: rgba(109, 40, 217, 0.82);
+  --ms-lvl-2-fill: rgba(124, 58, 237, 0.05);
+  --ms-lvl-3: rgba(13, 148, 136, 0.42);
+  --ms-lvl-3-active: rgba(15, 118, 110, 0.84);
+  --ms-lvl-3-fill: rgba(13, 148, 136, 0.05);
+  --ms-lvl-4: rgba(217, 119, 6, 0.42);
+  --ms-lvl-4-active: rgba(180, 83, 9, 0.84);
+  --ms-lvl-4-fill: rgba(217, 119, 6, 0.05);
   --ms-danger: #dc2626;
   --ms-danger-soft: rgba(220, 38, 38, 0.1);
   --ms-shadow-sm: 0 3px 10px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
@@ -74,6 +87,18 @@
   --ms-jump-bg: #2c2110;
   --ms-jump-border: #f59e0b;
   --ms-jump-fg: #fcd34d;
+  --ms-lvl-1: rgba(96, 165, 250, 0.38);
+  --ms-lvl-1-active: rgba(147, 197, 253, 0.84);
+  --ms-lvl-1-fill: rgba(96, 165, 250, 0.07);
+  --ms-lvl-2: rgba(167, 139, 250, 0.42);
+  --ms-lvl-2-active: rgba(196, 181, 253, 0.86);
+  --ms-lvl-2-fill: rgba(167, 139, 250, 0.08);
+  --ms-lvl-3: rgba(45, 212, 191, 0.44);
+  --ms-lvl-3-active: rgba(94, 234, 212, 0.88);
+  --ms-lvl-3-fill: rgba(45, 212, 191, 0.08);
+  --ms-lvl-4: rgba(251, 191, 36, 0.44);
+  --ms-lvl-4-active: rgba(252, 211, 77, 0.88);
+  --ms-lvl-4-fill: rgba(251, 191, 36, 0.08);
   --ms-danger: #f87171;
   --ms-danger-soft: rgba(248, 113, 113, 0.14);
   --ms-shadow-sm: 0 3px 10px rgba(0, 0, 0, 0.45);
@@ -81,26 +106,15 @@
   --ms-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.74);
 }
 
-/* Interactive KaTeX math slot & caret styles */
+/* Interactive KaTeX math slot & caret styles
+   Note: Full-height hierarchy boxes and active-slot highlights are drawn by
+   VisualCanvas using true visual ink rects (never broken inline-span underlines). */
 .ms-studio .katex-display {
   margin: 0 !important;
 }
 
 .ms-studio .ms-slot {
   border-radius: 4px;
-  transition: background-color 110ms ease, box-shadow 110ms ease;
-}
-
-.ms-studio .ms-slot-active:not(.ms-slot-root) {
-  background: var(--ms-accent-soft);
-  box-shadow: inset 0 -2px 0 var(--ms-accent);
-  padding: 1px 3px;
-}
-
-.ms-studio .ms-parent-struct {
-  border-radius: 6px;
-  outline: 1.5px dashed var(--ms-accent-ring);
-  outline-offset: 3px;
 }
 
 .ms-studio .ms-atom {

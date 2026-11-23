@@ -84,19 +84,79 @@ describe('MathSlotEngine keyboard flow', () => {
     expect(engine.getSnapshot().latex).toBe('x + 1');
   });
 
-  it('supports Easymotion jump mode to teleport directly into any slot', () => {
+  it('supports hierarchical Easymotion jump mode including plain text terms between two integrals', () => {
     const engine = new MathSlotEngine();
-    engine.loadFormula('\\frac{1}{2}');
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // Build: \int_{0}^{1} x^2\,\mathrm{d}x + 42 + \int_{0}^{1} y^2\,\mathrm{d}y
+    engine.triggerLeader();
+    engine.handleLeaderKey('i');
+    type('0');
+    engine.nextSlot();
+    type('1');
+    engine.nextSlot();
+    type('x^2');
+    engine.nextSlot(); // exit sup -> still inside integral body!
+    type(' dx');
+    engine.nextSlot(); // exit integral -> root!
+    expect(engine.getSnapshot().breadcrumbs).toEqual([]);
+
+    type(' + 42 + '); // plain number in the middle sits cleanly at root level!
+
+    engine.triggerLeader();
+    engine.handleLeaderKey('i');
+    type('0');
+    engine.nextSlot();
+    type('1');
+    engine.nextSlot();
+    type('y^2');
+    engine.nextSlot();
+    type(' dy');
+    engine.nextSlot();
+
+    expect(engine.getSnapshot().latex).toBe(
+      '\\int_{0}^{1} x^2\\,\\mathrm{d}x + 42 + \\int_{0}^{1} y^2\\,\\mathrm{d}y',
+    );
+
+    // 1. Jump directly to the plain `42` term at root level and modify it to `99`!
     engine.enterJumpMode();
-    const snap = engine.getSnapshot();
-    expect(snap.mode.kind).toBe('jump');
-    if (snap.mode.kind === 'jump') {
-      const denTarget = snap.mode.targets.find((t) => t.slotLabel === '分母');
-      expect(denTarget).toBeDefined();
-      engine.handleJumpKey(denTarget!.label);
-      engine.insertText('+3');
+    const snap1 = engine.getSnapshot();
+    expect(snap1.mode.kind).toBe('jump');
+    if (snap1.mode.kind === 'jump') {
+      const plain42 = snap1.mode.targets.find((t) => t.anchorKind === 'text-term');
+      expect(plain42).toBeDefined();
+      engine.handleJumpKey(plain42!.label);
+      engine.backspace();
+      engine.backspace();
+      type('99');
     }
-    expect(engine.getSnapshot().latex).toBe('\\frac{1}{2 + 3}');
+    expect(engine.getSnapshot().latex).toBe(
+      '\\int_{0}^{1} x^2\\,\\mathrm{d}x + 99 + \\int_{0}^{1} y^2\\,\\mathrm{d}y',
+    );
+
+    // 2. Drill down into composite integral 1 body (`x^2 dx`) -> jump directly to exponent `2` -> change to `3`!
+    engine.enterJumpMode();
+    const snap2 = engine.getSnapshot();
+    if (snap2.mode.kind === 'jump') {
+      const body1 = snap2.mode.targets.find((t) => t.isComposite && t.slotLabel === '定积分·被积式');
+      expect(body1).toBeDefined();
+      engine.handleJumpKey(body1!.label);
+      const subSnap = engine.getSnapshot();
+      expect(subSnap.mode.kind).toBe('jump');
+      if (subSnap.mode.kind === 'jump') {
+        expect(subSnap.mode.scopePath.length).toBe(1);
+        const expTarget = subSnap.mode.targets.find((t) => t.slotLabel === '上标·指数');
+        expect(expTarget).toBeDefined();
+        engine.handleJumpKey(expTarget!.label);
+        engine.backspace();
+        type('3');
+      }
+    }
+    expect(engine.getSnapshot().latex).toBe(
+      '\\int_{0}^{1} x^3\\,\\mathrm{d}x + 99 + \\int_{0}^{1} y^2\\,\\mathrm{d}y',
+    );
   });
 
   it('expands inline \\alpha + space into SymbolNode', () => {
@@ -161,7 +221,7 @@ describe('MathSlotEngine keyboard flow', () => {
   it('supports custom per-command slot order overrides and Shift+Enter reverse traversal', () => {
     const engine = new MathSlotEngine({
       slotOrderOverrides: {
-        integral: [1, 0], // upper -> lower
+        integral: [1, 0, 2], // upper -> lower -> integrand
       },
     });
     engine.insertCommand('integral');
@@ -277,7 +337,7 @@ describe('MathSlotEngine keyboard flow', () => {
     const snap = engine.getSnapshot();
     expect(snap.mode.kind).toBe('jump');
     if (snap.mode.kind === 'jump') {
-      const numTarget = snap.mode.targets.find((t) => t.slotLabel === '分子')!;
+      const numTarget = snap.mode.targets.find((t) => t.slotLabel.endsWith('分子'))!;
       engine.handleJumpKey(numTarget.label);
       engine.insertText('+a');
       expect(engine.getSnapshot().latex).toBe('\\frac{1 + a}{2} + x');
@@ -297,7 +357,7 @@ describe('MathSlotEngine keyboard flow', () => {
     }
   });
 
-  it('writes the exact user-specified Fourier series smoothly with natural spaces (n pi x), auto-brackets, upright \\mathrm{d}x, and clean hierarchy', () => {
+  it('writes the exact user-specified Fourier series smoothly with 3-slot semantic integrals/sums, natural spaces (n pi x), auto-brackets, and 1-level-per-Enter hierarchy', () => {
     const engine = new MathSlotEngine();
     const type = (s: string) => {
       for (const ch of s) engine.insertText(ch);
@@ -308,45 +368,56 @@ describe('MathSlotEngine keyboard flow', () => {
     type('f(x) ~ 1/2l');
     engine.nextSlot(); // exit frac -> root
     engine.triggerLeader();
-    engine.handleLeaderKey('i'); // \int_{}^{}
+    engine.handleLeaderKey('i'); // \int_{}^{} [被积式]
     type('-l');
     engine.nextSlot();
     type('l');
-    engine.nextSlot(); // exit \int -> root
-    type('f(x) dx + ');
+    engine.nextSlot(); // enters 积分·被积式!
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.slotLabel)).toEqual(['被积式']);
+    type('f(x) dx');
+    engine.nextSlot(); // exits 积分 -> root!
+    expect(engine.getSnapshot().breadcrumbs).toEqual([]);
+
+    type(' + ');
     engine.triggerLeader();
-    engine.handleLeaderKey('s'); // \sum_{}^{}
+    engine.handleLeaderKey('s'); // \sum_{}^{} [求和主体]
     type('n=1');
     engine.nextSlot();
     type('oo');
-    engine.nextSlot(); // exit \sum -> root
+    engine.nextSlot(); // enters 求和·求和主体!
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.slotLabel)).toEqual(['求和主体']);
 
-    // Natural keyboard `[` and `(` auto-pair and auto-size!
+    // Natural keyboard `[` and `(` inside 求和主体
     type('[');
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号']);
     type('(');
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号']);
 
     type('1/l');
-    engine.nextSlot(); // back in paren!
+    engine.nextSlot(); // back in 括号!
     engine.triggerLeader();
     engine.handleLeaderKey('i');
     type('-l');
     engine.nextSlot();
     type('l');
-    engine.nextSlot(); // exits \int -> STILL INSIDE paren!
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
+    engine.nextSlot(); // enters 积分·被积式 (nested inside 括号!)
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号', '定积分']);
 
     type('f(x) cos n pi x/l');
-    engine.nextSlot(); // exit frac -> STILL inside paren!
+    engine.nextSlot(); // exit frac -> still inside 积分·被积式!
     type(' dx');
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号', '定积分']);
 
-    type(')'); // Overtype `)` (or Enter) cleanly exits paren -> back in bracket!
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
+    // Enter #1 exits ONLY 定积分 -> lands INSIDE 括号 (NOT outside 括号!)
+    engine.nextSlot();
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号']);
+
+    // `)` (or Enter #2) exits 括号 -> lands inside 中括号!
+    type(')');
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号']);
 
     type(' cos n pi x/l');
-    engine.nextSlot(); // back in bracket
+    engine.nextSlot(); // back in 中括号
     type(' + (');
     type('1/l');
     engine.nextSlot();
@@ -359,12 +430,18 @@ describe('MathSlotEngine keyboard flow', () => {
     type('f(x) sin n pi x/l');
     engine.nextSlot();
     type(' dx');
-    engine.nextSlot(); // ONE clean Enter also exits paren -> back in bracket!
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
+    // Enter #1 exits 定积分 -> still inside 括号!
+    engine.nextSlot();
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号']);
+    // Enter #2 exits 括号 -> back in 中括号!
+    engine.nextSlot();
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号']);
 
     type(' sin n pi x/l');
-    engine.nextSlot(); // back in bracket
-    type(']'); // Overtype `]` (or Enter) cleanly exits bracket -> root!
+    engine.nextSlot(); // back in 中括号
+    type(']'); // exits 中括号 -> back in 求和主体!
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和']);
+    engine.nextSlot(); // exits 求和 -> root!
     expect(engine.getSnapshot().breadcrumbs).toEqual([]);
 
     expect(engine.getSnapshot().latex).toBe(

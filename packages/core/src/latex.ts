@@ -370,7 +370,7 @@ interface EmitToken {
 
 function isUnaryContext(prev: EmitToken | undefined): boolean {
   if (!prev) return true;
-  return prev.kind === 'open' || prev.kind === 'binop' || prev.kind === 'comma' || prev.kind === 'bigop';
+  return prev.kind === 'open' || prev.kind === 'binop' || prev.kind === 'comma';
 }
 
 function findLastNonSpace(tokens: readonly EmitToken[]): EmitToken | undefined {
@@ -542,10 +542,30 @@ function isGenericDiffWord(text: string): boolean {
   return /^d[a-zA-Z]$/.test(text);
 }
 
+function isIntegralBodySlot(commandId: string, slotIndex: number): boolean {
+  if (commandId === 'integral' && slotIndex === 2) return true;
+  if (commandId === 'indef_integral' && slotIndex === 0) return true;
+  if (
+    (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
+    slotIndex === 1
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isSimpleFuncArgParen(node: StructNode): boolean {
+  if (!node.autoSized || node.commandId !== 'paren' || node.slots.length !== 1) return false;
+  const children = node.slots[0].children;
+  if (children.length === 0 || children.length > 6) return false;
+  return children.every((c) => c.type === 'char' && /^[A-Za-z0-9,\s]$/.test(c.value));
+}
+
 function emitSlotCanonical(
   slot: SlotNode,
   level: SpacingLevel = 'display',
   autoShorthands = true,
+  startsInIntegral = false,
 ): string {
   const rawTokens = tokenizeSlotForCanonical(slot, level, autoShorthands);
   const tokens: EmitToken[] = [];
@@ -576,7 +596,7 @@ function emitSlotCanonical(
   }
 
   let out = '';
-  let inIntegralScope = false;
+  let inIntegralScope = startsInIntegral;
 
   for (let i = 0; i < tokens.length; i += 1) {
     const t = tokens[i];
@@ -811,13 +831,20 @@ function emitStructCanonical(
     return node.slots.map((s) => emitSlotCanonical(s, parentLevel, autoShorthands)).join(' ');
   }
 
-  return template.replace(/\$(\d+)/g, (_, idxStr: string) => {
-    const idx = Number(idxStr) - 1;
-    const slot = node.slots[idx];
-    if (!slot) return '';
-    const slotLevel: SpacingLevel = isTightSlot(node.commandId, idx) ? 'tight' : 'display';
-    return emitSlotCanonical(slot, slotLevel, autoShorthands);
-  });
+  return template
+    .replace(/\$(\d+)/g, (_, idxStr: string) => {
+      const idx = Number(idxStr) - 1;
+      const slot = node.slots[idx];
+      if (!slot) return '';
+      const slotLevel: SpacingLevel = isTightSlot(node.commandId, idx) ? 'tight' : 'display';
+      return emitSlotCanonical(
+        slot,
+        slotLevel,
+        autoShorthands,
+        isIntegralBodySlot(node.commandId, idx),
+      );
+    })
+    .replace(/\s+$/, '');
 }
 
 export function emitNodeCanonical(node: MathNode, options: LatexEmitOptions = {}): string {
@@ -992,6 +1019,20 @@ function isPrevExprForDiff(children: MathNode[], idx: number): boolean {
   return true;
 }
 
+function getStructSubtreeHeight(node: StructNode): number {
+  let maxChild = -1;
+  for (const s of node.slots) {
+    for (const c of s.children) {
+      if (c.type === 'struct') {
+        if (isSimpleFuncArgParen(c)) continue;
+        const h = getStructSubtreeHeight(c);
+        if (h > maxChild) maxChild = h;
+      }
+    }
+  }
+  return maxChild + 1;
+}
+
 function wrapCaret(): string {
   return '\\htmlClass{ms-caret-anchor}{}';
 }
@@ -1004,6 +1045,7 @@ function emitSlotInteractive(
   isRoot: boolean,
   focused: boolean,
   autoShorthands: boolean,
+  depth: number,
 ): string {
   const isActive = cursor.slotId === slot.id;
   const isEmpty = slot.children.length === 0;
@@ -1143,6 +1185,7 @@ function emitSlotInteractive(
       focused,
       hints.upright.has(idx),
       autoShorthands,
+      depth,
     );
     const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
     parts.push(
@@ -1160,15 +1203,6 @@ function emitSlotInteractive(
       if (!(nextNonSpace.type === 'struct' && nextNonSpace.commandId === 'paren')) {
         parts.push('\\,');
       }
-    }
-
-    // Crisp visual gap after prefix bigop (`\int_{-l}^{l} f(x)`, `\sum_{n=1}^{\infty} [...]`)
-    if (
-      ((child.type === 'struct' && PREFIX_BIGOPS.has(child.commandId)) ||
-        (child.type === 'symbol' && INTEGRAL_OPS.has(child.commandId))) &&
-      nextNonSpace
-    ) {
-      parts.push('\\,');
     }
   }
 
@@ -1188,6 +1222,7 @@ function emitNodeInteractive(
   focused: boolean,
   isUprightChar: boolean,
   autoShorthands: boolean,
+  depth: number,
 ): string {
   switch (node.type) {
     case 'char': {
@@ -1199,6 +1234,8 @@ function emitNodeInteractive(
     case 'raw':
       return node.latex;
     case 'struct': {
+      const structDepth = depth + 1;
+      const structHeight = getStructSubtreeHeight(node);
       let template = node.customLatex ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
       if (!node.customLatex && node.autoSized && node.slots.length === 1) {
         const tall = slotHasTallContent(node.slots[0]);
@@ -1210,31 +1247,41 @@ function emitNodeInteractive(
           template = tall ? '\\left\\{$1\\right\\}' : '\\{$1\\}';
         }
       }
+      let rendered: string;
       if (!template) {
-        return node.slots
+        rendered = node.slots
           .map((s) =>
-            emitSlotInteractive(s, cursor, selection, parentStructId, false, focused, autoShorthands),
+            emitSlotInteractive(
+              s,
+              cursor,
+              selection,
+              parentStructId,
+              false,
+              focused,
+              autoShorthands,
+              structDepth,
+            ),
           )
           .join(' ');
+      } else {
+        rendered = template.replace(/\$(\d+)/g, (_, idxStr: string) => {
+          const idx = Number(idxStr) - 1;
+          const slot = node.slots[idx];
+          if (!slot) return '';
+          return emitSlotInteractive(
+            slot,
+            cursor,
+            selection,
+            parentStructId,
+            false,
+            focused,
+            autoShorthands,
+            structDepth,
+          );
+        });
       }
-      const rendered = template.replace(/\$(\d+)/g, (_, idxStr: string) => {
-        const idx = Number(idxStr) - 1;
-        const slot = node.slots[idx];
-        if (!slot) return '';
-        return emitSlotInteractive(
-          slot,
-          cursor,
-          selection,
-          parentStructId,
-          false,
-          focused,
-          autoShorthands,
-        );
-      });
-      if (focused && parentStructId && node.id === parentStructId) {
-        return `\\htmlClass{ms-parent-struct}{${rendered}}`;
-      }
-      return rendered;
+      const boxFlag = isSimpleFuncArgParen(node) ? '0' : '1';
+      return `\\htmlData{struct-id=${node.id},struct-depth=${structDepth},struct-height=${structHeight},struct-cmd=${node.commandId},struct-box=${boxFlag}}{\\htmlClass{ms-struct}{${rendered}}}`;
     }
   }
 }
@@ -1262,6 +1309,7 @@ export function toInteractiveLatex(
     true,
     focused,
     autoShorthands,
+    0,
   );
   if (!hasLineBreak) return inner;
   return `\\begin{gathered} ${inner} \\end{gathered}`;

@@ -98,14 +98,32 @@ export interface JumpTarget {
   slotId: string;
   offset: number;
   slotLabel: string;
+  anchorKind: 'scope-start' | 'scope-end' | 'slot' | 'text-term';
+  /** Inclusive-exclusive child index range inside `slotId` for plain text-term targets (e.g. `42`) */
+  termStart?: number;
+  termEnd?: number;
+  /** True if this slot contains nested structures and opens a sub-scope on selection */
+  isComposite: boolean;
   /** Visual anchor hint so numerator/upper badges go above and denominator/lower badges go below */
   placement?: 'top' | 'bottom';
+}
+
+export interface JumpScopeCrumb {
+  slotId: string;
+  label: string;
 }
 
 export type EditorMode =
   | { kind: 'edit' }
   | { kind: 'leader'; prefix: string }
-  | { kind: 'jump'; typed: string; targets: JumpTarget[] };
+  | {
+      kind: 'jump';
+      scopePath: JumpScopeCrumb[];
+      scopeSlotId: string;
+      typed: string;
+      targets: JumpTarget[];
+      activeIdx: number;
+    };
 
 export type LeaderKey = 'Tab' | '/' | '\\';
 export type DelimiterStyle = 'none' | 'inline' | 'block' | 'codeblock';
@@ -123,6 +141,7 @@ export interface AppSettings {
   autoBrackets: boolean;
   spaceExitsScript: boolean;
   autoShorthands: boolean;
+  showHierarchyBoxes: boolean;
   showLatexDock: boolean;
   slotOrderPreset: SlotOrderPreset;
   slotOrderOverrides: SlotOrderOverrides;
@@ -187,6 +206,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoBrackets: true,
   spaceExitsScript: false,
   autoShorthands: true,
+  showHierarchyBoxes: true,
   showLatexDock: true,
   slotOrderPreset: 'standard',
   slotOrderOverrides: {},

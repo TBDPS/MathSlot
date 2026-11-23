@@ -214,7 +214,7 @@ export function isStructEmpty(node: StructNode): boolean {
   return node.slots.every((s) => s.children.length === 0);
 }
 
-const JUMP_ALPHABET = 'asdfghjklqwertyuiopzxcvbnm';
+const JUMP_ALPHABET = 'abcdefghiklmnopqrstuvwxyz';
 
 function getSlotPlacement(commandId: string, slotIndex: number): 'top' | 'bottom' {
   if (
@@ -232,52 +232,169 @@ function getSlotPlacement(commandId: string, slotIndex: number): 'top' | 'bottom
   if (commandId === 'limit' && slotIndex === 1) {
     return 'bottom';
   }
+  if (
+    (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
+    slotIndex === 0
+  ) {
+    return 'bottom';
+  }
   if ((commandId === 'sub' || commandId === 'subsup') && slotIndex === 1) {
     return 'bottom';
   }
   return 'top';
 }
 
-export function buildJumpTargets(root: SlotNode): JumpTarget[] {
-  const entries: { slot: SlotNode; placement: 'top' | 'bottom' }[] = [];
+export function slotHasNestedStruct(slot: SlotNode): boolean {
+  return slot.children.some((c) => c.type === 'struct');
+}
 
-  const walk = (slot: SlotNode) => {
-    for (const child of slot.children) {
-      if (child.type === 'struct') {
-        const isScript =
-          child.commandId === 'sub' ||
-          child.commandId === 'sup' ||
-          child.commandId === 'subsup';
-        for (let sIdx = 0; sIdx < child.slots.length; sIdx += 1) {
-          const sub = child.slots[sIdx];
-          // Avoid stacking a redundant badge on a simple 1-atom script base (e.g. `a` in `a_n`)
-          const skipSimpleBase =
-            isScript &&
-            sIdx === 0 &&
-            sub.children.length === 1 &&
-            sub.children[0].type !== 'struct';
-          if (!skipSimpleBase) {
-            entries.push({
-              slot: sub,
-              placement: getSlotPlacement(child.commandId, sIdx),
-            });
-          }
-          walk(sub);
-        }
+const TERM_SPLIT_CHARS = new Set(['+', '-', '=', '<', '>', '~', ',']);
+const TERM_SPLIT_SYMBOLS = new Set([
+  'to', 'pm', 'mp', 'in', 'notin', 'subseteq', 'subset', 'equiv', 'approx',
+  'sim', 'propto', 'implies', 'iff', 'mapsto', 'cong', 'll', 'gg', 'simeq',
+  'leq', 'geq', 'neq', 'cup', 'cap', 'land', 'lor',
+]);
+
+function isTermSeparator(node: MathNode): boolean {
+  if (node.type === 'char') return TERM_SPLIT_CHARS.has(node.value);
+  if (node.type === 'symbol') return TERM_SPLIT_SYMBOLS.has(node.commandId);
+  if (node.type === 'raw') return node.latex.trim() === '\\\\';
+  return false;
+}
+
+/**
+ * Builds hierarchical single-level jump targets (matching v0.8.1's `NavScope` model):
+ * - `[a]` jumps to start of this scope
+ * - Plain non-struct terms (e.g. `42` between two integrals, `f(x)`, `\cos`) each get their OWN Leaf jump target!
+ * - Simple slots (no nested structs) get a direct Leaf target (1 keystroke teleports directly into them)
+ * - Complex slots (containing nested structs) collapse into ONE Composite target (`+`) that drills down cleanly!
+ * - `[;]` jumps to end of this scope
+ */
+export function buildJumpTargets(scopeSlot: SlotNode): JumpTarget[] {
+  interface RawTarget {
+    slotId: string;
+    offset: number;
+    slotLabel: string;
+    anchorKind: 'scope-start' | 'scope-end' | 'slot' | 'text-term';
+    termStart?: number;
+    termEnd?: number;
+    isComposite: boolean;
+    placement?: 'top' | 'bottom';
+  }
+
+  const raw: RawTarget[] = [];
+
+  if (scopeSlot.children.length > 0) {
+    raw.push({
+      slotId: scopeSlot.id,
+      offset: 0,
+      slotLabel: '行首',
+      anchorKind: 'scope-start',
+      isComposite: false,
+      placement: 'top',
+    });
+  }
+
+  const flushPlainRun = (runStart: number, runEnd: number) => {
+    // Split plain runs by additive/relation operators so e.g. `+ 42 +` gives a crisp target right on `42`!
+    let i = runStart;
+    while (i < runEnd) {
+      while (
+        i < runEnd &&
+        ((scopeSlot.children[i].type === 'char' && (scopeSlot.children[i] as CharNode).value === ' ') ||
+          isTermSeparator(scopeSlot.children[i]))
+      ) {
+        i += 1;
+      }
+      if (i >= runEnd) break;
+      const tStart = i;
+      while (i < runEnd && !isTermSeparator(scopeSlot.children[i])) {
+        i += 1;
+      }
+      let tEnd = i;
+      while (
+        tEnd > tStart &&
+        scopeSlot.children[tEnd - 1].type === 'char' &&
+        (scopeSlot.children[tEnd - 1] as CharNode).value === ' '
+      ) {
+        tEnd -= 1;
+      }
+      if (tEnd > tStart) {
+        raw.push({
+          slotId: scopeSlot.id,
+          offset: tEnd,
+          slotLabel: '文本项',
+          anchorKind: 'text-term',
+          termStart: tStart,
+          termEnd: tEnd,
+          isComposite: false,
+          placement: 'top',
+        });
       }
     }
   };
-  walk(root);
-  entries.push({ slot: root, placement: 'top' });
 
-  const labels = generateLabels(entries.length);
-  return entries.map((entry, idx) => ({
+  let runStart: number | null = null;
+  for (let i = 0; i < scopeSlot.children.length; i += 1) {
+    const child = scopeSlot.children[i];
+    if (child.type !== 'struct') {
+      if (runStart === null) runStart = i;
+      continue;
+    }
+
+    if (runStart !== null) {
+      flushPlainRun(runStart, i);
+      runStart = null;
+    }
+
+    const isScript =
+      child.commandId === 'sub' || child.commandId === 'sup' || child.commandId === 'subsup';
+    const cmdLabel = COMMANDS_BY_ID.get(child.commandId)?.label ?? '结构';
+
+    for (let sIdx = 0; sIdx < child.slots.length; sIdx += 1) {
+      const sub = child.slots[sIdx];
+      const skipSimpleBase =
+        isScript &&
+        sIdx === 0 &&
+        sub.children.length === 1 &&
+        sub.children[0].type !== 'struct';
+      if (skipSimpleBase) continue;
+
+      const composite = slotHasNestedStruct(sub);
+      raw.push({
+        slotId: sub.id,
+        offset: sub.children.length,
+        slotLabel: `${cmdLabel}·${sub.label}`,
+        anchorKind: 'slot',
+        isComposite: composite,
+        placement: getSlotPlacement(child.commandId, sIdx),
+      });
+    }
+  }
+
+  if (runStart !== null) {
+    flushPlainRun(runStart, scopeSlot.children.length);
+  }
+
+  const labels = generateLabels(raw.length);
+  const targets: JumpTarget[] = raw.map((entry, idx) => ({
+    ...entry,
     label: labels[idx],
-    slotId: entry.slot.id,
-    offset: entry.slot.children.length,
-    slotLabel: entry.slot.label,
-    placement: entry.placement,
   }));
+
+  if (scopeSlot.children.length > 0) {
+    targets.push({
+      label: ';',
+      slotId: scopeSlot.id,
+      offset: scopeSlot.children.length,
+      slotLabel: '末尾',
+      anchorKind: 'scope-end',
+      isComposite: false,
+      placement: 'top',
+    });
+  }
+
+  return targets;
 }
 
 function generateLabels(count: number): string[] {

@@ -222,6 +222,15 @@
       </label>
 
       <label class="toggle-row">
+        <span>始终在公式上显示层级虚线框</span>
+        <input
+          type="checkbox"
+          checked={settings.showHierarchyBoxes}
+          onchange={(e) => onUpdate({ showHierarchyBoxes: (e.currentTarget as HTMLInputElement).checked })}
+        />
+      </label>
+
+      <label class="toggle-row">
         <span>底部 LaTeX 源码栏</span>
         <input
           type="checkbox"

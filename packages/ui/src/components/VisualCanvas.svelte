@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import type { EditorSnapshot, JumpTarget } from '@mathslot/core';
+  import { findSlotPath, type EditorSnapshot, type JumpTarget } from '@mathslot/core';
   import { renderLatexInteractive } from '../katexRenderer';
 
   interface Props {
     snapshot: EditorSnapshot;
     shiftedUp?: boolean;
+    showHierarchyBoxes?: boolean;
     onKeyEvent: (e: KeyboardEvent) => void;
     onTextInput: (text: string) => void;
     onPaste: (text: string) => void;
@@ -17,6 +18,7 @@
   let {
     snapshot,
     shiftedUp = false,
+    showHierarchyBoxes = true,
     onKeyEvent,
     onTextInput,
     onPaste,
@@ -31,10 +33,35 @@
   let isComposing = $state(false);
   let scale = $state(1);
 
+  interface HierarchyBox {
+    id: string;
+    depth: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    isAncestor: boolean;
+    isImmediateParent: boolean;
+  }
+
+  interface ActiveSlotBox {
+    slotId: string;
+    label: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }
+
   interface PositionedJump extends JumpTarget {
     left: number;
     top: number;
+    isActive: boolean;
   }
+
+  let hierarchyBoxes = $state<HierarchyBox[]>([]);
+  let activeSlotBox = $state<ActiveSlotBox | null>(null);
+  let jumpScopeBox = $state<{ left: number; top: number; width: number; height: number } | null>(null);
   let jumpPositions = $state<PositionedJump[]>([]);
 
   const rendered = $derived(renderLatexInteractive(snapshot.interactiveLatex));
@@ -43,67 +70,266 @@
     inputEl?.focus({ preventScroll: true });
   }
 
-  function recomputeLayout(): void {
-    if (!stageEl || !formulaEl) return;
-    const stageWidth = stageEl.clientWidth - 64;
-    const katexEl = formulaEl.querySelector('.katex') as HTMLElement | null;
-    if (katexEl && stageWidth > 120) {
-      const naturalWidth = katexEl.scrollWidth;
-      if (naturalWidth > stageWidth) {
-        scale = Math.max(0.48, stageWidth / naturalWidth);
-      } else {
-        scale = 1;
-      }
-    } else {
-      scale = 1;
+  /**
+   * Computes the TRUE visual ink bounding rect of a KaTeX subtree, ignoring
+   * KaTeX's hidden `.pstrut` / `.strut` vertical-alignment spacers and inline-span
+   * 1em baseline clipping so tall fractions, integrals, and nested brackets get
+   * crisp, pixel-accurate rectangular boxes!
+   */
+  function getTrueVisualRect(el: HTMLElement): DOMRect | null {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    const includeRect = (r: DOMRect) => {
+      if (r.width <= 0.5 && r.height <= 0.5) return;
+      if (r.left < minX) minX = r.left;
+      if (r.top < minY) minY = r.top;
+      if (r.right > maxX) maxX = r.right;
+      if (r.bottom > maxY) maxY = r.bottom;
+    };
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (!node.nodeValue || !node.nodeValue.trim()) continue;
+      const parentEl = node.parentElement;
+      if (parentEl?.closest('.ms-caret-anchor, .ms-empty-root')) continue;
+      range.selectNodeContents(node);
+      includeRect(range.getBoundingClientRect());
     }
 
+    const drawn = el.querySelectorAll(
+      'svg, .frac-line, .overline-line, .underline-line, .hline, .ms-empty-box, .ms-space-active',
+    );
+    for (const d of drawn) {
+      includeRect(d.getBoundingClientRect());
+    }
+
+    if (!Number.isFinite(minX)) {
+      const fallback = el.getBoundingClientRect();
+      return fallback.width > 0.5 || fallback.height > 0.5 ? fallback : null;
+    }
+    return new DOMRect(minX, minY, maxX - minX, maxY - minY);
+  }
+
+  function measureOverlays(): void {
+    if (!stageEl || !formulaEl || snapshot.isEmpty) {
+      hierarchyBoxes = [];
+      activeSlotBox = null;
+      jumpScopeBox = null;
+      jumpPositions = [];
+      return;
+    }
+
+    const stageRect = stageEl.getBoundingClientRect();
+
+    // Determine active ancestor struct chain & active slot label from AST
+    const activePath = findSlotPath(snapshot.doc.root, snapshot.cursor.slotId);
+    const ancestorStructIds = new Set<string>();
+    let immediateParentStructId: string | null = null;
+    if (activePath && activePath.length > 1) {
+      for (let i = 1; i < activePath.length; i += 1) {
+        const ps = activePath[i].parentStruct;
+        if (ps) ancestorStructIds.add(ps.id);
+      }
+      immediateParentStructId = activePath[activePath.length - 1].parentStruct?.id ?? null;
+    }
+
+    // 1. Always-visible nested dashed boxes around every semantic structure level
+    if (showHierarchyBoxes) {
+      const structEls = formulaEl.querySelectorAll('[data-struct-id]');
+      const boxes: HierarchyBox[] = [];
+      for (const el of structEls) {
+        const htmlEl = el as HTMLElement;
+        const id = htmlEl.getAttribute('data-struct-id');
+        if (!id) continue;
+        const isAncestor = ancestorStructIds.has(id);
+        const boxFlag = htmlEl.getAttribute('data-struct-box');
+        // Skip tiny flat single-arg function parens like `(x)` in `f(x)` unless cursor is inside it
+        if (boxFlag === '0' && !isAncestor) continue;
+        const depth = Number(htmlEl.getAttribute('data-struct-depth') ?? '1');
+        const subtreeHeight = Number(htmlEl.getAttribute('data-struct-height') ?? '0');
+        const r = getTrueVisualRect(htmlEl);
+        if (!r) continue;
+
+        // Progressive nesting padding: outer containers strictly wrap inner dashed boxes without border overlap!
+        const padX = Math.round((3 + subtreeHeight * 4.5) * Math.max(0.75, scale));
+        const padY = Math.round((2 + subtreeHeight * 4.5) * Math.max(0.75, scale));
+
+        boxes.push({
+          id,
+          depth,
+          left: r.left - stageRect.left - padX,
+          top: r.top - stageRect.top - padY,
+          width: r.width + padX * 2,
+          height: r.height + padY * 2,
+          isAncestor,
+          isImmediateParent: id === immediateParentStructId,
+        });
+      }
+      // Render shallow (outer) boxes first, deep (inner) boxes on top
+      boxes.sort((a, b) => a.depth - b.depth);
+      hierarchyBoxes = boxes;
+    } else {
+      hierarchyBoxes = [];
+    }
+
+    // 2. Full-height pixel-accurate highlight for the currently active nested slot
+    if (activePath && activePath.length > 1) {
+      const curEntry = activePath[activePath.length - 1];
+      const slotEl = formulaEl.querySelector(
+        `[data-slot-id="${CSS.escape(curEntry.slot.id)}"]`,
+      ) as HTMLElement | null;
+      if (slotEl) {
+        const r = getTrueVisualRect(slotEl);
+        if (r) {
+          const padX = 4;
+          const padY = 3;
+          const crumb = snapshot.breadcrumbs[snapshot.breadcrumbs.length - 1];
+          activeSlotBox = {
+            slotId: curEntry.slot.id,
+            label: crumb ? `${crumb.commandLabel}·${crumb.slotLabel}` : curEntry.slot.label,
+            left: r.left - stageRect.left - padX,
+            top: r.top - stageRect.top - padY,
+            width: Math.max(14, r.width + padX * 2),
+            height: Math.max(18, r.height + padY * 2),
+          };
+        } else {
+          activeSlotBox = null;
+        }
+      } else {
+        activeSlotBox = null;
+      }
+    } else {
+      activeSlotBox = null;
+    }
+
+    // 3. Hierarchical jump badges when in Esc jump mode (including plain text terms like `+ 42 +`!)
     if (snapshot.mode.kind === 'jump') {
-      const stageRect = stageEl.getBoundingClientRect();
+      const scopeEl = formulaEl.querySelector(
+        `[data-slot-id="${CSS.escape(snapshot.mode.scopeSlotId)}"]`,
+      ) as HTMLElement | null;
+      const scopeRect = scopeEl ? getTrueVisualRect(scopeEl) ?? scopeEl.getBoundingClientRect() : null;
+
+      if (snapshot.mode.scopePath.length > 0 && scopeRect) {
+        jumpScopeBox = {
+          left: scopeRect.left - stageRect.left - 6,
+          top: scopeRect.top - stageRect.top - 5,
+          width: scopeRect.width + 12,
+          height: scopeRect.height + 10,
+        };
+      } else {
+        jumpScopeBox = null;
+      }
+
       const next: PositionedJump[] = [];
-      for (const target of snapshot.mode.targets) {
-        const el = formulaEl.querySelector(
-          `[data-slot-id="${CSS.escape(target.slotId)}"]`,
-        ) as HTMLElement | null;
-        if (el) {
-          const r = el.getBoundingClientRect();
+      for (let tIdx = 0; tIdx < snapshot.mode.targets.length; tIdx += 1) {
+        const target = snapshot.mode.targets[tIdx];
+        let r: DOMRect | null = null;
+
+        if (target.anchorKind === 'scope-start' && scopeRect) {
+          r = new DOMRect(scopeRect.left - 14, scopeRect.top, 12, scopeRect.height);
+        } else if (target.anchorKind === 'scope-end' && scopeRect) {
+          r = new DOMRect(scopeRect.right + 4, scopeRect.top, 12, scopeRect.height);
+        } else if (
+          target.anchorKind === 'text-term' &&
+          target.termStart !== undefined &&
+          target.termEnd !== undefined
+        ) {
+          let minX = Infinity;
+          let minY = Infinity;
+          let maxX = -Infinity;
+          let maxY = -Infinity;
+          const atoms = formulaEl.querySelectorAll(
+            `[data-atom-slot="${CSS.escape(target.slotId)}"]`,
+          );
+          for (const a of atoms) {
+            const off = Number(a.getAttribute('data-offset') ?? '-1');
+            if (off >= target.termStart && off < target.termEnd) {
+              const ar = getTrueVisualRect(a as HTMLElement);
+              if (ar) {
+                if (ar.left < minX) minX = ar.left;
+                if (ar.top < minY) minY = ar.top;
+                if (ar.right > maxX) maxX = ar.right;
+                if (ar.bottom > maxY) maxY = ar.bottom;
+              }
+            }
+          }
+          if (Number.isFinite(minX)) {
+            r = new DOMRect(minX, minY, maxX - minX, maxY - minY);
+          }
+        } else {
+          const el = formulaEl.querySelector(
+            `[data-slot-id="${CSS.escape(target.slotId)}"]`,
+          ) as HTMLElement | null;
+          if (el) {
+            r = getTrueVisualRect(el) ?? el.getBoundingClientRect();
+          }
+        }
+
+        if (r) {
           const isBottom = target.placement === 'bottom';
-          let left = Math.max(8, r.left - stageRect.left + r.width / 2 - 10);
+          let left = Math.max(8, r.left - stageRect.left + r.width / 2 - 11);
           let top = isBottom
-            ? Math.min(stageRect.height - 26, r.bottom - stageRect.top + 3)
-            : Math.max(8, r.top - stageRect.top - 22);
-          // De-collide nearby badges cleanly along x or y
+            ? Math.min(stageRect.height - 26, r.bottom - stageRect.top + 5)
+            : Math.max(8, r.top - stageRect.top - 24);
           for (let tries = 0; tries < 6; tries += 1) {
             const clash = next.find(
-              (prev) => Math.abs(prev.left - left) < 22 && Math.abs(prev.top - top) < 22,
+              (prev) => Math.abs(prev.left - left) < 24 && Math.abs(prev.top - top) < 22,
             );
             if (!clash) break;
-            left += 22;
+            left += 24;
           }
-          next.push({ ...target, left, top });
+          next.push({ ...target, left, top, isActive: tIdx === snapshot.mode.activeIdx });
         }
       }
       jumpPositions = next;
     } else {
+      jumpScopeBox = null;
       jumpPositions = [];
     }
+  }
+
+  async function recomputeLayout(): Promise<void> {
+    if (!stageEl || !formulaEl) return;
+    const stageWidth = stageEl.clientWidth - 88;
+    const katexEl = formulaEl.querySelector('.katex') as HTMLElement | null;
+    let nextScale = 1;
+    if (katexEl && stageWidth > 120) {
+      const naturalWidth = katexEl.scrollWidth;
+      if (naturalWidth > stageWidth) {
+        nextScale = Math.max(0.46, stageWidth / naturalWidth);
+      }
+    }
+    if (Math.abs(nextScale - scale) > 0.002) {
+      scale = nextScale;
+      await tick();
+    }
+    measureOverlays();
   }
 
   $effect(() => {
     void rendered.html;
     void snapshot.mode;
+    void snapshot.cursor;
+    void showHierarchyBoxes;
+    void shiftedUp;
     void tick().then(() => recomputeLayout());
   });
 
   onMount(() => {
     focus();
-    const ro = new ResizeObserver(() => recomputeLayout());
+    const ro = new ResizeObserver(() => {
+      void recomputeLayout();
+    });
     if (stageEl) ro.observe(stageEl);
     return () => ro.disconnect();
   });
 
   function handleStageMouseDown(e: MouseEvent): void {
-    // Allow clicking buttons inside WhichKeyHud or jump badges without stealing
     const target = e.target as HTMLElement | null;
     if (target?.closest('button')) return;
 
@@ -199,6 +425,43 @@
     onblur={() => onFocusChange(false)}
   />
 
+  <!-- Always-visible pixel-accurate nested dashed hierarchy frames -->
+  <div class="hierarchy-layer" aria-hidden="true">
+    {#each hierarchyBoxes as box (box.id)}
+      <div
+        class={`h-box h-depth-${((box.depth - 1) % 4) + 1}`}
+        class:is-ancestor={box.isAncestor}
+        class:is-parent={box.isImmediateParent}
+        style:left={`${box.left}px`}
+        style:top={`${box.top}px`}
+        style:width={`${box.width}px`}
+        style:height={`${box.height}px`}
+      ></div>
+    {/each}
+
+    {#if jumpScopeBox}
+      <div
+        class="jump-scope-box"
+        style:left={`${jumpScopeBox.left}px`}
+        style:top={`${jumpScopeBox.top}px`}
+        style:width={`${jumpScopeBox.width}px`}
+        style:height={`${jumpScopeBox.height}px`}
+      ></div>
+    {/if}
+
+    {#if activeSlotBox && snapshot.mode.kind !== 'jump'}
+      <div
+        class="active-slot-box"
+        style:left={`${activeSlotBox.left}px`}
+        style:top={`${activeSlotBox.top}px`}
+        style:width={`${activeSlotBox.width}px`}
+        style:height={`${activeSlotBox.height}px`}
+      >
+        <span class="active-slot-tag">{activeSlotBox.label}</span>
+      </div>
+    {/if}
+  </div>
+
   <div class="formula-center" class:shifted={shiftedUp}>
     <div
       class="formula-render"
@@ -211,15 +474,18 @@
   </div>
 
   {#if snapshot.mode.kind === 'jump'}
-    {#each jumpPositions as jp (jp.slotId)}
+    {#each jumpPositions as jp (`${jp.label}-${jp.slotId}-${jp.offset}`)}
       <button
         type="button"
         class="jump-badge"
+        class:is-composite={jp.isComposite}
+        class:is-active={jp.isActive}
+        title={jp.isComposite ? `${jp.slotLabel}（展开子层级）` : jp.slotLabel}
         style:left={`${jp.left}px`}
         style:top={`${jp.top}px`}
         onclick={() => onJumpTarget(jp.label)}
       >
-        {jp.label}
+        {jp.isComposite ? `${jp.label}+` : jp.label}
       </button>
     {/each}
   {/if}
@@ -237,7 +503,7 @@
     overflow: hidden;
     cursor: text;
     user-select: none;
-    padding: 32px 24px;
+    padding: 36px 28px;
   }
 
   .hidden-capture {
@@ -252,7 +518,84 @@
     pointer-events: none;
   }
 
+  .hierarchy-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .h-box {
+    position: absolute;
+    border-radius: 6px;
+    border: 1px dashed var(--ms-lvl-1);
+    box-sizing: border-box;
+    transition: border-color 110ms ease, background-color 110ms ease;
+  }
+
+  .h-depth-1 {
+    border-color: var(--ms-lvl-1);
+  }
+  .h-depth-1.is-ancestor {
+    border-color: var(--ms-lvl-1-active);
+    border-width: 1.5px;
+    background: var(--ms-lvl-1-fill);
+  }
+
+  .h-depth-2 {
+    border-color: var(--ms-lvl-2);
+  }
+  .h-depth-2.is-ancestor {
+    border-color: var(--ms-lvl-2-active);
+    border-width: 1.5px;
+    background: var(--ms-lvl-2-fill);
+  }
+
+  .h-depth-3 {
+    border-color: var(--ms-lvl-3);
+  }
+  .h-depth-3.is-ancestor {
+    border-color: var(--ms-lvl-3-active);
+    border-width: 1.5px;
+    background: var(--ms-lvl-3-fill);
+  }
+
+  .h-depth-4 {
+    border-color: var(--ms-lvl-4);
+  }
+  .h-depth-4.is-ancestor {
+    border-color: var(--ms-lvl-4-active);
+    border-width: 1.5px;
+    background: var(--ms-lvl-4-fill);
+  }
+
+  .active-slot-box {
+    position: absolute;
+    border-radius: 6px;
+    border: 1.5px solid var(--ms-accent);
+    background: var(--ms-accent-soft);
+    box-sizing: border-box;
+  }
+
+  .active-slot-tag {
+    position: absolute;
+    left: -1px;
+    top: -17px;
+    padding: 1px 6px;
+    border-radius: 4px 4px 4px 0;
+    background: var(--ms-accent);
+    color: var(--ms-accent-fg);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+    box-shadow: var(--ms-shadow-sm);
+  }
+
   .formula-center {
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -270,8 +613,15 @@
     font-size: clamp(1.75rem, 3.2vw, 2.45rem);
     line-height: 1.5;
     transform-origin: center center;
-    transition: transform 140ms ease;
     color: var(--ms-fg);
+  }
+
+  .jump-scope-box {
+    position: absolute;
+    border-radius: 8px;
+    border: 2px solid var(--ms-jump-border);
+    background: color-mix(in srgb, var(--ms-jump-bg) 35%, transparent);
+    box-sizing: border-box;
   }
 
   .jump-badge {
@@ -295,7 +645,18 @@
     justify-content: center;
   }
 
+  .jump-badge.is-composite {
+    border-color: var(--ms-accent);
+    background: var(--ms-keycap-bg);
+    color: var(--ms-keycap-fg);
+  }
+
+  .jump-badge.is-active {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 2px var(--ms-accent-ring), var(--ms-shadow-sm);
+  }
+
   .jump-badge:hover {
-    transform: scale(1.08);
+    transform: scale(1.12);
   }
 </style>

@@ -229,11 +229,41 @@
       return;
     }
 
-    // Jump mode key dispatch
+    // Jump mode key dispatch (supports hierarchical drill-down, Arrow roaming, Backspace step-up, Enter confirm)
     if (snapshot.mode.kind === 'jump') {
       if (e.key === 'Escape') {
         e.preventDefault();
         engine.exitMode();
+        sync();
+        return;
+      }
+      if (e.key === 'Backspace' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        engine.stepJumpBack();
+        sync();
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        engine.confirmJumpSelection();
+        sync();
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        engine.moveJumpSelection(-1);
+        sync();
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        engine.moveJumpSelection(1);
+        sync();
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        engine.drillJumpSelection();
         sync();
         return;
       }
@@ -430,7 +460,30 @@
     </div>
 
     <div class="breadcrumb-area">
-      {#if snapshot.breadcrumbs.length > 0}
+      {#if snapshot.mode.kind === 'jump'}
+        <nav class="breadcrumbs" aria-label="跳转层级">
+          <span class="crumb-btn">跳转</span>
+          {#each snapshot.mode.scopePath as sc (sc.slotId)}
+            <span class="crumb-sep">›</span>
+            <span class="crumb-btn">{sc.label}</span>
+          {/each}
+          {#if snapshot.mode.scopePath.length > 0}
+            <button
+              type="button"
+              class="crumb-up"
+              title="返回上一层级 (Backspace)"
+              aria-label="返回上一跳转层级"
+              onclick={() => {
+                engine.stepJumpBack();
+                sync();
+                canvasRef?.focus();
+              }}
+            >
+              ↑
+            </button>
+          {/if}
+        </nav>
+      {:else if snapshot.breadcrumbs.length > 0}
         <nav class="breadcrumbs" aria-label="当前层级">
           <button
             type="button"
@@ -522,6 +575,23 @@
       <button
         type="button"
         class="icon-btn"
+        class:active={settings.showHierarchyBoxes}
+        title="始终显示层级虚线框"
+        aria-label="切换层级虚线框"
+        onclick={() => {
+          updateSettings({ showHierarchyBoxes: !settings.showHierarchyBoxes });
+          canvasRef?.focus();
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2">
+          <rect x="3" y="3" width="18" height="18" rx="3" />
+          <rect x="7" y="7" width="10" height="10" rx="2" stroke-dasharray="none" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class="icon-btn"
         class:active={snapshot.mode.kind === 'jump'}
         title="槽位跳转 (Esc)"
         aria-label="槽位跳转"
@@ -607,6 +677,7 @@
     bind:this={canvasRef}
     {snapshot}
     shiftedUp={ribbonPopoverOpen}
+    showHierarchyBoxes={settings.showHierarchyBoxes}
     onKeyEvent={handleKeyEvent}
     onTextInput={(text) => {
       engine.insertText(text);
