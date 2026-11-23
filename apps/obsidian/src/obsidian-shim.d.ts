@@ -51,3 +51,8 @@ declare module 'obsidian' {
     saveData(data: unknown): Promise<void>;
   }
 }
+
+interface HTMLElement {
+  addClass(cls: string): void;
+  empty(): void;
+}
