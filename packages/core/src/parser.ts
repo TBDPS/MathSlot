@@ -7,7 +7,13 @@ import {
   createSymbolNode,
   textToCharNodes,
 } from './ast';
-import { COMMANDS, COMMANDS_BY_ID, COMMANDS_BY_KEYS, SUBMENU_KEYS } from './catalog';
+import {
+  COMMANDS,
+  COMMANDS_BY_ID,
+  COMMANDS_BY_KEYS,
+  SUBMENU_KEYS,
+  getSubmenuDefaultCommandId,
+} from './catalog';
 import { DIFFERENTIAL_WORDS, MATH_FUNCTIONS } from './latex';
 import type { CommandDef, Diagnostic, Document, ImportResult, MathNode } from './types';
 
@@ -67,15 +73,28 @@ export function parseStreamCode(source: string): ImportResult {
         const k1 = chars[pos];
         pos += 1;
         let cmd: CommandDef | undefined;
-        if (SUBMENU_KEYS.has(k1) && pos < chars.length) {
-          const k2 = chars[pos];
-          cmd = COMMANDS_BY_KEYS.get(k1 + k2);
-          if (cmd) {
-            pos += 1;
+        let legacySingleSqrt = false;
+        if (k1 === 'n') {
+          // Legacy `▸n3;8;` maps cleanly to unified 2-slot `sqrt`
+          cmd = COMMANDS_BY_ID.get('sqrt');
+        } else if (SUBMENU_KEYS.has(k1)) {
+          if (pos < chars.length) {
+            const k2 = chars[pos];
+            cmd = COMMANDS_BY_KEYS.get(k1 + k2);
+            if (cmd) {
+              pos += 1;
+            }
+          }
+          if (!cmd) {
+            const defId = getSubmenuDefaultCommandId(k1);
+            if (defId) cmd = COMMANDS_BY_ID.get(defId);
           }
         }
         if (!cmd) {
           cmd = COMMANDS_BY_KEYS.get(k1);
+          if (k1 === 'r' && cmd?.id === 'sqrt') {
+            legacySingleSqrt = true;
+          }
         }
         if (!cmd) {
           diagnostics.push({ severity: 'warning', message: `未识别简码 ▸${k1}` });
@@ -83,6 +102,10 @@ export function parseStreamCode(source: string): ImportResult {
         }
         if (cmd.slots.length === 0) {
           out.push(createSymbolNode(cmd));
+        } else if (legacySingleSqrt) {
+          // Support both legacy 1-slot `▸rx;` and unified 2-slot `▸r3;8;`
+          const first = parseNodes(true);
+          out.push(createStructNode(cmd, [[], first]));
         } else {
           const slotContents: MathNode[][] = [];
           for (let s = 0; s < cmd.slots.length; s += 1) {
@@ -763,15 +786,12 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       if (macro === '\\sqrt') {
         const opt = readBracketRaw();
         const body = readGroupNodes();
-        if (opt !== null) {
-          return [
-            createStructNode(COMMANDS_BY_ID.get('nth_root')!, [
-              parseLatexNodes(opt, diagnostics),
-              body,
-            ]),
-          ];
-        }
-        return [createStructNode(COMMANDS_BY_ID.get('sqrt')!, [body])];
+        return [
+          createStructNode(COMMANDS_BY_ID.get('sqrt')!, [
+            opt !== null ? parseLatexNodes(opt, diagnostics) : [],
+            body,
+          ]),
+        ];
       }
       if (macro === '\\binom') {
         const n = readGroupNodes();
@@ -781,16 +801,13 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       if (macro === '\\int') {
         const { sub, sup } = readSubSup();
         const body = readBigOpBody(true);
-        if (sub || sup) {
-          return [
-            createStructNode(COMMANDS_BY_ID.get('integral')!, [
-              sub ?? [],
-              sup ?? [],
-              body,
-            ]),
-          ];
-        }
-        return [createStructNode(COMMANDS_BY_ID.get('indef_integral')!, [body])];
+        return [
+          createStructNode(COMMANDS_BY_ID.get('integral')!, [
+            sub ?? [],
+            sup ?? [],
+            body,
+          ]),
+        ];
       }
       if (macro === '\\sum') {
         const { sub, sup } = readSubSup();

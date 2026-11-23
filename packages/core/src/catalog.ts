@@ -1,13 +1,13 @@
 import type { CommandCategory, CommandDef, SubmenuMeta } from './types';
 
 export const SUBMENUS: readonly SubmenuMeta[] = [
-  { key: 'g', category: 'greek', label: '希腊字母', glyph: 'α' },
-  { key: 'c', category: 'calculus', label: '微积分', glyph: '∫' },
-  { key: 'm', category: 'matrix', label: '矩阵', glyph: '[ ]' },
-  { key: 'a', category: 'accent', label: '装饰定界', glyph: 'x̂' },
-  { key: 'o', category: 'symbol', label: '运算符', glyph: '±' },
-  { key: 'x', category: 'relation', label: '关系符', glyph: '≈' },
-  { key: 'q', category: 'setlogic', label: '集合逻辑', glyph: '∀' },
+  { key: 'g', category: 'greek', label: '希腊字母', glyph: 'α', defaultCommandId: 'alpha' },
+  { key: 'c', category: 'calculus', label: '微积分', glyph: '∂', defaultCommandId: 'partial_frac' },
+  { key: 'm', category: 'matrix', label: '矩阵', glyph: '[ ]', defaultCommandId: 'matrix_2x2' },
+  { key: 'a', category: 'accent', label: '装饰定界', glyph: 'x̂', defaultCommandId: 'hat' },
+  { key: 'o', category: 'symbol', label: '运算符', glyph: '±', defaultCommandId: 'pm' },
+  { key: 'x', category: 'relation', label: '关系符', glyph: '≈', defaultCommandId: 'approx' },
+  { key: 'q', category: 'setlogic', label: '集合逻辑', glyph: '∪', defaultCommandId: 'cup' },
 ];
 
 export const CATEGORY_LABELS: Record<CommandCategory, string> = {
@@ -23,22 +23,21 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
 
 export const COMMANDS: readonly CommandDef[] = [
   {"id": "frac", "keys": ["f"], "label": "分数", "category": "structure", "glyph": "a/b", "slots": ["分子", "分母"], "latex": "\\frac{$1}{$2}", "doc": "分数：分子在前，分母在后", "examples": ["▸f1;2;"], "wrapSlot": 0},
-  {"id": "sqrt", "keys": ["r"], "label": "根号", "category": "structure", "glyph": "√x", "slots": ["被开方式"], "latex": "\\sqrt{$1}", "doc": "平方根号", "examples": ["▸rx;"], "wrapSlot": 0},
-  {"id": "nth_root", "keys": ["n"], "label": "N次根", "category": "structure", "glyph": "n√x", "slots": ["根指数", "被开方式"], "latex": "\\sqrt[$1]{$2}", "doc": "N次根号：根指数在前，被开方式在后", "examples": ["▸n3;8;"], "wrapSlot": 1},
+  {"id": "sqrt", "keys": ["r"], "label": "根号", "category": "structure", "glyph": "√x", "slots": ["根指数", "被开方式"], "optionalSlots": [0], "latex": "\\sqrt[$1]{$2}", "doc": "根号：根指数留空自动按二次根号 \\sqrt{x} 渲染，填写后按 N 次根渲染", "examples": ["▸rx;", "▸r3;8;"], "wrapSlot": 1},
   {"id": "sup", "keys": ["u"], "label": "上标", "category": "structure", "glyph": "x^n", "slots": ["底数", "指数"], "latex": "{$1}^{$2}", "doc": "上标指数：底数在前，指数在后", "examples": ["▸ux;2;"], "wrapSlot": 0},
   {"id": "sub", "keys": ["d"], "label": "下标", "category": "structure", "glyph": "x_n", "slots": ["主体", "下标"], "latex": "{$1}_{$2}", "doc": "下标索引：主体在前，下标在后", "examples": ["▸dx;i;"], "wrapSlot": 0},
-  {"id": "subsup", "keys": ["b"], "label": "上下标", "category": "structure", "glyph": "x_n^m", "slots": ["主体", "下标", "上标"], "latex": "{$1}_{$2}^{$3}", "doc": "同时包含上下标：主体、下标、上标", "examples": ["▸bx;i;2;"], "wrapSlot": 0},
+  {"id": "subsup", "keys": ["b"], "label": "上下标", "category": "structure", "glyph": "x_n^m", "slots": ["主体", "下标", "上标"], "optionalSlots": [1, 2], "latex": "{$1}_{$2}^{$3}", "doc": "上下标：下标或上标留空时自动省略", "examples": ["▸bx;i;2;"], "wrapSlot": 0},
   {"id": "paren", "keys": ["p"], "label": "括号", "category": "structure", "glyph": "(x)", "slots": ["括号内"], "latex": "\\left($1\\right)", "doc": "自适应圆括号", "examples": ["▸px;"], "wrapSlot": 0},
   {"id": "abs", "keys": ["v"], "label": "绝对值", "category": "structure", "glyph": "|x|", "slots": ["绝对值内"], "latex": "\\left|$1\\right|", "doc": "自适应绝对值竖线", "examples": ["▸vx;"], "wrapSlot": 0},
-  {"id": "integral", "keys": ["i"], "label": "定积分", "category": "structure", "glyph": "∫_a^b", "slots": ["下限", "上限", "被积式"], "latex": "\\int_{$1}^{$2} $3", "doc": "定积分：下限、上限、被积式", "examples": ["▸i0;1;f(x) dx;"], "wrapSlot": 2},
-  {"id": "sum", "keys": ["s"], "label": "求和", "category": "structure", "glyph": "∑", "slots": ["下限", "上限", "求和主体"], "latex": "\\sum_{$1}^{$2} $3", "doc": "累加求和：下限、上限、求和主体", "examples": ["▸si=1;n;a_i;"], "wrapSlot": 2},
+  {"id": "integral", "keys": ["i"], "label": "积分", "category": "structure", "glyph": "∫", "slots": ["下限", "上限", "被积式"], "optionalSlots": [0, 1], "latex": "\\int_{$1}^{$2} $3", "doc": "积分：上下限留空自动按不定积分 \\int 渲染", "examples": ["▸i0;1;f(x) dx;"], "wrapSlot": 2},
+  {"id": "sum", "keys": ["s"], "label": "求和", "category": "structure", "glyph": "∑", "slots": ["下限", "上限", "求和主体"], "optionalSlots": [0, 1], "latex": "\\sum_{$1}^{$2} $3", "doc": "累加求和：上下限可省略", "examples": ["▸si=1;n;a_i;"], "wrapSlot": 2},
   {"id": "limit", "keys": ["l"], "label": "极限", "category": "structure", "glyph": "x→a", "slots": ["趋近变量", "趋近目标", "极限主体"], "latex": "\\lim_{$1 \\to $2} $3", "doc": "极限：趋近变量、趋近目标、极限主体", "examples": ["▸lx;0;▸fsin x;x;;"], "wrapSlot": 2},
   {"id": "binom", "keys": ["e"], "label": "二项式", "category": "structure", "glyph": "C(n,k)", "slots": ["上标 n", "下标 k"], "latex": "\\binom{$1}{$2}", "doc": "二项式组合数：上标 n、下标 k", "examples": ["▸en;k;"], "wrapSlot": 0},
   {"id": "indef_integral", "keys": ["c", "a"], "label": "不定积分", "category": "calculus", "glyph": "∫", "slots": ["被积式"], "latex": "\\int $1", "doc": "不定积分：被积式", "examples": ["▸caf(x) dx;"], "wrapSlot": 0},
-  {"id": "product", "keys": ["c", "b"], "label": "连乘", "category": "calculus", "glyph": "∏", "slots": ["下限", "上限", "连乘主体"], "latex": "\\prod_{$1}^{$2} $3", "doc": "连乘积：下限、上限、连乘主体", "examples": ["▸cbi=1;n;a_i;"], "wrapSlot": 2},
-  {"id": "double_integral", "keys": ["c", "c"], "label": "二重积分", "category": "calculus", "glyph": "∬", "slots": ["积分区域", "被积式"], "latex": "\\iint_{$1} $2", "doc": "二重积分：积分区域、被积式", "examples": ["▸ccD;f(x,y) dxdy;"], "wrapSlot": 1},
-  {"id": "contour_integral", "keys": ["c", "d"], "label": "环路积分", "category": "calculus", "glyph": "∮", "slots": ["积分路径", "被积式"], "latex": "\\oint_{$1} $2", "doc": "闭合曲线/环路积分：积分路径、被积式", "examples": ["▸cdC;F·dr;"], "wrapSlot": 1},
-  {"id": "triple_integral", "keys": ["c", "e"], "label": "三重积分", "category": "calculus", "glyph": "∭", "slots": ["积分体", "被积式"], "latex": "\\iiint_{$1} $2", "doc": "三重积分：积分体、被积式", "examples": ["▸ceV;f dV;"], "wrapSlot": 1},
+  {"id": "product", "keys": ["c", "b"], "label": "连乘", "category": "calculus", "glyph": "∏", "slots": ["下限", "上限", "连乘主体"], "optionalSlots": [0, 1], "latex": "\\prod_{$1}^{$2} $3", "doc": "连乘积：上下限可省略", "examples": ["▸cbi=1;n;a_i;"], "wrapSlot": 2},
+  {"id": "double_integral", "keys": ["c", "c"], "label": "二重积分", "category": "calculus", "glyph": "∬", "slots": ["积分区域", "被积式"], "optionalSlots": [0], "latex": "\\iint_{$1} $2", "doc": "二重积分：积分区域留空自动省略", "examples": ["▸ccD;f(x,y) dxdy;"], "wrapSlot": 1},
+  {"id": "contour_integral", "keys": ["c", "d"], "label": "环路积分", "category": "calculus", "glyph": "∮", "slots": ["积分路径", "被积式"], "optionalSlots": [0], "latex": "\\oint_{$1} $2", "doc": "闭合曲线/环路积分：积分路径留空自动省略", "examples": ["▸cdC;F·dr;"], "wrapSlot": 1},
+  {"id": "triple_integral", "keys": ["c", "e"], "label": "三重积分", "category": "calculus", "glyph": "∭", "slots": ["积分体", "被积式"], "optionalSlots": [0], "latex": "\\iiint_{$1} $2", "doc": "三重积分：积分体留空自动省略", "examples": ["▸ceV;f dV;"], "wrapSlot": 1},
   {"id": "partial_frac", "keys": ["c", "g"], "label": "偏导分式", "category": "calculus", "glyph": "∂y/∂x", "slots": ["分子", "分母"], "latex": "\\frac{\\partial $1}{\\partial $2}", "doc": "偏导数分式：分子、分母", "examples": ["▸cgy;x;"], "wrapSlot": 0},
   {"id": "total_frac", "keys": ["c", "i"], "label": "全导分式", "category": "calculus", "glyph": "dy/dx", "slots": ["分子", "分母"], "latex": "\\frac{\\mathrm{d}$1}{\\mathrm{d}$2}", "doc": "全导数分式：分子、分母", "examples": ["▸ciy;x;"], "wrapSlot": 0},
   {"id": "matrix_2x2", "keys": ["m", "a"], "label": "2×2 矩阵", "category": "matrix", "glyph": "(2×2)", "slots": ["(1,1)", "(1,2)", "(2,1)", "(2,2)"], "latex": "\\begin{pmatrix} $1 & $2 \\\\ $3 & $4 \\end{pmatrix}", "doc": "2×2 圆括号矩阵", "examples": ["▸ma1;2;3;4;"], "wrapSlot": null},
@@ -58,14 +57,14 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "overline", "keys": ["a", "g"], "label": "上划线", "category": "accent", "glyph": "overline", "slots": ["上划线内"], "latex": "\\overline{$1}", "doc": "长上划线标注：\\overline{x}", "examples": ["▸agx;"], "wrapSlot": 0},
   {"id": "ddot", "keys": ["a", "h"], "label": "二阶导点", "category": "accent", "glyph": "ddot", "slots": ["二阶导点内"], "latex": "\\ddot{$1}", "doc": "二阶导点标注：\\ddot{x}", "examples": ["▸ahx;"], "wrapSlot": 0},
   {"id": "underline", "keys": ["a", "i"], "label": "下划线", "category": "accent", "glyph": "underline", "slots": ["下划线内"], "latex": "\\underline{$1}", "doc": "下划线标注：\\underline{x}", "examples": ["▸aix;"], "wrapSlot": 0},
-  {"id": "overbrace", "keys": ["a", "j"], "label": "上花括号", "category": "accent", "glyph": "overbrace", "slots": ["主体", "标注"], "latex": "\\overbrace{$1}^{$2}", "doc": "上花括号标注：\\overbrace{主体}^{标注}", "examples": ["▸ajx;标注;"], "wrapSlot": 0},
-  {"id": "underbrace", "keys": ["a", "k"], "label": "下花括号", "category": "accent", "glyph": "underbrace", "slots": ["主体", "标注"], "latex": "\\underbrace{$1}_{$2}", "doc": "下花括号标注：\\underbrace{主体}_{标注}", "examples": ["▸akx;标注;"], "wrapSlot": 0},
+  {"id": "overbrace", "keys": ["a", "j"], "label": "上花括号", "category": "accent", "glyph": "overbrace", "slots": ["主体", "标注"], "optionalSlots": [1], "latex": "\\overbrace{$1}^{$2}", "doc": "上花括号标注：标注留空自动省略", "examples": ["▸ajx;标注;"], "wrapSlot": 0},
+  {"id": "underbrace", "keys": ["a", "k"], "label": "下花括号", "category": "accent", "glyph": "underbrace", "slots": ["主体", "标注"], "optionalSlots": [1], "latex": "\\underbrace{$1}_{$2}", "doc": "下花括号标注：标注留空自动省略", "examples": ["▸akx;标注;"], "wrapSlot": 0},
   {"id": "bracket", "keys": ["a", "l"], "label": "中括号", "category": "accent", "glyph": "[x]", "slots": ["中括号内"], "latex": "\\left[$1\\right]", "doc": "自适应方括号定界：\\left[ x\\right]", "examples": ["▸alx;"], "wrapSlot": 0},
   {"id": "brace", "keys": ["a", "m"], "label": "大括号/集合", "category": "accent", "glyph": "{x}", "slots": ["大括号内"], "latex": "\\left\\{$1\\right\\}", "doc": "自适应花括号定界：\\left\\{ x\\right\\}", "examples": ["▸amx;"], "wrapSlot": 0},
   {"id": "angle", "keys": ["a", "n"], "label": "尖括号内积", "category": "accent", "glyph": "⟨x⟩", "slots": ["尖括号内"], "latex": "\\left\\langle $1\\right\\rangle", "doc": "尖括号内积定界：\\left\\langle x\\right\\rangle", "examples": ["▸anx;"], "wrapSlot": 0},
   {"id": "floor", "keys": ["a", "o"], "label": "向下取整", "category": "accent", "glyph": "⌊x⌋", "slots": ["向下取整内"], "latex": "\\left\\lfloor $1\\right\\rfloor", "doc": "向下取整定界：\\left\\lfloor x\\right\\rfloor", "examples": ["▸aox;"], "wrapSlot": 0},
   {"id": "ceil", "keys": ["a", "p"], "label": "向上取整", "category": "accent", "glyph": "⌈x⌉", "slots": ["向上取整内"], "latex": "\\left\\lceil $1\\right\\rceil", "doc": "向上取整定界：\\left\\lceil x\\right\\rceil", "examples": ["▸apx;"], "wrapSlot": 0},
-  {"id": "eval_bar", "keys": ["a", "q"], "label": "代入求值线", "category": "accent", "glyph": "F|_a^b", "slots": ["表达式", "下限", "上限"], "latex": "\\left. $1\\right|_{$2}^{$3}", "doc": "代入求值竖线：\\left. F\\right|_a^b", "examples": ["▸aqF;a;b;"], "wrapSlot": 0},
+  {"id": "eval_bar", "keys": ["a", "q"], "label": "代入求值线", "category": "accent", "glyph": "F|_a^b", "slots": ["表达式", "下限", "上限"], "optionalSlots": [1, 2], "latex": "\\left. $1\\right|_{$2}^{$3}", "doc": "代入求值竖线：上下限可省略", "examples": ["▸aqF;a;b;"], "wrapSlot": 0},
   {"id": "alpha", "keys": ["g", "a"], "label": "alpha", "category": "greek", "glyph": "α", "slots": [], "latex": "\\alpha", "doc": "希腊字母：\\alpha", "examples": ["▸ga"], "wrapSlot": null},
   {"id": "beta", "keys": ["g", "b"], "label": "beta", "category": "greek", "glyph": "β", "slots": [], "latex": "\\beta", "doc": "希腊字母：\\beta", "examples": ["▸gb"], "wrapSlot": null},
   {"id": "gamma", "keys": ["g", "c"], "label": "gamma", "category": "greek", "glyph": "γ", "slots": [], "latex": "\\gamma", "doc": "希腊字母：\\gamma", "examples": ["▸gc"], "wrapSlot": null},
@@ -163,6 +162,14 @@ export const DIRECT_COMMANDS: readonly CommandDef[] = COMMANDS.filter(
 );
 
 export const SUBMENU_KEYS: ReadonlySet<string> = new Set(SUBMENUS.map((s) => s.key));
+
+export const SUBMENU_BY_KEY: ReadonlyMap<string, SubmenuMeta> = new Map(
+  SUBMENUS.map((s) => [s.key, s]),
+);
+
+export function getSubmenuDefaultCommandId(prefix: string): string | undefined {
+  return SUBMENU_BY_KEY.get(prefix)?.defaultCommandId;
+}
 
 export function getSubmenuCommands(prefix: string): CommandDef[] {
   return COMMANDS.filter((c) => c.keys.length === 2 && c.keys[0] === prefix);

@@ -230,21 +230,65 @@ export function listAllSlots(root: SlotNode): SlotNode[] {
   return out;
 }
 
+export const OPTIONAL_SLOTS_BY_CMD: Readonly<Record<string, readonly number[]>> = {
+  sqrt: [0],
+  nth_root: [0],
+  integral: [0, 1],
+  sum: [0, 1],
+  product: [0, 1],
+  double_integral: [0],
+  contour_integral: [0],
+  triple_integral: [0],
+  subsup: [1, 2],
+  eval_bar: [1, 2],
+  overbrace: [1],
+  underbrace: [1],
+};
+
+export function isOptionalSlot(commandId: string, slotIndex: number): boolean {
+  const list = OPTIONAL_SLOTS_BY_CMD[commandId];
+  return list ? list.includes(slotIndex) : false;
+}
+
+/**
+ * Determines whether a slot of `node` is rendered in interactive KaTeX.
+ * Required slots are always visible. Optional slots are visible when non-empty,
+ * when directly focused, or when a paired sibling optional slot is focused
+ * (e.g. seeing both lower & upper limits while filling limits of an integral/sum).
+ */
+export function isSlotVisibleInteractive(
+  node: StructNode,
+  slotIndex: number,
+  activeSlotId: string,
+): boolean {
+  const slot = node.slots[slotIndex];
+  if (!slot) return false;
+  if (slot.children.length > 0) return true;
+  if (!isOptionalSlot(node.commandId, slotIndex)) return true;
+  if (slot.id === activeSlotId) return true;
+
+  const optList = OPTIONAL_SLOTS_BY_CMD[node.commandId];
+  if (optList && optList.length >= 2) {
+    return optList.some((idx) => node.slots[idx]?.id === activeSlotId);
+  }
+  return false;
+}
+
 export function countEmptySlots(root: SlotNode): number {
   let count = 0;
-  const walk = (slot: SlotNode, isRoot: boolean) => {
-    if (!isRoot && slot.children.length === 0) {
+  const walk = (slot: SlotNode, isRoot: boolean, isOptional: boolean) => {
+    if (!isRoot && !isOptional && slot.children.length === 0) {
       count += 1;
     }
     for (const child of slot.children) {
       if (child.type === 'struct') {
-        for (const sub of child.slots) {
-          walk(sub, false);
+        for (let sIdx = 0; sIdx < child.slots.length; sIdx += 1) {
+          walk(child.slots[sIdx], false, isOptionalSlot(child.commandId, sIdx));
         }
       }
     }
   };
-  walk(root, true);
+  walk(root, true, false);
   return count;
 }
 
@@ -391,6 +435,10 @@ export function buildJumpTargets(scopeSlot: SlotNode): JumpTarget[] {
 
     for (let sIdx = 0; sIdx < child.slots.length; sIdx += 1) {
       const sub = child.slots[sIdx];
+      // Skip collapsed empty optional slots (e.g. empty root index of `\sqrt{x}` or empty limits of `\int f dx`)
+      if (sub.children.length === 0 && isOptionalSlot(child.commandId, sIdx)) {
+        continue;
+      }
       const skipSimpleBase =
         isScript &&
         sIdx === 0 &&

@@ -139,6 +139,10 @@
   cursor: pointer;
 }
 
+.ms-studio .ms-empty-box-optional {
+  opacity: 0.46;
+}
+
 .ms-studio .ms-empty-box-active {
   color: var(--ms-accent);
   opacity: 1;

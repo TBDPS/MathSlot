@@ -537,7 +537,7 @@
     </div>
   </div>
 
-  {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind !== 'jump'}
+  {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind === 'edit' && !shiftedUp}
     <div
       class="grid-controls"
       style:left={`${activeGridPos.left}px`}
@@ -684,7 +684,6 @@
     gap: 10px;
     max-width: 100%;
     min-height: 92px;
-    transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .formula-center.shifted {

@@ -22,11 +22,11 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 126 unique commands with unique ids and key chords', () => {
-    expect(COMMANDS.length).toBe(126);
-    expect(COMMANDS_BY_ID.size).toBe(126);
-    expect(COMMANDS_BY_KEYS.size).toBe(126);
-    expect(DIRECT_COMMANDS.length).toBe(12);
+  it('contains 125 unique commands with unique ids, key chords, and curated submenu defaults', () => {
+    expect(COMMANDS.length).toBe(125);
+    expect(COMMANDS_BY_ID.size).toBe(125);
+    expect(COMMANDS_BY_KEYS.size).toBe(125);
+    expect(DIRECT_COMMANDS.length).toBe(11);
     expect(SUBMENUS.length).toBe(7);
 
     // Every auto-shorthand must resolve to a real command in COMMANDS_BY_ID
@@ -41,6 +41,7 @@ describe('MathSlot catalog & presets integrity', () => {
     }
     for (const sub of SUBMENUS) {
       expect(getSubmenuCommands(sub.key).length).toBeGreaterThan(0);
+      expect(sub.defaultCommandId && COMMANDS_BY_ID.has(sub.defaultCommandId)).toBe(true);
     }
   });
 

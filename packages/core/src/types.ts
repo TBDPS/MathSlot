@@ -15,6 +15,8 @@ export interface CommandDef {
   readonly category: CommandCategory;
   readonly glyph: string;
   readonly slots: readonly string[];
+  /** Slot indices that are optional and collapse cleanly when left empty */
+  readonly optionalSlots?: readonly number[];
   readonly latex: string;
   readonly doc: string;
   readonly examples: readonly string[];
@@ -26,6 +28,8 @@ export interface SubmenuMeta {
   readonly category: CommandCategory;
   readonly label: string;
   readonly glyph: string;
+  /** Default command inserted immediately when only the single submenu letter is pressed */
+  readonly defaultCommandId?: string;
 }
 
 export interface PresetFormula {
@@ -123,7 +127,7 @@ export interface JumpScopeCrumb {
 
 export type EditorMode =
   | { kind: 'edit' }
-  | { kind: 'leader'; prefix: string }
+  | { kind: 'leader'; prefix: string; pendingDefaultId?: string }
   | {
       kind: 'jump';
       scopePath: JumpScopeCrumb[];

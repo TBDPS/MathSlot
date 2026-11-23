@@ -1,4 +1,4 @@
-import { findSlotPath, getGridMeta } from './ast';
+import { findSlotPath, getGridMeta, isOptionalSlot, isSlotVisibleInteractive } from './ast';
 import { COMMANDS_BY_ID } from './catalog';
 import type {
   Cursor,
@@ -302,7 +302,7 @@ function isTightSlot(commandId: string, slotIndex: number): boolean {
   ) {
     return true;
   }
-  if (commandId === 'nth_root' && slotIndex === 0) return true;
+  if ((commandId === 'nth_root' || commandId === 'sqrt') && slotIndex === 0) return true;
   if (commandId === 'eval_bar' && (slotIndex === 1 || slotIndex === 2)) return true;
   return false;
 }
@@ -793,6 +793,76 @@ function formatScriptArg(slot: SlotNode, autoShorthands: boolean): string {
   return `{${inner}}`;
 }
 
+function resolveAdaptiveStructTemplate(
+  node: StructNode,
+  hasSlot: (idx: number) => boolean,
+): string | null {
+  if (node.customLatex) return null;
+  switch (node.commandId) {
+    case 'sqrt':
+    case 'nth_root':
+      if (node.slots.length === 2) {
+        return hasSlot(0) ? '\\sqrt[$1]{$2}' : '\\sqrt{$2}';
+      }
+      return null;
+    case 'integral':
+    case 'sum':
+    case 'product': {
+      if (node.slots.length !== 3) return null;
+      const macro =
+        node.commandId === 'integral' ? '\\int' : node.commandId === 'sum' ? '\\sum' : '\\prod';
+      const hasLo = hasSlot(0);
+      const hasHi = hasSlot(1);
+      if (hasLo && hasHi) return `${macro}_{$1}^{$2} $3`;
+      if (hasLo) return `${macro}_{$1} $3`;
+      if (hasHi) return `${macro}^{$2} $3`;
+      return `${macro} $3`;
+    }
+    case 'double_integral':
+    case 'contour_integral':
+    case 'triple_integral': {
+      if (node.slots.length !== 2) return null;
+      const macro =
+        node.commandId === 'double_integral'
+          ? '\\iint'
+          : node.commandId === 'contour_integral'
+            ? '\\oint'
+            : '\\iiint';
+      return hasSlot(0) ? `${macro}_{$1} $2` : `${macro} $2`;
+    }
+    case 'eval_bar': {
+      if (node.slots.length !== 3) return null;
+      const hasLo = hasSlot(1);
+      const hasHi = hasSlot(2);
+      if (hasLo && hasHi) return '\\left. $1\\right|_{$2}^{$3}';
+      if (hasLo) return '\\left. $1\\right|_{$2}';
+      if (hasHi) return '\\left. $1\\right|^{$3}';
+      return '\\left. $1\\right|';
+    }
+    case 'overbrace':
+      if (node.slots.length === 2) {
+        return hasSlot(1) ? '\\overbrace{$1}^{$2}' : '\\overbrace{$1}';
+      }
+      return null;
+    case 'underbrace':
+      if (node.slots.length === 2) {
+        return hasSlot(1) ? '\\underbrace{$1}_{$2}' : '\\underbrace{$1}';
+      }
+      return null;
+    case 'subsup': {
+      if (node.slots.length !== 3) return null;
+      const hasSub = hasSlot(1);
+      const hasSup = hasSlot(2);
+      if (hasSub && hasSup) return '{$1}_{$2}^{$3}';
+      if (hasSub) return '{$1}_{$2}';
+      if (hasSup) return '{$1}^{$3}';
+      return '$1';
+    }
+    default:
+      return null;
+  }
+}
+
 function emitStructCanonical(
   node: StructNode,
   parentLevel: SpacingLevel,
@@ -806,7 +876,19 @@ function emitStructCanonical(
       return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}_${formatScriptArg(node.slots[1], autoShorthands)}`;
     }
     if (node.commandId === 'subsup' && node.slots.length === 3) {
-      return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}_${formatScriptArg(node.slots[1], autoShorthands)}^${formatScriptArg(node.slots[2], autoShorthands)}`;
+      const hasSub = node.slots[1].children.length > 0;
+      const hasSup = node.slots[2].children.length > 0;
+      if (!hasSub && !hasSup) {
+        return emitSlotCanonical(node.slots[0], parentLevel, autoShorthands);
+      }
+      const base = formatScriptBase(node.slots[0], parentLevel, autoShorthands);
+      if (hasSub && hasSup) {
+        return `${base}_${formatScriptArg(node.slots[1], autoShorthands)}^${formatScriptArg(node.slots[2], autoShorthands)}`;
+      }
+      if (hasSub) {
+        return `${base}_${formatScriptArg(node.slots[1], autoShorthands)}`;
+      }
+      return `${base}^${formatScriptArg(node.slots[2], autoShorthands)}`;
     }
 
     // Dynamic R×C matrix / N-row cases emission
@@ -841,7 +923,12 @@ function emitStructCanonical(
     }
   }
 
-  const template = node.customLatex ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
+  const adaptiveTemplate = resolveAdaptiveStructTemplate(
+    node,
+    (idx) => (node.slots[idx]?.children.length ?? 0) > 0,
+  );
+  const template =
+    node.customLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
   if (!template) {
     return node.slots.map((s) => emitSlotCanonical(s, parentLevel, autoShorthands)).join(' ');
   }
@@ -1120,6 +1207,7 @@ function emitSlotInteractive(
   focused: boolean,
   autoShorthands: boolean,
   depth: number,
+  isOptional = false,
 ): string {
   const isActive = cursor.slotId === slot.id;
   const isEmpty = slot.children.length === 0;
@@ -1135,10 +1223,17 @@ function emitSlotInteractive(
     if (isRoot) {
       return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${caret}\\htmlClass{ms-empty-root}{\\phantom{x}}}}`;
     }
+    const boxClasses = isActive && focused
+      ? isOptional
+        ? 'ms-empty-box ms-empty-box-active ms-empty-box-optional'
+        : 'ms-empty-box ms-empty-box-active'
+      : isOptional
+        ? 'ms-empty-box ms-empty-box-optional'
+        : 'ms-empty-box';
     const emptyBox =
       isActive && focused
-        ? `${caret}\\htmlClass{ms-empty-box ms-empty-box-active}{\\square}`
-        : '\\htmlClass{ms-empty-box}{\\square}';
+        ? `${caret}\\htmlClass{${boxClasses}}{\\square}`
+        : `\\htmlClass{${boxClasses}}{\\square}`;
     return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${emptyBox}}}`;
   }
 
@@ -1316,7 +1411,11 @@ function emitNodeInteractive(
     case 'struct': {
       const structDepth = depth + 1;
       const structHeight = getStructSubtreeHeight(node);
-      let template = node.customLatex ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
+      const adaptiveTemplate = resolveAdaptiveStructTemplate(node, (idx) =>
+        isSlotVisibleInteractive(node, idx, cursor.slotId),
+      );
+      let template =
+        node.customLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
       if (!node.customLatex && node.autoSized && node.slots.length === 1) {
         const tall = slotHasTallContent(node.slots[0]);
         if (node.commandId === 'paren') {
@@ -1383,6 +1482,7 @@ function emitNodeInteractive(
             focused,
             autoShorthands,
             structDepth,
+            isOptionalSlot(node.commandId, idx),
           );
         });
       }

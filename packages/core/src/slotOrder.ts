@@ -24,12 +24,12 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
     ],
   },
   {
-    id: 'nth_root',
-    label: 'N次根',
-    commandIds: ['nth_root'],
+    id: 'sqrt',
+    label: '根号',
+    commandIds: ['sqrt', 'nth_root'],
     options: [
-      { label: '根指数 → 被开方式', order: [0, 1] },
       { label: '被开方式 → 根指数', order: [1, 0] },
+      { label: '根指数 → 被开方式', order: [0, 1] },
     ],
   },
   {
@@ -70,10 +70,16 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
   },
 ];
 
+const STANDARD_DEFAULT_ORDERS: Readonly<Record<string, readonly number[]>> = {
+  // Unified root starts in radicand (`被开方式`) for instant square-root flow; Enter hops to optional index!
+  sqrt: [1, 0],
+};
+
 const WRITING_CN_ORDERS: Readonly<Record<string, readonly number[]>> = {
   frac: [1, 0],
   partial_frac: [1, 0],
   total_frac: [1, 0],
+  sqrt: [1, 0],
   nth_root: [1, 0],
   binom: [1, 0],
 };
@@ -99,6 +105,11 @@ export function getPresetOrderForCommand(
     const custom = WRITING_CN_ORDERS[commandId];
     if (isValidPermutation(custom, slotCount)) {
       return [...custom];
+    }
+  } else {
+    const std = STANDARD_DEFAULT_ORDERS[commandId];
+    if (isValidPermutation(std, slotCount)) {
+      return [...std];
     }
   }
   return Array.from({ length: slotCount }, (_, i) => i);

@@ -467,7 +467,7 @@
     if (snapshot.mode.kind === 'leader') {
       if (e.key === 'Escape') {
         e.preventDefault();
-        engine.exitMode();
+        engine.cancelLeader();
         sync();
         return;
       }
@@ -485,7 +485,7 @@
       }
       if (e.key === settings.leaderKey) {
         e.preventDefault();
-        engine.exitMode();
+        engine.triggerLeader();
         sync();
         return;
       }
@@ -975,6 +975,7 @@
     leaderKey={settings.leaderKey}
     leaderActive={snapshot.mode.kind === 'leader'}
     leaderPrefix={snapshot.mode.kind === 'leader' ? snapshot.mode.prefix : ''}
+    pendingDefaultId={snapshot.mode.kind === 'leader' ? snapshot.mode.pendingDefaultId : undefined}
     commands={effectiveCommands}
     {customCommands}
     {snippets}

@@ -3,6 +3,7 @@
     COMMANDS,
     COMMANDS_BY_ID,
     SHORTHAND_BY_COMMAND_ID,
+    SUBMENU_BY_KEY,
     commandPreviewLatex,
     type CommandCategory,
     type CommandDef,
@@ -18,6 +19,7 @@
     leaderKey: LeaderKey;
     leaderActive?: boolean;
     leaderPrefix?: string;
+    pendingDefaultId?: string;
     commands?: readonly CommandDef[];
     customCommands?: CustomCommandDef[];
     snippets?: Snippet[];
@@ -34,6 +36,7 @@
     leaderKey,
     leaderActive = false,
     leaderPrefix = '',
+    pendingDefaultId = undefined,
     commands = COMMANDS,
     customCommands = [],
     snippets = [],
@@ -49,7 +52,6 @@
   const QUICK_ITEMS: readonly { id: string; key: string; preview: string }[] = [
     { id: 'frac', key: 'f', preview: '\\frac{\\square}{\\square}' },
     { id: 'sqrt', key: 'r', preview: '\\sqrt{\\square}' },
-    { id: 'nth_root', key: 'n', preview: '\\sqrt[n]{\\square}' },
     { id: 'sup', key: 'u', preview: 'x^{\\square}' },
     { id: 'sub', key: 'd', preview: 'x_{\\square}' },
     { id: 'subsup', key: 'b', preview: 'x_{\\square}^{\\square}' },
@@ -73,7 +75,7 @@
     { key: 'a', category: 'accent', label: '装饰与定界', preview: '\\hat{x}' },
     { key: 'o', category: 'symbol', label: '运算符号', preview: '\\pm' },
     { key: 'x', category: 'relation', label: '关系符号', preview: '\\approx' },
-    { key: 'q', category: 'setlogic', label: '集合与逻辑', preview: '\\forall' },
+    { key: 'q', category: 'setlogic', label: '集合与逻辑', preview: '\\cup' },
     { key: 'k', category: 'custom', label: '自定义结构', preview: '\\star' },
     { key: 't', category: 'snippets', label: '复用片段', preview: '\\sharp' },
   ];
@@ -260,16 +262,22 @@
         <div class="cat-grid">
           {#each popoverCommands as cmd (cmd.id)}
             {@const shorthand = SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
+            {@const isDefault =
+              pendingDefaultId === cmd.id ||
+              (activeGroup ? SUBMENU_BY_KEY.get(activeGroup.key)?.defaultCommandId === cmd.id : false)}
             <button
               type="button"
               class="cat-cell"
-              title={`${cmd.label}（${leaderKey} ${cmd.keys.join(' ')}${shorthand ? ` · 简写 ${shorthand}` : ''}）`}
+              class:is-default={isDefault}
+              title={`${cmd.label}（${leaderKey} ${cmd.keys.join(' ')}${isDefault ? ` · 单按 ${leaderKey} ${activeGroup?.key ?? ''} 默认插入` : ''}${shorthand ? ` · 简写 ${shorthand}` : ''}）`}
               onmousedown={(e) => e.preventDefault()}
               onclick={() => pickCommand(cmd.id)}
             >
               <div class="cell-top">
                 <kbd class="cell-key" class:hot={leaderActive}>{cmd.keys[1] ?? cmd.keys[0]}</kbd>
-                {#if shorthand}
+                {#if isDefault}
+                  <span class="cell-default">默认</span>
+                {:else if shorthand}
                   <span class="cell-short">{shorthand}</span>
                 {/if}
               </div>
@@ -576,6 +584,22 @@
   .cat-cell:hover {
     background: var(--ms-tile-hover);
     border-color: var(--ms-accent);
+  }
+
+  .cat-cell.is-default {
+    border-color: color-mix(in srgb, var(--ms-accent) 48%, var(--ms-border));
+    background: color-mix(in srgb, var(--ms-accent-soft) 55%, var(--ms-tile));
+  }
+
+  .cell-default {
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--ms-accent);
+    background: var(--ms-accent-soft);
+    border: 1px solid color-mix(in srgb, var(--ms-accent) 32%, transparent);
+    border-radius: 4px;
+    padding: 0 4px;
+    line-height: 15px;
   }
 
   .cell-top {

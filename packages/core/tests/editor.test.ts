@@ -140,7 +140,7 @@ describe('MathSlotEngine keyboard flow', () => {
     engine.enterJumpMode();
     const snap2 = engine.getSnapshot();
     if (snap2.mode.kind === 'jump') {
-      const body1 = snap2.mode.targets.find((t) => t.isComposite && t.slotLabel === '定积分·被积式');
+      const body1 = snap2.mode.targets.find((t) => t.isComposite && t.slotLabel === '积分·被积式');
       expect(body1).toBeDefined();
       engine.handleJumpKey(body1!.label);
       const subSnap = engine.getSnapshot();
@@ -401,12 +401,12 @@ describe('MathSlotEngine keyboard flow', () => {
     engine.nextSlot();
     type('l');
     engine.nextSlot(); // enters 积分·被积式 (nested inside 括号!)
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号', '定积分']);
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号', '积分']);
 
     type('f(x) cos n pi x/l');
     engine.nextSlot(); // exit frac -> still inside 积分·被积式!
     type(' dx');
-    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号', '定积分']);
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['求和', '中括号', '括号', '积分']);
 
     // Enter #1 exits ONLY 定积分 -> lands INSIDE 括号 (NOT outside 括号!)
     engine.nextSlot();
@@ -560,5 +560,124 @@ describe('MathSlotEngine keyboard flow', () => {
     type('alpha + beta');
     engine.selectWordOrAtomAt(engine.getSnapshot().doc.root.id, 1);
     expect(engine.getSelectedLatex()).toBe('\\alpha');
+  });
+
+  it('supports unified adaptive optional slots (sqrt -> nth_root, integral -> indef/lower-only, sum, double_integral, eval_bar, subsup)', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // 1. Unified `Tab r` root: leave index empty -> crisp `\sqrt{x + 1}` with 0 unfilled required slots!
+    engine.triggerLeader();
+    engine.handleLeaderKey('r');
+    type('x+1');
+    engine.nextSlot(); // hops into optional index slot
+    engine.nextSlot(); // leaves index empty & exits -> `\sqrt{x + 1}`!
+    expect(engine.getSnapshot().latex).toBe('\\sqrt{x + 1}');
+    expect(engine.getSnapshot().emptySlotCount).toBe(0);
+    expect(engine.getSnapshot().interactiveLatex).not.toContain('\\sqrt[');
+
+    // Now step back inside `\sqrt{x + 1}` and press Up to reveal optional root index -> type `3` -> `\sqrt[3]{x + 1}`!
+    engine.moveLeft(); // glides directly into `被开方式` (`x + 1|`)
+    engine.moveUp(); // hops up into optional `根指数`!
+    type('3');
+    expect(engine.getSnapshot().latex).toBe('\\sqrt[3]{x + 1}');
+    expect(engine.getSnapshot().interactiveLatex).toContain('\\sqrt[');
+
+    // 2. Unified `Tab i` integral: skip both limits -> clean indefinite `\int f(x)\,\mathrm{d}x`!
+    engine.clear();
+    engine.triggerLeader();
+    engine.handleLeaderKey('i');
+    engine.nextSlot(); // skip lower
+    engine.nextSlot(); // skip upper
+    type('f(x) dx');
+    engine.nextSlot(); // exit integral
+    expect(engine.getSnapshot().latex).toBe('\\int f(x)\\,\\mathrm{d}x');
+    expect(engine.getSnapshot().emptySlotCount).toBe(0);
+    expect(engine.getSnapshot().interactiveLatex).not.toContain('_{');
+
+    // Only lower limit filled (e.g. `\int_D` or `\sum_{i \in S}`) omits empty upper `^{}`!
+    engine.clear();
+    engine.triggerLeader();
+    engine.handleLeaderKey('s');
+    type('i in S');
+    engine.nextSlot(); // upper
+    engine.nextSlot(); // skip upper -> body
+    type('a_i');
+    engine.nextSlot();
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('\\sum_{i\\in S} a_i');
+
+    // Imported `\sqrt{x}` and `\int f(x) dx` upgrade seamlessly in-place!
+    engine.loadFormula('\\int f(x)\\,\\mathrm{d}x');
+    engine.moveLeft(); // enters body
+    engine.moveDown(); // hops to lower limit
+    type('0');
+    engine.moveUp(); // hops to upper limit
+    type('1');
+    expect(engine.getSnapshot().latex).toBe('\\int_{0}^{1} f(x)\\,\\mathrm{d}x');
+  });
+
+  it('renders single-key submenu defaults live with smart fallthrough and seamless 2nd-key morph', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // 1. Single-key `Tab m` immediately renders 2x2 matrix + smart fallthrough typing `1`!
+    engine.triggerLeader();
+    engine.handleLeaderKey('m');
+    expect(engine.getSnapshot().latex).toContain('\\begin{pmatrix}');
+    engine.handleLeaderKey('1'); // not a 2nd key of `m` -> commits matrix & types `1` into (1,1)!
+    engine.nextSlot();
+    type('2');
+    engine.nextSlot();
+    type('3');
+    engine.nextSlot();
+    type('4');
+    expect(engine.getSnapshot().latex).toBe('\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}');
+
+    // 2. Seamless 2nd-key morph: `Tab m d` morphs 2x2 matrix -> cases_2 cleanly with single-step undo!
+    engine.clear();
+    engine.triggerLeader();
+    engine.handleLeaderKey('m');
+    expect(engine.getSnapshot().latex).toContain('\\begin{pmatrix}');
+    engine.handleLeaderKey('d');
+    expect(engine.getSnapshot().latex).toContain('\\begin{cases}');
+    engine.undo();
+    expect(engine.getSnapshot().latex).toBe('');
+
+    // 3. Single-key `Tab c` defaults to partial_frac (`\frac{\partial}{\partial}`) + smart fallthrough!
+    engine.clear();
+    engine.triggerLeader();
+    engine.handleLeaderKey('c');
+    engine.handleLeaderKey('y'); // not a `c` subkey -> commits partial_frac & types `y`!
+    engine.nextSlot();
+    type('x');
+    expect(engine.getSnapshot().latex).toBe('\\frac{\\partial y}{\\partial x}');
+
+    // 4. Single-key `Tab g` defaults to `\alpha`, `Tab g +` falls through, `Tab g p` morphs to `\pi`!
+    engine.clear();
+    engine.triggerLeader();
+    engine.handleLeaderKey('g');
+    expect(engine.getSnapshot().latex).toBe('\\alpha');
+    engine.handleLeaderKey('+');
+    type('1');
+    expect(engine.getSnapshot().latex).toBe('\\alpha + 1');
+
+    // 5. `x` + `Tab a` wraps into `\hat{x}`, `Tab a` + `Esc` reverts cleanly, `Tab a c` morphs to `\vec{x}`!
+    engine.clear();
+    type('x');
+    engine.triggerLeader();
+    engine.handleLeaderKey('a');
+    expect(engine.getSnapshot().latex).toBe('\\hat{x}');
+    engine.cancelLeader();
+    expect(engine.getSnapshot().latex).toBe('x');
+
+    engine.triggerLeader();
+    engine.handleLeaderKey('a');
+    engine.handleLeaderKey('c');
+    expect(engine.getSnapshot().latex).toBe('\\vec{x}');
   });
 });
