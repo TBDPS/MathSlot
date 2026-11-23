@@ -98,9 +98,9 @@
 }
 
 .ms-studio .ms-parent-struct {
-  border-radius: 5px;
-  outline: 1px dashed var(--ms-border);
-  outline-offset: 2px;
+  border-radius: 6px;
+  outline: 1.5px dashed var(--ms-accent-ring);
+  outline-offset: 3px;
 }
 
 .ms-studio .ms-atom {

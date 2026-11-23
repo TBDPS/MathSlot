@@ -161,19 +161,20 @@ describe('MathSlotEngine keyboard flow', () => {
   it('supports custom per-command slot order overrides and Shift+Enter reverse traversal', () => {
     const engine = new MathSlotEngine({
       slotOrderOverrides: {
-        integral: [2, 0, 1], // body -> lower -> upper
+        integral: [1, 0], // upper -> lower
       },
     });
     engine.insertCommand('integral');
-    engine.insertText('f(x) dx');
+    engine.insertText('1');
     engine.nextSlot();
     engine.insertText('0');
-    engine.nextSlot();
-    engine.insertText('1');
     engine.prevSlot();
     engine.insertText('+a');
+    engine.nextSlot();
+    engine.nextSlot();
+    engine.insertText('f(x) dx');
 
-    expect(engine.getSnapshot().latex).toBe('\\int_{0+a}^{1} f(x)\\,dx');
+    expect(engine.getSnapshot().latex).toBe('\\int_{0}^{1+a} f(x)\\,\\mathrm{d}x');
   });
 
   it('turns natural / typing into an interactive 2D fraction even under writing_cn order', () => {
@@ -206,51 +207,104 @@ describe('MathSlotEngine keyboard flow', () => {
     expect(engine.getSnapshot().latex).toBe('foo');
   });
 
-  it('writes a full Fourier series with clean standard LaTeX, automatic spacing, Space script-exit, and spatial navigation', () => {
+  it('writes the exact user-specified Fourier series smoothly with upright \\mathrm{d}x, npi -> n\\pi, and clean bracket/integral hierarchy', () => {
     const engine = new MathSlotEngine();
     const type = (s: string) => {
       for (const ch of s) engine.insertText(ch);
     };
 
-    // f(x) = a_0 / 2 + \sum_{n=1}^{\infty} (a_n \cos \frac{n\pi x}{L} + b_n \sin \frac{n\pi x}{L})
-    type('f(x)=a_0 /2');
-    engine.nextSlot(); // exit frac
-    type('+');
+    // f(x) \sim \frac{1}{2l} \int_{-l}^{l} f(x)\,\mathrm{d}x + \sum_{n=1}^{\infty} \left[\left(\frac{1}{l} \int_{-l}^{l} f(x) \cos \frac{n\pi x}{l}\,\mathrm{d}x\right) \cos \frac{n\pi x}{l} + \left(\frac{1}{l} \int_{-l}^{l} f(x) \sin \frac{n\pi x}{l}\,\mathrm{d}x\right) \sin \frac{n\pi x}{l}\right]
+    type('f(x)~~');
+    type('1/2l');
+    engine.nextSlot(); // exit frac -> root
     engine.triggerLeader();
-    engine.handleLeaderKey('s'); // sum
+    engine.handleLeaderKey('i'); // \int_{}^{}
+    type('-l');
+    engine.nextSlot();
+    type('l');
+    engine.nextSlot(); // exit \int -> root (clean 2-slot prefix!)
+    type('f(x) dx+');
+    engine.triggerLeader();
+    engine.handleLeaderKey('s'); // \sum_{}^{}
     type('n=1');
     engine.nextSlot();
     type('oo');
+    engine.nextSlot(); // exit \sum -> root!
+
+    engine.triggerLeader();
+    engine.handleLeaderKey('a');
+    engine.handleLeaderKey('l'); // \left[ ... \right]
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
+
+    engine.triggerLeader();
+    engine.handleLeaderKey('p'); // \left( ... \right)
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
+
+    type('1/l');
+    engine.nextSlot(); // back in paren!
+    engine.triggerLeader();
+    engine.handleLeaderKey('i'); // \int_{-l}^{l} inside paren
+    type('-l');
+    engine.nextSlot();
+    type('l');
+    engine.nextSlot(); // exits \int -> STILL INSIDE paren (NOT outside paren!)
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
+
+    type('f(x) cos');
+    engine.triggerLeader();
+    engine.handleLeaderKey('f');
+    type('npix'); // npi -> n\pi automatically!
+    engine.nextSlot();
+    type('l');
+    engine.nextSlot(); // exit frac -> STILL inside paren!
+    type(' dx');
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号', '括号']);
+
+    engine.nextSlot(); // ONE clean Enter exits paren -> now in bracket!
+    expect(engine.getSnapshot().breadcrumbs.map((b) => b.commandLabel)).toEqual(['中括号']);
+
+    type('cos');
+    engine.triggerLeader();
+    engine.handleLeaderKey('f');
+    type('npix');
+    engine.nextSlot();
+    type('l');
+    engine.nextSlot(); // back in bracket
+    type('+');
+
+    engine.triggerLeader();
+    engine.handleLeaderKey('p');
+    type('1/l');
     engine.nextSlot();
     engine.triggerLeader();
-    engine.handleLeaderKey('p'); // paren
-    type('a_n cos');
-    engine.triggerLeader();
-    engine.handleLeaderKey('f'); // frac
-    type('n pi x');
+    engine.handleLeaderKey('i');
+    type('-l');
     engine.nextSlot();
-    type('L');
-    engine.nextSlot(); // exit frac
-    type('+b_n sin');
-    engine.triggerLeader();
-    engine.handleLeaderKey('f'); // frac
-    type('n pi x');
+    type('l');
     engine.nextSlot();
-    type('L');
+    type('f(x) sin');
+    engine.triggerLeader();
+    engine.handleLeaderKey('f');
+    type('npix');
+    engine.nextSlot();
+    type('l');
+    engine.nextSlot();
+    type(' dx');
+    engine.nextSlot(); // ONE clean Enter exits paren -> back in bracket!
+
+    type('sin');
+    engine.triggerLeader();
+    engine.handleLeaderKey('f');
+    type('npix');
+    engine.nextSlot();
+    type('l');
+    engine.nextSlot(); // back in bracket
+    engine.nextSlot(); // ONE clean Enter exits bracket -> root!
+    expect(engine.getSnapshot().breadcrumbs).toEqual([]);
 
     expect(engine.getSnapshot().latex).toBe(
-      'f(x) = \\frac{a_0}{2} + \\sum_{n=1}^{\\infty} \\left(a_n \\cos \\frac{n \\pi x}{L} + b_n \\sin \\frac{n \\pi x}{L}\\right)',
+      'f(x) \\sim \\frac{1}{2l} \\int_{-l}^{l} f(x)\\,\\mathrm{d}x + \\sum_{n=1}^{\\infty} \\left[\\left(\\frac{1}{l} \\int_{-l}^{l} f(x) \\cos \\frac{n\\pi x}{l}\\,\\mathrm{d}x\\right) \\cos \\frac{n\\pi x}{l} + \\left(\\frac{1}{l} \\int_{-l}^{l} f(x) \\sin \\frac{n\\pi x}{l}\\,\\mathrm{d}x\\right) \\sin \\frac{n\\pi x}{l}\\right]',
     );
-
-    // Spatial navigation: currently in denominator `L` -> ArrowUp goes straight to numerator `n pi x`!
-    engine.moveUp();
-    expect(engine.getSnapshot().breadcrumbs.at(-1)?.slotLabel).toBe('分子');
-    // ArrowDown goes back straight to denominator `L`!
-    engine.moveDown();
-    expect(engine.getSnapshot().breadcrumbs.at(-1)?.slotLabel).toBe('分母');
-    // Alt+ArrowUp (escapeLevel) jumps cleanly out of frac into paren!
-    engine.escapeLevel();
-    expect(engine.getSnapshot().breadcrumbs.at(-1)?.commandLabel).toBe('括号');
   });
 
   it('supports user-defined custom structures via Tab k chord and custom shorthand', () => {
@@ -282,7 +336,7 @@ describe('MathSlotEngine keyboard flow', () => {
     const res1 = importFormula('\\displaystyle \\frac12 + \\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx');
     expect(res1.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
     expect(toLatex(res1.doc)).toContain('\\frac{1}{2}');
-    expect(toLatex(res1.doc)).toContain('\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx');
+    expect(toLatex(res1.doc)).toContain('\\int_{-\\infty}^{\\infty} e^{-x^2}\\,\\mathrm{d}x');
 
     const res2 = importFormula('\\begin{equation} E = mc^2 \\end{equation}');
     expect(toLatex(res2.doc)).toBe('E = mc^2');

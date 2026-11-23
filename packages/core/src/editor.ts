@@ -589,9 +589,24 @@ export class MathSlotEngine {
         else break;
       }
       start = end;
+      const STOP_SYMBOL_IDS = new Set([
+        'to', 'pm', 'mp', 'times', 'cdot', 'in', 'notin', 'subseteq', 'subset',
+        'equiv', 'approx', 'sim', 'propto', 'implies', 'iff', 'mapsto', 'cong',
+        'll', 'gg', 'simeq', 'leq', 'geq', 'neq', 'cup', 'cap', 'land', 'lor',
+        'setminus', 'parallel', 'perp', 'indef_integral',
+      ]);
+      const STOP_STRUCT_IDS = new Set([
+        'integral', 'sum', 'product', 'limit', 'double_integral', 'triple_integral', 'contour_integral',
+      ]);
       while (start > 0) {
         const c = slot.children[start - 1];
         if (c.type === 'char' && /^[+=,;:\-<>()[\]]$/.test(c.value)) {
+          break;
+        }
+        if (c.type === 'symbol' && STOP_SYMBOL_IDS.has(c.commandId)) {
+          break;
+        }
+        if (c.type === 'struct' && STOP_STRUCT_IDS.has(c.commandId)) {
           break;
         }
         if (c.type === 'raw' && c.latex.trim() === '\\\\') {
@@ -977,7 +992,7 @@ export class MathSlotEngine {
       this.cursor = { slotId: num.id, offset: num.children.length };
       return;
     }
-    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && (sIdx === 0 || sIdx === 2)) {
+    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && sIdx === 0) {
       const upper = parentStruct.slots[1];
       this.cursor = { slotId: upper.id, offset: upper.children.length };
       return;
@@ -995,11 +1010,6 @@ export class MathSlotEngine {
     if (cmdId === 'sub' && sIdx === 1) {
       const base = parentStruct.slots[0];
       this.cursor = { slotId: base.id, offset: base.children.length };
-      return;
-    }
-    if (cmdId === 'limit' && (sIdx === 0 || sIdx === 1)) {
-      const body = parentStruct.slots[2];
-      this.cursor = { slotId: body.id, offset: 0 };
       return;
     }
     // 2-column grids (2x2 matrices & cases)
@@ -1048,7 +1058,7 @@ export class MathSlotEngine {
       this.cursor = { slotId: den.id, offset: den.children.length };
       return;
     }
-    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && (sIdx === 1 || sIdx === 2)) {
+    if ((cmdId === 'integral' || cmdId === 'sum' || cmdId === 'product') && sIdx === 1) {
       const lower = parentStruct.slots[0];
       this.cursor = { slotId: lower.id, offset: lower.children.length };
       return;
@@ -1066,11 +1076,6 @@ export class MathSlotEngine {
     if (cmdId === 'sub' && sIdx === 0) {
       const sub = parentStruct.slots[1];
       this.cursor = { slotId: sub.id, offset: sub.children.length };
-      return;
-    }
-    if (cmdId === 'limit' && sIdx === 2) {
-      const varSlot = parentStruct.slots[0];
-      this.cursor = { slotId: varSlot.id, offset: varSlot.children.length };
       return;
     }
     if (

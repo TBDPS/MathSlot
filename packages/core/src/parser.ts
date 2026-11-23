@@ -754,21 +754,6 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     return { sub, sup };
   };
 
-  const readBigOpBody = (): MathNode[] => {
-    skipSpaces();
-    const out: MathNode[] = [];
-    while (!eof()) {
-      const ch = peek();
-      if (ch === '=' || ch === ',' || ch === ';' || ch === ')') break;
-      if ((ch === '+' || ch === '-') && out.length > 0) break;
-      if (src.startsWith('\\\\', pos)) break;
-      const units = parseTermUnits();
-      if (units.length === 0) break;
-      out.push(...units);
-    }
-    return out;
-  };
-
   const parseLeftRight = (): MathNode => {
     skipSpaces();
     let openDelim = '';
@@ -998,29 +983,23 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       }
       if (macro === '\\int') {
         const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
         if (sub || sup) {
           return [
             createStructNode(COMMANDS_BY_ID.get('integral')!, [
               sub ?? [],
               sup ?? [],
-              body,
             ]),
           ];
         }
-        return [createStructNode(COMMANDS_BY_ID.get('indef_integral')!, [body])];
+        return [createSymbolNode(COMMANDS_BY_ID.get('indef_integral')!)];
       }
       if (macro === '\\sum') {
         const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
-        return [createStructNode(COMMANDS_BY_ID.get('sum')!, [sub ?? [], sup ?? [], body])];
+        return [createStructNode(COMMANDS_BY_ID.get('sum')!, [sub ?? [], sup ?? []])];
       }
       if (macro === '\\prod') {
         const { sub, sup } = readSubSup();
-        const body = readBigOpBody();
-        return [
-          createStructNode(COMMANDS_BY_ID.get('product')!, [sub ?? [], sup ?? [], body]),
-        ];
+        return [createStructNode(COMMANDS_BY_ID.get('product')!, [sub ?? [], sup ?? []])];
       }
       if (macro === '\\iint' || macro === '\\oint' || macro === '\\iiint') {
         const idMap: Record<string, string> = {
@@ -1029,8 +1008,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
           '\\iiint': 'triple_integral',
         };
         const { sub } = readSubSup();
-        const body = readBigOpBody();
-        return [createStructNode(COMMANDS_BY_ID.get(idMap[macro])!, [sub ?? [], body])];
+        return [createStructNode(COMMANDS_BY_ID.get(idMap[macro])!, [sub ?? []])];
       }
       if (macro === '\\lim') {
         skipSpaces();
@@ -1047,8 +1025,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
             varNodes = parseLatexNodes(subRaw, diagnostics);
           }
         }
-        const body = readBigOpBody();
-        return [createStructNode(COMMANDS_BY_ID.get('limit')!, [varNodes, targetNodes, body])];
+        return [createStructNode(COMMANDS_BY_ID.get('limit')!, [varNodes, targetNodes])];
       }
       if (macro === '\\overbrace') {
         const body = readGroupNodes();
