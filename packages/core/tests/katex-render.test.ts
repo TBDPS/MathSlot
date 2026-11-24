@@ -7,8 +7,12 @@ import {
   commandPreviewLatex,
 } from '../src';
 
+const INTERACTIVE_TRUST_COMMANDS = new Set(['\\htmlData', '\\htmlClass', '\\htmlId']);
+const strictInteractiveTrust = (ctx: { command: string }) =>
+  INTERACTIVE_TRUST_COMMANDS.has(ctx.command);
+
 describe(`Real KaTeX rendering verification across all ${COMMANDS.length} commands and ${PRESETS.length} presets`, () => {
-  it(`renders interactive KaTeX with zero errors for every single one of the ${COMMANDS.length} commands`, () => {
+  it(`renders interactive KaTeX with zero errors under strict trust predicate for every single one of the ${COMMANDS.length} commands`, () => {
     for (const cmd of COMMANDS) {
       const engine = new MathSlotEngine();
       engine.insertCommand(cmd.id);
@@ -19,7 +23,7 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
             displayMode: true,
             throwOnError: true,
             strict: false,
-            trust: true,
+            trust: strictInteractiveTrust,
           }),
         `interactive render failed for command ${cmd.id}: ${snap.interactiveLatex}`,
       ).not.toThrow();
@@ -38,7 +42,7 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
     }
   });
 
-  it(`renders interactive KaTeX with zero errors for all ${PRESETS.length} presets`, () => {
+  it(`renders interactive KaTeX with zero errors under strict trust predicate for all ${PRESETS.length} presets`, () => {
     for (const preset of PRESETS) {
       const engine = new MathSlotEngine();
       engine.loadFormula(preset.source);
@@ -49,10 +53,22 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
             displayMode: true,
             throwOnError: true,
             strict: false,
-            trust: true,
+            trust: strictInteractiveTrust,
           }),
         `preset ${preset.id} failed interactive KaTeX render: ${snap.interactiveLatex}`,
       ).not.toThrow();
     }
+  });
+
+  it('strictly blocks javascript: href injection under strictInteractiveTrust', () => {
+    const html = katex.renderToString('\\href{javascript:alert(1)}{click}', {
+      displayMode: true,
+      throwOnError: false,
+      strict: false,
+      output: 'html',
+      trust: strictInteractiveTrust,
+    });
+    expect(html).not.toContain('<a ');
+    expect(html).not.toContain('javascript:');
   });
 });

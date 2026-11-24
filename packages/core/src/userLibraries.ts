@@ -221,17 +221,15 @@ export function mergePresets(
     }
   }
 
-  for (const item of extra) {
-    merged.unshift({
-      id: item.id,
-      category: item.category || '自定义公式',
-      name: item.name,
-      source: item.source,
-      desc: item.desc ?? '',
-      tags: item.tags ?? [],
-    });
-  }
-  return merged;
+  const extraMapped: PresetFormula[] = extra.map((item) => ({
+    id: item.id,
+    category: item.category || '自定义公式',
+    name: item.name,
+    source: item.source,
+    desc: item.desc ?? '',
+    tags: item.tags ?? [],
+  }));
+  return [...extraMapped, ...merged];
 }
 
 export function mergeCommands(

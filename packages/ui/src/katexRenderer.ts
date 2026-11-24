@@ -5,13 +5,22 @@ export interface RenderResult {
   error: string | null;
 }
 
+/**
+ * Only trust internal DOM-tagging macros used by MathSlot's interactive AST hit-tester.
+ * Strictly blocks `\href{javascript:...}`, `\url`, `\includegraphics`, `\htmlStyle`, etc.
+ */
+const INTERACTIVE_TRUST_COMMANDS = new Set(['\\htmlData', '\\htmlClass', '\\htmlId']);
+function trustInteractiveOnly(ctx: { command: string }): boolean {
+  return INTERACTIVE_TRUST_COMMANDS.has(ctx.command);
+}
+
 export function renderLatexInteractive(latex: string): RenderResult {
   try {
     const html = katex.renderToString(latex, {
       displayMode: true,
       throwOnError: true,
       strict: false,
-      trust: true,
+      trust: trustInteractiveOnly,
       output: 'html',
     });
     return { html, error: null };
@@ -22,7 +31,7 @@ export function renderLatexInteractive(latex: string): RenderResult {
         displayMode: true,
         throwOnError: false,
         strict: false,
-        trust: true,
+        trust: trustInteractiveOnly,
         output: 'html',
       });
       return {

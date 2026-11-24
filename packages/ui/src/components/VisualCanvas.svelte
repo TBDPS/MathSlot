@@ -402,6 +402,7 @@
     void rendered.html;
     void snapshot.mode;
     void snapshot.cursor;
+    void snapshot.activeGrid;
     void showHierarchyBoxes;
     void shiftedUp;
     void userZoom;
@@ -588,9 +589,11 @@
       </div>
 
       <div class="formula-center" class:shifted={shiftedUp}>
+        <span class="sr-only" aria-live="polite">{snapshot.isEmpty ? '空公式画布' : snapshot.latex}</span>
         <div
           class="formula-render"
           class:is-empty={snapshot.isEmpty}
+          aria-hidden="true"
           style:font-size={`calc(clamp(1.65rem, 2.9vw, 2.3rem) * ${scale})`}
           bind:this={formulaEl}
         >
@@ -768,7 +771,8 @@
     color: var(--ms-accent);
   }
 
-  .hidden-capture {
+  .hidden-capture,
+  .sr-only {
     position: fixed;
     top: 0;
     left: 0;
@@ -777,6 +781,9 @@
     opacity: 0;
     border: 0;
     padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
     pointer-events: none;
   }
 

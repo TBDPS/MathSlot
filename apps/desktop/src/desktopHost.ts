@@ -145,6 +145,8 @@ export function createDesktopHost(): HostAdapter {
               snippets: Array.isArray(parsed.snippets) ? parsed.snippets : [],
               customCommands: Array.isArray(parsed.customCommands) ? parsed.customCommands : [],
               history: Array.isArray(parsed.history) ? parsed.history : [],
+              userPresets: Array.isArray(parsed.userPresets) ? parsed.userPresets : [],
+              userCommands: Array.isArray(parsed.userCommands) ? parsed.userCommands : [],
             };
           }
         } catch {
@@ -160,12 +162,21 @@ export function createDesktopHost(): HostAdapter {
             snippets: Array.isArray(parsed.snippets) ? parsed.snippets : [],
             customCommands: Array.isArray(parsed.customCommands) ? parsed.customCommands : [],
             history: Array.isArray(parsed.history) ? parsed.history : [],
+            userPresets: Array.isArray(parsed.userPresets) ? parsed.userPresets : [],
+            userCommands: Array.isArray(parsed.userCommands) ? parsed.userCommands : [],
           };
         }
       } catch {
         // Ignore corrupt localStorage
       }
-      return { settings: {}, snippets: [], customCommands: [], history: [] };
+      return {
+        settings: {},
+        snippets: [],
+        customCommands: [],
+        history: [],
+        userPresets: [],
+        userCommands: [],
+      };
     },
 
     async saveStore(store: PersistedStore): Promise<void> {

@@ -42,6 +42,7 @@ export default class MathSlotPlugin extends Plugin {
 
     let initialFormula: string | undefined;
     let replaceRange: { from: { line: number; ch: number }; to: { line: number; ch: number } } | undefined;
+    let expectedRangeText: string | undefined;
     let linePrefix = '';
     let includeFirstLinePrefix = false;
     let detectedDelimiter: DelimiterStyle | undefined;
@@ -72,6 +73,7 @@ export default class MathSlotPlugin extends Plugin {
       if (detected) {
         initialFormula = detected.raw;
         replaceRange = { from: detected.from, to: detected.to };
+        expectedRangeText = editor.getRange(detected.from, detected.to);
         linePrefix = detected.linePrefix;
         includeFirstLinePrefix = detected.includeFirstLinePrefix;
         detectedDelimiter = detected.delimiter;
@@ -89,6 +91,7 @@ export default class MathSlotPlugin extends Plugin {
       editor,
       initialFormula,
       replaceRange,
+      expectedRangeText,
       linePrefix,
       includeFirstLinePrefix,
       forceDelimiter: forceDelimiter ?? detectedDelimiter,

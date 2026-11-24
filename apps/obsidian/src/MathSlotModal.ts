@@ -7,11 +7,32 @@ export interface MathSlotModalOptions {
   editor?: Editor;
   initialFormula?: string;
   replaceRange?: { from: EditorPosition; to: EditorPosition };
+  /** Snapshot of the text at `replaceRange` when the modal opened; prevents overwriting drifted prose. */
+  expectedRangeText?: string;
   linePrefix?: string;
   includeFirstLinePrefix?: boolean;
   forceDelimiter?: DelimiterStyle;
   loadStore: () => Promise<PersistedStore>;
   saveStore: (store: PersistedStore) => Promise<void>;
+}
+
+async function copyTextWithFallback(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fallback below when webview lacks focus or mobile restricts navigator.clipboard
+    }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
 }
 
 export class MathSlotModal extends Modal {
@@ -37,10 +58,14 @@ export class MathSlotModal extends Modal {
       compactToolbar: true,
       initialFormula: this.opts.initialFormula,
       hostDarkMode: () => document.body.classList.contains('theme-dark'),
-      copyText: async (text: string) => {
-        await navigator.clipboard.writeText(text);
+      copyText: copyTextWithFallback,
+      readText: async () => {
+        try {
+          return (await navigator.clipboard?.readText?.()) ?? '';
+        } catch {
+          return '';
+        }
       },
-      readText: async () => navigator.clipboard.readText(),
       onPrimarySubmit: async (formattedLatex: string) => {
         if (this.opts.editor) {
           const output = formatFormulaForEditorInsertion(
@@ -49,11 +74,17 @@ export class MathSlotModal extends Modal {
             Boolean(this.opts.includeFirstLinePrefix),
           );
           if (this.opts.replaceRange) {
-            this.opts.editor.replaceRange(
-              output,
-              this.opts.replaceRange.from,
-              this.opts.replaceRange.to,
-            );
+            const { from, to } = this.opts.replaceRange;
+            if (
+              this.opts.expectedRangeText !== undefined &&
+              this.opts.editor.getRange(from, to) !== this.opts.expectedRangeText
+            ) {
+              await copyTextWithFallback(output);
+              new Notice('原文在编辑期间已变更，为防止覆盖正文已将公式复制到剪贴板');
+              this.close();
+              return;
+            }
+            this.opts.editor.replaceRange(output, from, to);
             new Notice('已更新公式');
           } else {
             this.opts.editor.replaceSelection(output);
@@ -62,7 +93,7 @@ export class MathSlotModal extends Modal {
           this.close();
           return;
         }
-        await navigator.clipboard.writeText(formattedLatex);
+        await copyTextWithFallback(formattedLatex);
         new Notice('已复制公式');
         this.close();
       },

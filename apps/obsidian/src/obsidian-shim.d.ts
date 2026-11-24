@@ -17,6 +17,7 @@ declare module 'obsidian' {
     replaceSelection(replacement: string): void;
     getCursor(): EditorPosition;
     getLine(line: number): string;
+    getRange(from: EditorPosition, to: EditorPosition): string;
     lineCount(): number;
     replaceRange(replacement: string, from: EditorPosition, to?: EditorPosition): void;
   }

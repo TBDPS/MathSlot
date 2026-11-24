@@ -18,6 +18,17 @@ export interface DetectedEditorFormula {
 }
 
 const BLOCKQUOTE_PREFIX_RE = /^([ \t]*(?:>[ \t]?)+)/;
+const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})/;
+
+function isDollarFenceLine(trimmed: string): boolean {
+  if (trimmed === '$$') return true;
+  if (trimmed.startsWith('$$$')) return false;
+  if (trimmed.endsWith('$$$')) return false;
+  const isSingleLineBlock =
+    trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length >= 4;
+  if (isSingleLineBlock) return false;
+  return trimmed.startsWith('$$') || trimmed.endsWith('$$');
+}
 
 /**
  * Splits a Markdown line into its leading blockquote prefix (e.g. `"> "`, `"> > "`, `"  > "`)
@@ -141,11 +152,13 @@ export function detectFormulaInLines(
     }
   }
 
-  // 2. Check multi-line `$$ ... $$` block surrounding cursor.line with exact blockquote-depth parity
+  // 2. Check multi-line `$$ ... $$` block surrounding cursor.line with exact blockquote-depth & code-fence parity
   const targetDepth = blockquoteDepth(cursorSplit.prefix);
   let insideBlock = false;
   let openLine = -1;
   let openPrefix = '';
+  let codeFenceChar = '';
+  let codeFenceLen = 0;
 
   for (let l = 0; l <= cursor.line; l += 1) {
     const split = extractBlockquotePrefix(lines[l]);
@@ -155,15 +168,33 @@ export function detectFormulaInLines(
       insideBlock = false;
       openLine = -1;
       openPrefix = '';
+      codeFenceChar = '';
+      codeFenceLen = 0;
       continue;
     }
 
     const trimmed = split.content.trim();
-    const isSingleLineBlock =
-      trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length >= 4;
-    if (isSingleLineBlock) continue;
+    const fenceMatch = CODE_FENCE_RE.exec(trimmed);
+    if (fenceMatch) {
+      const ch = fenceMatch[2][0];
+      const len = fenceMatch[2].length;
+      if (!codeFenceChar) {
+        codeFenceChar = ch;
+        codeFenceLen = len;
+        insideBlock = false;
+        openLine = -1;
+        openPrefix = '';
+        continue;
+      }
+      if (ch === codeFenceChar && len >= codeFenceLen && trimmed.slice(fenceMatch[0].length).trim() === '') {
+        codeFenceChar = '';
+        codeFenceLen = 0;
+        continue;
+      }
+    }
+    if (codeFenceChar) continue;
 
-    if (trimmed === '$$' || trimmed.startsWith('$$') || trimmed.endsWith('$$')) {
+    if (isDollarFenceLine(trimmed)) {
       if (!insideBlock) {
         insideBlock = true;
         openLine = l;
@@ -191,6 +222,8 @@ export function detectFormulaInLines(
     }
   }
 
+  if (codeFenceChar) return null;
+
   if (insideBlock && openLine >= 0) {
     const maxLine = Math.min(lines.length - 1, cursor.line + 80);
     let closeLine = -1;
@@ -201,7 +234,8 @@ export function detectFormulaInLines(
         break;
       }
       const trimmed = split.content.trim();
-      if (trimmed === '$$' || trimmed.endsWith('$$')) {
+      if (CODE_FENCE_RE.test(trimmed)) break;
+      if (trimmed === '$$' || (trimmed.endsWith('$$') && !trimmed.endsWith('$$$'))) {
         closeLine = l;
         break;
       }

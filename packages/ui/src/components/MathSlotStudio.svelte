@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import {
     COMMANDS,
     DEFAULT_SETTINGS,
@@ -658,7 +658,16 @@
 
   function handleWindowKeyDown(e: KeyboardEvent): void {
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === 'k') {
+    const anyOtherModalOpen =
+      importOpen ||
+      exportOpen ||
+      saveSnippetOpen ||
+      customModalOpen ||
+      presetModalOpen ||
+      commandModalOpen ||
+      settingsOpen ||
+      helpOpen;
+    if (mod && e.key.toLowerCase() === 'k' && !anyOtherModalOpen) {
       e.preventDefault();
       moreMenuOpen = false;
       drawerTab = 'all';
@@ -669,6 +678,13 @@
       moreMenuOpen = false;
     }
   }
+
+  onDestroy(() => {
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+  });
 
   function handleWindowPointerDown(e: PointerEvent): void {
     if (!moreMenuOpen || !moreMenuWrapEl) return;

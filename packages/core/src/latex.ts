@@ -58,6 +58,10 @@ const OPERATORNAME_FUNCTIONS: Readonly<Record<string, string>> = {
   proj: '\\operatorname{proj}',
   Res: '\\operatorname{Res}',
   Cov: '\\operatorname{Cov}',
+  Var: '\\operatorname{Var}',
+  corr: '\\operatorname{corr}',
+  argmin: '\\operatorname*{arg\\,min}',
+  argmax: '\\operatorname*{arg\\,max}',
 };
 
 /**
@@ -214,6 +218,11 @@ const BINARY_RELATION_SYMBOLS = new Set([
   'setminus',
   'parallel',
   'perp',
+  'leftarrow',
+  'leftrightarrow',
+  'uparrow',
+  'downarrow',
+  'hookrightarrow',
 ]);
 
 const SELF_DELIMITED_STRUCTS = new Set([
@@ -344,7 +353,7 @@ function escapeCharLatex(ch: string): string {
     case '~':
       return '\\sim';
     case '^':
-      return '\\hat{}';
+      return '\\textasciicircum ';
     case '\\':
       return '\\backslash ';
     default:
@@ -522,9 +531,13 @@ function tokenizeSlotForCanonical(
 
     // StructNode
     const isBigOp = PREFIX_BIGOPS.has(node.commandId);
+    const isBinOpStruct =
+      node.commandId === 'xrightarrow' ||
+      node.commandId === 'xleftarrow' ||
+      node.commandId === 'pmod';
     tokens.push({
       text: emitStructCanonical(node, level, autoShorthands),
-      kind: isBigOp ? 'bigop' : 'struct',
+      kind: isBigOp ? 'bigop' : isBinOpStruct ? 'binop' : 'struct',
       structCmdId: node.commandId,
       isIntegral: INTEGRAL_OPS.has(node.commandId),
     });
@@ -853,6 +866,16 @@ function resolveAdaptiveStructTemplate(
         return hasSlot(1) ? '\\underbrace{$1}_{$2}' : '\\underbrace{$1}';
       }
       return null;
+    case 'xrightarrow':
+      if (node.slots.length === 2) {
+        return hasSlot(0) ? '\\xrightarrow[$1]{$2}' : '\\xrightarrow{$2}';
+      }
+      return null;
+    case 'xleftarrow':
+      if (node.slots.length === 2) {
+        return hasSlot(0) ? '\\xleftarrow[$1]{$2}' : '\\xleftarrow{$2}';
+      }
+      return null;
     case 'subsup': {
       if (node.slots.length !== 3) return null;
       const hasSub = hasSlot(1);
@@ -873,6 +896,20 @@ function emitStructCanonical(
   autoShorthands: boolean,
 ): string {
   if (!node.customLatex) {
+    if (node.commandId === 'text_box' && node.slots.length === 1) {
+      const inner = node.slots[0].children
+        .map((ch) => {
+          if (ch.type === 'char') {
+            if (ch.value === ' ') return ' ';
+            return escapeCharLatex(ch.value);
+          }
+          if (ch.type === 'symbol') return `$${ch.latex}$`;
+          if (ch.type === 'raw') return ch.latex;
+          return `$${emitStructCanonical(ch, 'display', autoShorthands)}$`;
+        })
+        .join('');
+      return `\\text{${inner}}`;
+    }
     if (node.commandId === 'sup' && node.slots.length === 2) {
       return `${formatScriptBase(node.slots[0], parentLevel, autoShorthands)}^${formatScriptArg(node.slots[1], autoShorthands)}`;
     }
@@ -1432,7 +1469,53 @@ function emitNodeInteractive(
       }
       let rendered: string;
       const dynGrid = node.grid ?? (getGridMeta(node) && node.slots.length !== (COMMANDS_BY_ID.get(node.commandId)?.slots.length ?? 0) ? getGridMeta(node) : null);
-      if (dynGrid) {
+      if (node.commandId === 'text_box' && !node.customLatex && node.slots.length === 1) {
+        const slot = node.slots[0];
+        const isActive = cursor.slotId === slot.id;
+        const slotClasses = ['ms-slot'];
+        if (isActive) slotClasses.push('ms-slot-active');
+        if (slot.children.length === 0) slotClasses.push('ms-slot-empty');
+        const selForSlot = selection && selection.slotId === slot.id ? selection : null;
+
+        if (slot.children.length === 0) {
+          const emptyBox = isActive
+            ? '\\htmlClass{ms-empty-box ms-empty-box-active}{\\square}'
+            : '\\htmlClass{ms-empty-box}{\\square}';
+          const content = isActive && focused ? `${wrapCaret()}${emptyBox}` : emptyBox;
+          rendered = `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${content}}}`;
+        } else {
+          const parts: string[] = [];
+          for (let i = 0; i < slot.children.length; i += 1) {
+            if (isActive && focused && cursor.offset === i && !selForSlot) {
+              parts.push(wrapCaret());
+            }
+            const ch = slot.children[i];
+            let atomLatex: string;
+            if (ch.type === 'char') {
+              const esc = ch.value === ' ' ? ' ' : escapeCharLatex(ch.value);
+              atomLatex = `\\text{${esc}}`;
+            } else {
+              atomLatex = emitNodeInteractive(
+                ch,
+                cursor,
+                selection,
+                node.id,
+                focused,
+                false,
+                autoShorthands,
+                structDepth,
+              );
+            }
+            const isSel = selForSlot !== null && i >= selForSlot.start && i < selForSlot.end;
+            const cls = isSel ? 'ms-atom ms-selected' : 'ms-atom';
+            parts.push(`\\htmlData{atom-slot=${slot.id},offset=${i}}{\\htmlClass{${cls}}{${atomLatex}}}`);
+          }
+          if (isActive && focused && cursor.offset === slot.children.length && !selForSlot) {
+            parts.push(wrapCaret());
+          }
+          rendered = `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${parts.join('')}}}`;
+        }
+      } else if (dynGrid) {
         const { env, rows, cols } = dynGrid;
         const rowStrings: string[] = [];
         for (let r = 0; r < rows; r += 1) {
@@ -1578,6 +1661,9 @@ export function toInteractiveLatex(
 }
 
 export function commandPreviewLatex(template: string): string {
+  if (template === '\\text{$1}') {
+    return '\\text{abc}';
+  }
   if (template.includes('\\ddots') && template.includes('\\begin{pmatrix}')) {
     return '\\begin{pmatrix} \\square & \\cdots & \\square \\\\ \\vdots & \\ddots & \\vdots \\\\ \\square & \\cdots & \\square \\end{pmatrix}';
   }

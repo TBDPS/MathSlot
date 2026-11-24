@@ -3,8 +3,16 @@ use std::borrow::Cow;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
+
+static TMP_SEQ: AtomicU64 = AtomicU64::new(1);
+const MAX_CLIPBOARD_DIM: usize = 16384;
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
 
 /// Keeps the OS clipboard handle alive for the entire app lifetime.
 /// Critical on Linux (both X11 and Wayland): dropping `arboard::Clipboard` immediately
@@ -59,9 +67,19 @@ fn config_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn write_atomic(path: &PathBuf, content: &str) -> Result<(), String> {
-    let tmp = path.with_extension("json.tmp");
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("store.json");
+    let tmp = path.with_file_name(format!(".{file_name}.{pid}.{seq}.tmp"));
     fs::write(&tmp, content.as_bytes()).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -84,6 +102,20 @@ fn copy_image_to_clipboard(
     width: usize,
     height: usize,
 ) -> Result<(), String> {
+    if width == 0 || height == 0 || width > MAX_CLIPBOARD_DIM || height > MAX_CLIPBOARD_DIM {
+        return Err("invalid image dimensions".to_string());
+    }
+    let expected = width
+        .checked_mul(height)
+        .and_then(|px| px.checked_mul(4))
+        .ok_or_else(|| "image dimension overflow".to_string())?;
+    if rgba.len() != expected {
+        return Err(format!(
+            "rgba buffer size mismatch: got {}, expected {}",
+            rgba.len(),
+            expected
+        ));
+    }
     state.with_clipboard(|cb| {
         let img = arboard::ImageData {
             width,
@@ -114,15 +146,22 @@ fn downloads_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 fn save_export_file(app: tauri::AppHandle, filename: String, bytes: Vec<u8>) -> Result<String, String> {
     let dir = downloads_dir(&app)?;
     // Sanitize filename to prevent path traversal
-    let safe_name: String = filename
+    let mut safe_name: String = filename
         .chars()
         .filter(|c| !matches!(c, '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
         .collect();
-    let safe_name = if safe_name.trim().is_empty() {
-        "mathslot-formula.png".to_string()
-    } else {
-        safe_name
-    };
+    safe_name = safe_name.trim().trim_matches('.').to_string();
+    if safe_name.is_empty() {
+        safe_name = "mathslot-formula.png".to_string();
+    }
+    let upper_stem = std::path::Path::new(&safe_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    if WINDOWS_RESERVED_NAMES.contains(&upper_stem.as_str()) {
+        safe_name = format!("formula-{safe_name}");
+    }
 
     let mut path = dir.join(&safe_name);
     if path.exists() {
@@ -136,13 +175,15 @@ fn save_export_file(app: tauri::AppHandle, filename: String, bytes: Vec<u8>) -> 
             .and_then(|e| e.to_str())
             .map(|e| format!(".{e}"))
             .unwrap_or_default();
-        for idx in 2..=999 {
+        let mut found = None;
+        for idx in 2..=9999 {
             let candidate = dir.join(format!("{stem}-{idx}{ext}"));
             if !candidate.exists() {
-                path = candidate;
+                found = Some(candidate);
                 break;
             }
         }
+        path = found.ok_or_else(|| "export filename deduplication limit reached".to_string())?;
     }
 
     fs::write(&path, &bytes).map_err(|e| e.to_string())?;
@@ -183,7 +224,6 @@ fn set_always_on_top(window: tauri::WebviewWindow, pinned: bool) -> Result<(), S
         let on_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
             && std::env::var("GDK_BACKEND").as_deref() != Ok("x11");
         if on_wayland {
-            let _ = window.set_always_on_top(pinned);
             return Err("WAYLAND_UNSUPPORTED".to_string());
         }
     }

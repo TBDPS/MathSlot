@@ -76,6 +76,10 @@ export function textToCharNodes(text: string): CharNode[] {
   return Array.from(text).map((ch) => createCharNode(ch));
 }
 
+/**
+ * Structural clone preserving IDs — intentionally used by undo/redo snapshots so restored
+ * `Cursor.slotId` remains valid. To duplicate a node inside the SAME document, use `cloneNodeFresh`.
+ */
 export function cloneNode(node: MathNode): MathNode {
   switch (node.type) {
     case 'char':
@@ -105,6 +109,30 @@ export function cloneSlot(slot: SlotNode): SlotNode {
 
 export function cloneDocument(doc: Document): Document {
   return { root: cloneSlot(doc.root) };
+}
+
+/** Deep-clones a node with brand-new unique IDs for safely inserting a duplicate into the same document. */
+export function cloneNodeFresh(node: MathNode): MathNode {
+  switch (node.type) {
+    case 'char':
+      return { ...node, id: nextId('c') };
+    case 'symbol':
+      return { ...node, id: nextId('y') };
+    case 'raw':
+      return { ...node, id: nextId('r') };
+    case 'struct':
+      return {
+        ...node,
+        id: nextId('t'),
+        slots: node.slots.map((s) => ({
+          id: nextId('s'),
+          label: s.label,
+          children: s.children.map((ch) => cloneNodeFresh(ch)),
+        })),
+        fillOrder: node.fillOrder ? [...node.fillOrder] : undefined,
+        grid: node.grid ? { ...node.grid } : undefined,
+      };
+  }
 }
 
 export interface SlotPathEntry {
@@ -245,6 +273,8 @@ export const OPTIONAL_SLOTS_BY_CMD: Readonly<Record<string, readonly number[]>> 
   eval_bar: [1, 2],
   overbrace: [1],
   underbrace: [1],
+  xrightarrow: [0],
+  xleftarrow: [0],
 };
 
 export function isOptionalSlot(commandId: string, slotIndex: number): boolean {

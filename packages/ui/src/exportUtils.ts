@@ -16,7 +16,10 @@ export function latexToMathML(latex: string): string {
     strict: false,
   });
   const match = html.match(/<math[\s\S]*<\/math>/);
-  return match ? match[0] : html;
+  if (!match) {
+    throw new Error('MathML extraction failed');
+  }
+  return match[0];
 }
 
 export interface RenderedPng {
@@ -416,15 +419,21 @@ export async function renderLatexToPng(
   latex: string,
   options: { dark?: boolean; background?: ExportBackground; scale?: number; fontSize?: number } = {},
 ): Promise<RenderedPng> {
-  const scale = options.scale ?? 3;
+  const requestedScale = options.scale ?? 3;
   const scene = await extractVectorScene(latex, {
     background: options.background ?? 'transparent',
     dark: options.dark,
     fontSize: options.fontSize ?? 34,
   });
 
-  const width = Math.round(scene.width * scale);
-  const height = Math.round(scene.height * scale);
+  // Cap canvas dimensions to 8192px to prevent GPU/browser silent blank canvas on giant formulas
+  const MAX_CANVAS_DIM = 8192;
+  const maxScaleW = MAX_CANVAS_DIM / Math.max(1, scene.width);
+  const maxScaleH = MAX_CANVAS_DIM / Math.max(1, scene.height);
+  const scale = Math.max(0.5, Math.min(requestedScale, maxScaleW, maxScaleH));
+
+  const width = Math.max(1, Math.round(scene.width * scale));
+  const height = Math.max(1, Math.round(scene.height * scale));
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;

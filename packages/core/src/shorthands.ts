@@ -95,6 +95,10 @@ export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
   { trigger: 'mp', commandId: 'mp', kind: 'word' },
   { trigger: 'vdots', commandId: 'vdots', kind: 'word' },
   { trigger: 'ddots', commandId: 'ddots', kind: 'word' },
+  { trigger: 'varphi', commandId: 'varphi', kind: 'word' },
+  { trigger: 'vartheta', commandId: 'vartheta', kind: 'word' },
+  { trigger: 'leftarrow', commandId: 'leftarrow', kind: 'word' },
+  { trigger: 'leftrightarrow', commandId: 'leftrightarrow', kind: 'word' },
 ];
 
 export const SHORTHAND_BY_COMMAND_ID: ReadonlyMap<string, string> = (() => {

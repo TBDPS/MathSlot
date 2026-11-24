@@ -209,6 +209,9 @@ export class MathSlotEngine {
       doc: cloneDocument(this.doc),
       cursor: { ...this.cursor },
     });
+    if (this.redoStack.length > MAX_HISTORY) {
+      this.redoStack.shift();
+    }
     this.doc = prev.doc;
     this.cursor = prev.cursor;
     this.selection = null;
@@ -224,6 +227,9 @@ export class MathSlotEngine {
       doc: cloneDocument(this.doc),
       cursor: { ...this.cursor },
     });
+    if (this.undoStack.length > MAX_HISTORY) {
+      this.undoStack.shift();
+    }
     this.doc = next.doc;
     this.cursor = next.cursor;
     this.selection = null;
@@ -238,6 +244,8 @@ export class MathSlotEngine {
     this.doc = createEmptyDocument();
     this.cursor = { slotId: this.doc.root.id, offset: 0 };
     this.selection = null;
+    this.jumpHistory = [];
+    this.jumpHistoryIdx = -1;
     this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
   }
@@ -252,6 +260,8 @@ export class MathSlotEngine {
     this.doc = result.doc;
     this.cursor = { slotId: this.doc.root.id, offset: this.doc.root.children.length };
     this.selection = null;
+    this.jumpHistory = [];
+    this.jumpHistoryIdx = -1;
     this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     return result;
@@ -260,14 +270,17 @@ export class MathSlotEngine {
   public pasteText(text: string): void {
     const trimmed = text.trim();
     if (!trimmed) return;
-    // If pasted text looks like LaTeX or MathSlot stream code, parse into interactive nodes
-    if (
+    const isStrongLatex =
       trimmed.includes('\\') ||
       trimmed.includes('▸') ||
-      trimmed.includes('^') ||
-      trimmed.includes('_') ||
-      (trimmed.startsWith('$') && trimmed.endsWith('$'))
-    ) {
+      (trimmed.startsWith('$') && trimmed.endsWith('$'));
+    const isCompactScript =
+      !trimmed.includes('\n') &&
+      !/\s{2,}/.test(trimmed) &&
+      trimmed.split(/\s+/).length <= 4 &&
+      (trimmed.includes('^') || (trimmed.includes('_') && !/^[a-zA-Z0-9]+_[a-zA-Z0-9_]+$/.test(trimmed)));
+
+    if (isStrongLatex || isCompactScript) {
       const res = importFormula(trimmed);
       const hasError = res.diagnostics.some((d) => d.severity === 'error');
       if (!hasError && res.doc.root.children.length > 0) {
@@ -280,7 +293,7 @@ export class MathSlotEngine {
         return;
       }
     }
-    this.insertText(text);
+    this.insertText(trimmed);
   }
 
   public getSelectedLatex(): string {
@@ -835,6 +848,7 @@ export class MathSlotEngine {
       if (ch === ';' && this.settings.semicolonNextSlot) {
         const path = findSlotPath(this.doc.root, this.cursor.slotId);
         if (path && path.length > 1) {
+          this.selection = null;
           this.nextSlot();
           return;
         }

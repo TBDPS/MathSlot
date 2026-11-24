@@ -297,7 +297,13 @@ function endsWithDifferential(nodes: readonly MathNode[]): boolean {
   return false;
 }
 
-function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
+const MAX_PARSE_DEPTH = 64;
+
+function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): MathNode[] {
+  if (depth >= MAX_PARSE_DEPTH) {
+    diagnostics.push({ severity: 'warning', message: '公式嵌套层级过深，已按原样保留深层内容' });
+    return src.trim() ? [createRawNode(src)] : [];
+  }
   let pos = 0;
   const peek = () => src[pos] ?? '';
   const eof = () => pos >= src.length;
@@ -411,9 +417,19 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
   const readGroupNodes = (): MathNode[] => {
     skipSpaces();
     if (peek() === '{') {
-      return parseLatexNodes(readBracedRaw(), diagnostics);
+      return parseLatexNodes(readBracedRaw(), diagnostics, depth + 1);
     }
     return parseSingleUnit();
+  };
+
+  const readSingleTokenRaw = (): string => {
+    skipSpaces();
+    if (eof()) return '';
+    if (peek() === '{') return readBracedRaw();
+    if (peek() === '\\') return readMacroName();
+    const ch = src[pos];
+    pos += 1;
+    return ch;
   };
 
   const readSubSup = (): { sub: MathNode[] | null; sup: MathNode[] | null } => {
@@ -466,7 +482,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
           if (openDelim === '.' && (closeDelim === '|' || closeDelim === '\\|')) {
             const { sub, sup } = readSubSup();
             return createStructNode(COMMANDS_BY_ID.get('eval_bar')!, [
-              parseLatexNodes(bodyRaw, diagnostics),
+              parseLatexNodes(bodyRaw, diagnostics, depth + 1),
               sub ?? [],
               sup ?? [],
             ]);
@@ -488,7 +504,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
 
           if (cmdId) {
             return createStructNode(COMMANDS_BY_ID.get(cmdId)!, [
-              parseLatexNodes(bodyRaw, diagnostics),
+              parseLatexNodes(bodyRaw, diagnostics, depth + 1),
             ]);
           }
 
@@ -510,8 +526,29 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
 
   const parseEnvironment = (): MathNode[] => {
     const envName = readBracedRaw().trim();
+    const beginToken = `\\begin{${envName}}`;
     const endToken = `\\end{${envName}}`;
-    const endIdx = src.indexOf(endToken, pos);
+    // Balanced scan so nested same-name environments (e.g. block pmatrix inside pmatrix) pair accurately
+    let envDepth = 1;
+    let scan = pos;
+    let endIdx = -1;
+    while (scan < src.length && envDepth > 0) {
+      if (src.startsWith(beginToken, scan)) {
+        envDepth += 1;
+        scan += beginToken.length;
+        continue;
+      }
+      if (src.startsWith(endToken, scan)) {
+        envDepth -= 1;
+        if (envDepth === 0) {
+          endIdx = scan;
+          break;
+        }
+        scan += endToken.length;
+        continue;
+      }
+      scan += 1;
+    }
     if (endIdx === -1) {
       diagnostics.push({ severity: 'error', message: `缺少 \\end{${envName}}` });
       const rest = src.slice(pos);
@@ -533,7 +570,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
     ) {
       // Strip alignment `&` markers cleanly so lines import into editable multi-line root AST
       const cleaned = body.replace(/(?<!\\)&/g, '');
-      return parseLatexNodes(cleaned, diagnostics);
+      return parseLatexNodes(cleaned, diagnostics, depth + 1);
     }
 
     const rows = splitTopLevel(body, '\\\\')
@@ -545,22 +582,22 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       if (rows.length === 2 && cells.every((r) => r.length <= 2)) {
         return [
           createStructNode(COMMANDS_BY_ID.get('cases_2')!, [
-            parseLatexNodes(cells[0][0] ?? '', diagnostics),
-            parseLatexNodes(cells[0][1] ?? '', diagnostics),
-            parseLatexNodes(cells[1][0] ?? '', diagnostics),
-            parseLatexNodes(cells[1][1] ?? '', diagnostics),
+            parseLatexNodes(cells[0][0] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[0][1] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[1][0] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[1][1] ?? '', diagnostics, depth + 1),
           ]),
         ];
       }
       if (rows.length === 3 && cells.every((r) => r.length <= 2)) {
         return [
           createStructNode(COMMANDS_BY_ID.get('cases_3')!, [
-            parseLatexNodes(cells[0][0] ?? '', diagnostics),
-            parseLatexNodes(cells[0][1] ?? '', diagnostics),
-            parseLatexNodes(cells[1][0] ?? '', diagnostics),
-            parseLatexNodes(cells[1][1] ?? '', diagnostics),
-            parseLatexNodes(cells[2][0] ?? '', diagnostics),
-            parseLatexNodes(cells[2][1] ?? '', diagnostics),
+            parseLatexNodes(cells[0][0] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[0][1] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[1][0] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[1][1] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[2][0] ?? '', diagnostics, depth + 1),
+            parseLatexNodes(cells[2][1] ?? '', diagnostics, depth + 1),
           ]),
         ];
       }
@@ -570,8 +607,8 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       for (let r = 0; r < rows.length; r += 1) {
         slotLabels.push(`表达式${r + 1}`, `条件${r + 1}`);
         slotContents.push(
-          parseLatexNodes(cells[r][0] ?? '', diagnostics),
-          parseLatexNodes(cells[r][1] ?? '', diagnostics),
+          parseLatexNodes(cells[r][0] ?? '', diagnostics, depth + 1),
+          parseLatexNodes(cells[r][1] ?? '', diagnostics, depth + 1),
         );
       }
       const struct = createStructNode(
@@ -590,8 +627,8 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
           createStructNode(
             COMMANDS_BY_ID.get(matMap.two)!,
             cells.flatMap((r) => [
-              parseLatexNodes(r[0] ?? '', diagnostics),
-              parseLatexNodes(r[1] ?? '', diagnostics),
+              parseLatexNodes(r[0] ?? '', diagnostics, depth + 1),
+              parseLatexNodes(r[1] ?? '', diagnostics, depth + 1),
             ]),
           ),
         ];
@@ -601,9 +638,9 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
           createStructNode(
             COMMANDS_BY_ID.get(matMap.three)!,
             cells.flatMap((r) => [
-              parseLatexNodes(r[0] ?? '', diagnostics),
-              parseLatexNodes(r[1] ?? '', diagnostics),
-              parseLatexNodes(r[2] ?? '', diagnostics),
+              parseLatexNodes(r[0] ?? '', diagnostics, depth + 1),
+              parseLatexNodes(r[1] ?? '', diagnostics, depth + 1),
+              parseLatexNodes(r[2] ?? '', diagnostics, depth + 1),
             ]),
           ),
         ];
@@ -614,7 +651,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       for (let r = 0; r < rows.length; r += 1) {
         for (let c = 0; c < colCount; c += 1) {
           slotLabels.push(`(${r + 1},${c + 1})`);
-          slotContents.push(parseLatexNodes(cells[r][c] ?? '', diagnostics));
+          slotContents.push(parseLatexNodes(cells[r][c] ?? '', diagnostics, depth + 1));
         }
       }
       const baseCmdId = matMap ? matMap.two : 'matrix_2x2';
@@ -701,7 +738,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
 
     if (ch === '{') {
       const raw = readBracedRaw();
-      return parseLatexNodes(raw, diagnostics);
+      return parseLatexNodes(raw, diagnostics, depth + 1);
     }
 
     // Parse matched plain `(...)` and `[...]` into real autoSized delimiter structs so hierarchy & jump survive roundtrip!
@@ -709,7 +746,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       const inner = tryReadPlainDelimRaw('(', ')');
       if (inner !== null) {
         const struct = createStructNode(COMMANDS_BY_ID.get('paren')!, [
-          parseLatexNodes(inner, diagnostics),
+          parseLatexNodes(inner, diagnostics, depth + 1),
         ]);
         struct.autoSized = true;
         return [struct];
@@ -719,7 +756,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
       const inner = tryReadPlainDelimRaw('[', ']');
       if (inner !== null) {
         const struct = createStructNode(COMMANDS_BY_ID.get('bracket')!, [
-          parseLatexNodes(inner, diagnostics),
+          parseLatexNodes(inner, diagnostics, depth + 1),
         ]);
         struct.autoSized = true;
         return [struct];
@@ -838,13 +875,13 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
         let targetNodes: MathNode[] = [];
         if (peek() === '_') {
           pos += 1;
-          const subRaw = peek() === '{' ? readBracedRaw() : '';
+          const subRaw = readSingleTokenRaw();
           const arrowSplit = subRaw.split(/\\to\b|\\rightarrow\b/);
           if (arrowSplit.length >= 2) {
-            varNodes = parseLatexNodes(arrowSplit[0].trim(), diagnostics);
-            targetNodes = parseLatexNodes(arrowSplit.slice(1).join('\\to').trim(), diagnostics);
+            varNodes = parseLatexNodes(arrowSplit[0].trim(), diagnostics, depth + 1);
+            targetNodes = parseLatexNodes(arrowSplit.slice(1).join('\\to').trim(), diagnostics, depth + 1);
           } else {
-            varNodes = parseLatexNodes(subRaw, diagnostics);
+            varNodes = parseLatexNodes(subRaw, diagnostics, depth + 1);
           }
         }
         const body = readBigOpBody(false);
@@ -860,6 +897,39 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
         const { sub } = readSubSup();
         return [createStructNode(COMMANDS_BY_ID.get('underbrace')!, [body, sub ?? []])];
       }
+      if (macro === '\\overset') {
+        const top = readGroupNodes();
+        const base = readGroupNodes();
+        return [createStructNode(COMMANDS_BY_ID.get('overset')!, [top, base])];
+      }
+      if (macro === '\\underset') {
+        const bot = readGroupNodes();
+        const base = readGroupNodes();
+        return [createStructNode(COMMANDS_BY_ID.get('underset')!, [bot, base])];
+      }
+      if (macro === '\\xrightarrow' || macro === '\\xleftarrow') {
+        const belowRaw = readBracketRaw();
+        const above = readGroupNodes();
+        const below = belowRaw !== null ? parseLatexNodes(belowRaw, diagnostics, depth + 1) : [];
+        return [
+          createStructNode(
+            COMMANDS_BY_ID.get(macro === '\\xrightarrow' ? 'xrightarrow' : 'xleftarrow')!,
+            [below, above],
+          ),
+        ];
+      }
+      if (macro === '\\cancel') {
+        const body = readGroupNodes();
+        return [createStructNode(COMMANDS_BY_ID.get('cancel')!, [body])];
+      }
+      if (macro === '\\pmod') {
+        const body = readGroupNodes();
+        return [createStructNode(COMMANDS_BY_ID.get('pmod')!, [body])];
+      }
+      if (macro === '\\text') {
+        const arg = readBracedRaw();
+        return [createStructNode(COMMANDS_BY_ID.get('text_box')!, [textToCharNodes(arg)])];
+      }
       if (ACCENT_MAP[macro]) {
         const body = readGroupNodes();
         return [createStructNode(COMMANDS_BY_ID.get(ACCENT_MAP[macro])!, [body])];
@@ -872,7 +942,9 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[]): MathNode[] {
         macro === '\\mathbf' ||
         macro === '\\mathbb' ||
         macro === '\\mathcal' ||
-        macro === '\\text' ||
+        macro === '\\mathfrak' ||
+        macro === '\\mathsf' ||
+        macro === '\\mathtt' ||
         macro === '\\operatorname'
       ) {
         const arg = readBracedRaw();
