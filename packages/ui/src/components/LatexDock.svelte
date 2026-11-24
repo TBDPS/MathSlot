@@ -4,7 +4,7 @@
   interface Props {
     latex: string;
     delimiter: DelimiterStyle;
-    onApplyRawLatex: (raw: string) => void;
+    onApplyRawLatex: (raw: string) => boolean;
     onCycleDelimiter: () => void;
     onSaveSnippet: () => void;
     onCopy: () => void;
@@ -29,6 +29,8 @@
 
   let draft = $state('');
   let editing = $state(false);
+  let hasError = $state(false);
+  let isComposing = $state(false);
   let expanded = $state(false);
   let canExpand = $state(false);
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
@@ -75,22 +77,38 @@
     }
   });
 
-  function commit(): void {
-    editing = false;
-    if (draft !== latex) {
-      onApplyRawLatex(draft);
+  function commit(): boolean {
+    if (draft === latex) {
+      editing = false;
+      hasError = false;
+      return true;
     }
+    const ok = onApplyRawLatex(draft);
+    if (!ok) {
+      // Preserve draft & stay in editing mode so user can fix the syntax error instead of losing work!
+      editing = true;
+      hasError = true;
+      return false;
+    }
+    editing = false;
+    hasError = false;
+    return true;
   }
 
   function handleKeyDown(e: KeyboardEvent): void {
+    if (isComposing || e.isComposing || e.key === 'Process' || e.keyCode === 229) {
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      commit();
-      (e.currentTarget as HTMLTextAreaElement).blur();
+      if (commit()) {
+        (e.currentTarget as HTMLTextAreaElement).blur();
+      }
     } else if (e.key === 'Escape') {
       e.preventDefault();
       draft = latex;
       editing = false;
+      hasError = false;
       (e.currentTarget as HTMLTextAreaElement).blur();
     }
   }
@@ -98,24 +116,38 @@
 
 <svelte:window onresize={syncHeight} />
 
-<div class="latex-dock" class:expanded>
+<div class="latex-dock" class:expanded class:has-error={hasError}>
   <textarea
     bind:this={textareaEl}
     class="latex-input"
     rows="1"
     spellcheck="false"
     value={displayedValue}
-    placeholder="LaTeX（Enter 应用，Shift+Enter 换行）"
+    placeholder="LaTeX（Enter 应用，Shift+Enter 换行，Esc 还原）"
     aria-label="LaTeX 源码"
     onfocus={() => {
-      editing = true;
-      draft = latex;
+      if (!editing) {
+        editing = true;
+        draft = latex;
+      }
+    }}
+    oncompositionstart={() => {
+      isComposing = true;
+    }}
+    oncompositionend={(e) => {
+      isComposing = false;
+      draft = (e.currentTarget as HTMLTextAreaElement).value;
+      hasError = false;
+      syncHeight();
     }}
     oninput={(e) => {
       draft = (e.currentTarget as HTMLTextAreaElement).value;
+      hasError = false;
       syncHeight();
     }}
-    onblur={commit}
+    onblur={() => {
+      void commit();
+    }}
     onkeydown={handleKeyDown}
   ></textarea>
 
@@ -320,5 +352,25 @@
   .dock-icon-btn:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+  .latex-dock.has-error {
+    border-top-color: var(--ms-danger);
+    box-shadow: inset 0 2px 0 var(--ms-danger-soft);
+  }
+
+  @media (max-width: 520px) {
+    .latex-dock {
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 6px 10px;
+    }
+    .latex-input {
+      flex: 1 1 100%;
+    }
+    .dock-actions {
+      width: 100%;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
   }
 </style>

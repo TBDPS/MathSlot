@@ -15,7 +15,7 @@ declare module 'obsidian' {
   export interface Editor {
     getSelection(): string;
     replaceSelection(replacement: string): void;
-    getCursor(): EditorPosition;
+    getCursor(string?: 'from' | 'to' | 'head' | 'anchor'): EditorPosition;
     getLine(line: number): string;
     getRange(from: EditorPosition, to: EditorPosition): string;
     lineCount(): number;

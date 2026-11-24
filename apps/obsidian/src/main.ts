@@ -50,12 +50,18 @@ export default class MathSlotPlugin extends Plugin {
     if (trimmedSelected) {
       const stripped = stripBlockquoteSelection(rawSelected);
       initialFormula = stripped.clean.trim() || undefined;
+      if (editor) {
+        const from = editor.getCursor('from');
+        const to = editor.getCursor('to');
+        replaceRange = { from, to };
+        expectedRangeText = editor.getRange(from, to);
+      }
       if (stripped.linePrefix) {
         linePrefix = stripped.linePrefix;
         includeFirstLinePrefix = true;
       } else if (editor) {
         // User selected text inside a blockquote line after `> `
-        const cursor = editor.getCursor();
+        const cursor = editor.getCursor('from');
         const split = extractBlockquotePrefix(editor.getLine(cursor.line));
         if (split.prefix) {
           linePrefix = canonicalBlockquotePrefix(split.prefix);

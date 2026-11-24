@@ -267,6 +267,12 @@ export class MathSlotEngine {
     return result;
   }
 
+  public pasteLiteralText(text: string): void {
+    const clean = text.replace(/\r\n/g, '\n');
+    if (!clean) return;
+    this.insertText(clean);
+  }
+
   public pasteText(text: string): void {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -274,11 +280,14 @@ export class MathSlotEngine {
       trimmed.includes('\\') ||
       trimmed.includes('▸') ||
       (trimmed.startsWith('$') && trimmed.endsWith('$'));
+    // Multi-letter snake_case identifiers like `foo_bar` or `user_id` stay literal,
+    // while standard math subscripts like `x_1`, `a_n`, `x_{i+1}` import as real subscript structs!
+    const isLikelySnakeCaseIdentifier = /^[a-zA-Z]{2,}_[a-zA-Z0-9_]+$/.test(trimmed);
     const isCompactScript =
       !trimmed.includes('\n') &&
       !/\s{2,}/.test(trimmed) &&
       trimmed.split(/\s+/).length <= 4 &&
-      (trimmed.includes('^') || (trimmed.includes('_') && !/^[a-zA-Z0-9]+_[a-zA-Z0-9_]+$/.test(trimmed)));
+      (trimmed.includes('^') || (trimmed.includes('_') && !isLikelySnakeCaseIdentifier));
 
     if (isStrongLatex || isCompactScript) {
       const res = importFormula(trimmed);
@@ -1121,6 +1130,7 @@ export class MathSlotEngine {
       bmatrix: 'bmatrix_2x2',
       vmatrix: 'det_2x2',
       cases: 'cases_2',
+      boxed: 'boxed',
     };
 
     const structCmdId = INLINE_STRUCT_MAP[name];
@@ -2015,10 +2025,11 @@ export class MathSlotEngine {
     }
     if (
       (cmdId === 'double_integral' || cmdId === 'contour_integral' || cmdId === 'triple_integral') &&
-      sIdx === 0
+      (sIdx === 0 || sIdx === 2) &&
+      parentStruct.slots.length === 3
     ) {
-      const body = parentStruct.slots[1];
-      this.cursor = { slotId: body.id, offset: body.children.length };
+      const upper = parentStruct.slots[1];
+      this.cursor = { slotId: upper.id, offset: upper.children.length };
       return;
     }
     if (cmdId === 'eval_bar' && (sIdx === 0 || sIdx === 1)) {
@@ -2106,7 +2117,8 @@ export class MathSlotEngine {
     }
     if (
       (cmdId === 'double_integral' || cmdId === 'contour_integral' || cmdId === 'triple_integral') &&
-      sIdx === 1
+      (sIdx === 1 || sIdx === 2) &&
+      parentStruct.slots.length === 3
     ) {
       const region = parentStruct.slots[0];
       this.cursor = { slotId: region.id, offset: region.children.length };

@@ -39,15 +39,16 @@ const VALID_CATEGORIES = new Set<CommandCategory>([
 export function parseUserPresetsJson(raw: string): {
   entries: UserPresetEntry[];
   warnings: string[];
+  failed: boolean;
 } {
   const warnings: string[] = [];
-  if (!raw || !raw.trim()) return { entries: [], warnings };
+  if (!raw || !raw.trim()) return { entries: [], warnings, failed: false };
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
     warnings.push(`presets.json 解析失败：${err instanceof Error ? err.message : String(err)}`);
-    return { entries: [], warnings };
+    return { entries: [], warnings, failed: true };
   }
 
   const list = Array.isArray(parsed)
@@ -58,7 +59,7 @@ export function parseUserPresetsJson(raw: string): {
 
   if (!list) {
     warnings.push('presets.json 格式应为数组或包含 "presets" 数组的对象');
-    return { entries: [], warnings };
+    return { entries: [], warnings, failed: true };
   }
 
   const entries: UserPresetEntry[] = [];
@@ -97,21 +98,22 @@ export function parseUserPresetsJson(raw: string): {
       tags: Array.isArray(obj.tags) ? obj.tags.filter((t): t is string => typeof t === 'string') : [],
     });
   }
-  return { entries, warnings };
+  return { entries, warnings, failed: false };
 }
 
 export function parseUserCommandsJson(raw: string): {
   entries: UserCommandEntry[];
   warnings: string[];
+  failed: boolean;
 } {
   const warnings: string[] = [];
-  if (!raw || !raw.trim()) return { entries: [], warnings };
+  if (!raw || !raw.trim()) return { entries: [], warnings, failed: false };
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
     warnings.push(`commands.json 解析失败：${err instanceof Error ? err.message : String(err)}`);
-    return { entries: [], warnings };
+    return { entries: [], warnings, failed: true };
   }
 
   const list = Array.isArray(parsed)
@@ -122,7 +124,7 @@ export function parseUserCommandsJson(raw: string): {
 
   if (!list) {
     warnings.push('commands.json 格式应为数组或包含 "commands" 数组的对象');
-    return { entries: [], warnings };
+    return { entries: [], warnings, failed: true };
   }
 
   const entries: UserCommandEntry[] = [];
@@ -184,7 +186,7 @@ export function parseUserCommandsJson(raw: string): {
       wrapSlot: typeof obj.wrapSlot === 'number' ? obj.wrapSlot : slots.length > 0 ? 0 : null,
     });
   }
-  return { entries, warnings };
+  return { entries, warnings, failed: false };
 }
 
 export function mergePresets(

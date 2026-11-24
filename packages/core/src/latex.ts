@@ -230,6 +230,11 @@ const SELF_DELIMITED_STRUCTS = new Set([
   'abs',
   'bracket',
   'brace',
+  'interval_oc',
+  'interval_co',
+  'set_builder',
+  'boxed',
+  'substack_2',
   'norm',
   'angle',
   'floor',
@@ -292,7 +297,16 @@ const TALL_STRUCT_IDS = new Set([
   'underbrace',
 ]);
 
-const DELIMITER_STRUCT_IDS = new Set(['paren', 'bracket', 'brace', 'abs', 'norm']);
+const DELIMITER_STRUCT_IDS = new Set([
+  'paren',
+  'bracket',
+  'brace',
+  'interval_oc',
+  'interval_co',
+  'set_builder',
+  'abs',
+  'norm',
+]);
 
 type SpacingLevel = 'display' | 'tight';
 
@@ -311,10 +325,11 @@ function isTightSlot(commandId: string, slotIndex: number): boolean {
   }
   if (
     (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
-    slotIndex === 0
+    (slotIndex === 0 || slotIndex === 1)
   ) {
     return true;
   }
+  if (commandId === 'substack_2') return true;
   if ((commandId === 'nth_root' || commandId === 'sqrt') && slotIndex === 0) return true;
   if (commandId === 'eval_bar' && (slotIndex === 1 || slotIndex === 2)) return true;
   return false;
@@ -564,7 +579,7 @@ function isIntegralBodySlot(commandId: string, slotIndex: number): boolean {
   if (commandId === 'indef_integral' && slotIndex === 0) return true;
   if (
     (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
-    slotIndex === 1
+    slotIndex === 2
   ) {
     return true;
   }
@@ -826,8 +841,9 @@ function resolveAdaptiveStructTemplate(
     case 'sum':
     case 'product': {
       if (node.slots.length !== 3) return null;
-      const macro =
+      const baseMacro =
         node.commandId === 'integral' ? '\\int' : node.commandId === 'sum' ? '\\sum' : '\\prod';
+      const macro = node.limitsMode ? `${baseMacro}\\${node.limitsMode}` : baseMacro;
       const hasLo = hasSlot(0);
       const hasHi = hasSlot(1);
       if (hasLo && hasHi) return `${macro}_{$1}^{$2} $3`;
@@ -838,14 +854,35 @@ function resolveAdaptiveStructTemplate(
     case 'double_integral':
     case 'contour_integral':
     case 'triple_integral': {
-      if (node.slots.length !== 2) return null;
-      const macro =
+      const baseMacro =
         node.commandId === 'double_integral'
           ? '\\iint'
           : node.commandId === 'contour_integral'
             ? '\\oint'
             : '\\iiint';
-      return hasSlot(0) ? `${macro}_{$1} $2` : `${macro} $2`;
+      const macro = node.limitsMode ? `${baseMacro}\\${node.limitsMode}` : baseMacro;
+      if (node.slots.length === 3) {
+        const hasLo = hasSlot(0);
+        const hasHi = hasSlot(1);
+        if (hasLo && hasHi) return `${macro}_{$1}^{$2} $3`;
+        if (hasLo) return `${macro}_{$1} $3`;
+        if (hasHi) return `${macro}^{$2} $3`;
+        return `${macro} $3`;
+      }
+      if (node.slots.length === 2) {
+        return hasSlot(0) ? `${macro}_{$1} $2` : `${macro} $2`;
+      }
+      return null;
+    }
+    case 'limit': {
+      if (node.slots.length !== 3) return null;
+      const macro = node.limitsMode ? `\\lim\\${node.limitsMode}` : '\\lim';
+      const hasVar = hasSlot(0);
+      const hasTarget = hasSlot(1);
+      if (hasVar && hasTarget) return `${macro}_{$1 \\to $2} $3`;
+      if (hasVar) return `${macro}_{$1} $3`;
+      if (hasTarget) return `${macro}_{\\to $2} $3`;
+      return `${macro} $3`;
     }
     case 'eval_bar': {
       if (node.slots.length !== 3) return null;
@@ -1663,6 +1700,12 @@ export function toInteractiveLatex(
 export function commandPreviewLatex(template: string): string {
   if (template === '\\text{$1}') {
     return '\\text{abc}';
+  }
+  if (template === '\\left\\{ $1 \\,\\middle|\\, $2 \\right\\}') {
+    return '\\left\\{ \\square \\,\\middle|\\, \\square \\right\\}';
+  }
+  if (template === '\\substack{$1 \\\\ $2}') {
+    return '\\substack{\\square \\\\ \\square}';
   }
   if (template.includes('\\ddots') && template.includes('\\begin{pmatrix}')) {
     return '\\begin{pmatrix} \\square & \\cdots & \\square \\\\ \\vdots & \\ddots & \\vdots \\\\ \\square & \\cdots & \\square \\end{pmatrix}';

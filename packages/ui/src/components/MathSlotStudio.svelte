@@ -117,7 +117,7 @@
         userCommands,
       });
     } catch {
-      // Non-fatal persistence error
+      flash('保存本地配置失败，请检查存储权限');
     }
   }
 
@@ -130,7 +130,7 @@
           serializeUserCommandsJson(userCommands),
         );
       } catch {
-        // Non-fatal
+        flash('写入外部公式/命令配置文件失败，内存改动已保留');
       }
     }
   }
@@ -142,18 +142,27 @@
       configDir = ext.configDir;
       const pRes = parseUserPresetsJson(ext.presetsJson);
       const cRes = parseUserCommandsJson(ext.commandsJson);
-      userPresets = pRes.entries;
-      userCommands = cRes.entries;
-      engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
+      // Only overwrite active libraries when JSON parsed cleanly; preserve last valid config on syntax errors!
+      if (!pRes.failed) {
+        userPresets = pRes.entries;
+      }
+      if (!cRes.failed) {
+        userCommands = cRes.entries;
+        engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
+      }
       sync();
       const allWarnings = [...pRes.warnings, ...cRes.warnings];
       if (allWarnings.length > 0) {
-        flash(allWarnings[0]);
+        flash(
+          pRes.failed || cRes.failed
+            ? `${allWarnings[0]}（已保留上次有效配置）`
+            : allWarnings[0],
+        );
       } else if (!silent) {
         flash(`已重载配置（公式 ${pRes.entries.length} · 命令 ${cRes.entries.length}）`);
       }
     } catch {
-      if (!silent) flash('读取外部配置文件失败');
+      if (!silent) flash('读取外部配置文件失败，已保留当前配置');
     }
   }
 
@@ -260,17 +269,25 @@
     const formatted = formatExport(snapshot.latex, settings.delimiter);
     if (!formatted) return;
     recordHistory(snapshot.latex);
-    await host.copyText(formatted);
-    flash('已复制');
+    try {
+      await host.copyText(formatted);
+      flash('已复制');
+    } catch {
+      flash('复制失败，请从底部源码栏手动复制');
+    }
     canvasRef?.focus();
   }
 
   async function handleCopyMathML(): Promise<void> {
     if (!snapshot.latex.trim()) return;
     recordHistory(snapshot.latex);
-    const mathml = latexToMathML(snapshot.latex);
-    await host.copyText(mathml);
-    flash('已复制 Word 公式 (MathML)');
+    try {
+      const mathml = latexToMathML(snapshot.latex);
+      await host.copyText(mathml);
+      flash('已复制 Word 公式 (MathML)');
+    } catch {
+      flash('Word 公式 (MathML) 复制失败');
+    }
     canvasRef?.focus();
   }
 
@@ -316,12 +333,16 @@
     const formatted = formatExport(snapshot.latex, settings.delimiter);
     if (!formatted) return;
     recordHistory(snapshot.latex);
-    if (host.onPrimarySubmit) {
-      const msg = await host.onPrimarySubmit(formatted, snapshot.latex);
-      if (msg) flash(msg);
-    } else {
-      await host.copyText(formatted);
-      flash('已复制');
+    try {
+      if (host.onPrimarySubmit) {
+        const msg = await host.onPrimarySubmit(formatted, snapshot.latex);
+        if (msg) flash(msg);
+      } else {
+        await host.copyText(formatted);
+        flash('已复制');
+      }
+    } catch {
+      flash('操作失败，请重试或从底部源码栏复制');
     }
     canvasRef?.focus();
   }
@@ -377,14 +398,71 @@
     void persist();
   }
 
-  function handleLoadFormula(source: string): void {
+  function handleLoadFormula(source: string): boolean {
     const res = engine.loadFormula(source);
-    if (res.diagnostics.some((d) => d.severity === 'error')) {
-      flash(res.diagnostics[0].message);
-      return;
+    const err = res.diagnostics.find((d) => d.severity === 'error');
+    if (err) {
+      flash(err.message);
+      return false;
     }
     sync();
+    const warn = res.diagnostics.find((d) => d.severity === 'warning');
+    if (warn) {
+      flash(warn.message);
+    }
     canvasRef?.focus();
+    return true;
+  }
+
+  async function handleCopySelection(): Promise<void> {
+    const text = snapshot.selection
+      ? engine.getSelectedLatex()
+      : formatExport(snapshot.latex, settings.delimiter);
+    if (!text) return;
+    try {
+      await host.copyText(text);
+      flash('已复制');
+    } catch {
+      flash('剪贴板写入失败');
+    }
+  }
+
+  async function handleCutSelection(): Promise<void> {
+    const sel = snapshot.selection ? { ...snapshot.selection } : null;
+    const text = engine.getSelectedLatex();
+    if (!text) return;
+    try {
+      await host.copyText(text);
+    } catch {
+      flash('剪贴板写入失败，已保留选中内容');
+      return;
+    }
+    // Only delete selection AFTER clipboard write succeeds and selection is unchanged
+    const curSel = engine.getSnapshot().selection;
+    if (
+      sel &&
+      curSel &&
+      curSel.slotId === sel.slotId &&
+      curSel.start === sel.start &&
+      curSel.end === sel.end
+    ) {
+      engine.backspace();
+      sync();
+    }
+    flash('已剪切');
+  }
+
+  async function handlePasteLiteral(): Promise<void> {
+    try {
+      const text = host.readText ? await host.readText() : await navigator.clipboard.readText();
+      if (text) {
+        engine.pasteLiteralText(text);
+        sync();
+        flash('已按原文粘贴');
+      }
+    } catch {
+      flash('读取剪贴板失败');
+    }
   }
 
   function handleKeyEvent(e: KeyboardEvent): void {
@@ -420,27 +498,19 @@
 
     if (mod && e.key.toLowerCase() === 'c') {
       e.preventDefault();
-      const text = snapshot.selection
-        ? engine.getSelectedLatex()
-        : formatExport(snapshot.latex, settings.delimiter);
-      if (text) {
-        void host.copyText(text);
-        flash('已复制');
-      }
+      void handleCopySelection();
       return;
     }
 
     if (mod && e.key.toLowerCase() === 'x') {
       e.preventDefault();
-      const text = engine.getSelectedLatex();
-      if (text) {
-        void host.copyText(text);
-        if (snapshot.selection) {
-          engine.backspace();
-          sync();
-        }
-        flash('已剪切');
-      }
+      void handleCutSelection();
+      return;
+    }
+
+    if (mod && e.shiftKey && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      void handlePasteLiteral();
       return;
     }
 
@@ -1446,7 +1516,7 @@
     flex-direction: column;
     width: 100%;
     height: 100%;
-    min-height: 440px;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -1701,7 +1771,7 @@
   .canvas-wrap {
     position: relative;
     flex: 1 1 auto;
-    min-height: 220px;
+    min-height: 110px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1786,5 +1856,52 @@
     box-shadow: var(--ms-shadow-md);
     pointer-events: none;
     z-index: 40;
+  }
+
+  /* Narrow/mobile viewport safeguard (e.g. 390×844 Obsidian mobile & 560×420 min desktop window) */
+  @media (max-width: 540px) {
+    .topbar {
+      height: 44px;
+      gap: 6px;
+      padding: 0 8px;
+      grid-template-columns: auto 1fr auto;
+    }
+
+    .studio-shell.compact-obsidian .topbar {
+      padding-right: 44px;
+    }
+
+    .studio-shell.compact-obsidian .topbar::after {
+      right: 38px;
+    }
+
+    .brand-name,
+    .breadcrumb-area {
+      display: none;
+    }
+
+    .toolbar {
+      gap: 2px;
+      margin-left: auto;
+    }
+
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+    }
+
+    .text-btn {
+      height: 28px;
+      padding: 0 7px;
+      font-size: 11.5px;
+    }
+
+    .primary-cta {
+      height: 28px;
+      margin-left: 2px;
+      padding: 0 9px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
   }
 </style>

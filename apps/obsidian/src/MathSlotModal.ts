@@ -79,10 +79,20 @@ export class MathSlotModal extends Modal {
               this.opts.expectedRangeText !== undefined &&
               this.opts.editor.getRange(from, to) !== this.opts.expectedRangeText
             ) {
-              await copyTextWithFallback(output);
-              new Notice('原文在编辑期间已变更，为防止覆盖正文已将公式复制到剪贴板');
-              this.close();
-              return;
+              try {
+                await copyTextWithFallback(output);
+                new Notice(
+                  '原文在编辑期间已变更，已将公式复制到剪贴板；弹窗保持打开以防丢失编辑',
+                  5000,
+                );
+                return '原文已变更，已复制公式到剪贴板（弹窗已保留）';
+              } catch {
+                new Notice(
+                  '原文在编辑期间已变更且剪贴板写入失败，请从底部源码栏手动复制',
+                  5000,
+                );
+                return '原文已变更，请从底部源码栏复制公式';
+              }
             }
             this.opts.editor.replaceRange(output, from, to);
             new Notice('已更新公式');

@@ -5,13 +5,14 @@
 
   interface Props {
     onReadClipboard?: () => Promise<string>;
-    onImport: (source: string) => void;
+    onImport: (source: string) => boolean;
     onClose: () => void;
   }
 
   let { onReadClipboard, onImport, onClose }: Props = $props();
 
   let raw = $state('');
+  let submitError = $state<string | null>(null);
   let textareaEl: HTMLTextAreaElement | null = $state(null);
 
   const parsed = $derived.by(() => {
@@ -36,6 +37,7 @@
         : await navigator.clipboard.readText();
       if (text) {
         raw = text;
+        submitError = null;
         textareaEl?.focus();
       }
     } catch {
@@ -45,7 +47,18 @@
 
   function submit(): void {
     if (!raw.trim()) return;
-    onImport(raw);
+    if (parsed && parsed.errors.length > 0) {
+      submitError = parsed.errors[0].message;
+      textareaEl?.focus();
+      return;
+    }
+    const ok = onImport(raw);
+    if (!ok) {
+      submitError = parsed?.errors[0]?.message ?? '导入失败，请修正 LaTeX 语法后重试';
+      textareaEl?.focus();
+      return;
+    }
+    submitError = null;
     onClose();
   }
 </script>
@@ -73,6 +86,9 @@
       class="source-area"
       rows="4"
       placeholder={'\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}'}
+      oninput={() => {
+        submitError = null;
+      }}
       onkeydown={(e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
           e.preventDefault();
@@ -86,9 +102,11 @@
         {@html renderLatexPreview(parsed.latex, true)}
       </div>
       {#if parsed.errors.length > 0}
-        <div class="diag-line is-error">{parsed.errors[0].message}</div>
+        <div class="diag-line is-error">语法错误：{parsed.errors[0].message}（已保留草稿，请修正后再导入）</div>
+      {:else if submitError}
+        <div class="diag-line is-error">{submitError}</div>
       {:else if parsed.warnings.length > 0}
-        <div class="diag-line is-warn">{parsed.warnings[0].message}</div>
+        <div class="diag-line is-warn">提示：{parsed.warnings[0].message}</div>
       {/if}
     {/if}
 
@@ -97,7 +115,7 @@
       <button
         type="button"
         class="btn-primary"
-        disabled={!raw.trim()}
+        disabled={!raw.trim() || (parsed?.errors.length ?? 0) > 0}
         onclick={submit}
       >
         导入

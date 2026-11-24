@@ -266,9 +266,9 @@ export const OPTIONAL_SLOTS_BY_CMD: Readonly<Record<string, readonly number[]>> 
   integral: [0, 1],
   sum: [0, 1],
   product: [0, 1],
-  double_integral: [0],
-  contour_integral: [0],
-  triple_integral: [0],
+  double_integral: [0, 1],
+  contour_integral: [0, 1],
+  triple_integral: [0, 1],
   subsup: [1, 2],
   eval_bar: [1, 2],
   overbrace: [1],
@@ -298,6 +298,17 @@ export function isSlotVisibleInteractive(
   if (slot.children.length > 0) return true;
   if (!isOptionalSlot(node.commandId, slotIndex)) return true;
   if (slot.id === activeSlotId) return true;
+
+  // For multi-integrals (\iint, \iiint, \oint), the upper bound is rarely used compared to
+  // region/path subscript — keep it collapsed unless non-empty or directly focused!
+  if (
+    (node.commandId === 'double_integral' ||
+      node.commandId === 'contour_integral' ||
+      node.commandId === 'triple_integral') &&
+    slotIndex === 1
+  ) {
+    return false;
+  }
 
   const optList = OPTIONAL_SLOTS_BY_CMD[node.commandId];
   if (optList && optList.length >= 2) {

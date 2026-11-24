@@ -450,6 +450,224 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
     return { sub, sup };
   };
 
+  const readOptionalLimitsMode = (): 'limits' | 'nolimits' | undefined => {
+    let mode: 'limits' | 'nolimits' | undefined;
+    while (!eof()) {
+      const save = pos;
+      skipSpaces();
+      if (peek() !== '\\') {
+        pos = save;
+        break;
+      }
+      const next = peekMacroName();
+      if (next === '\\limits' || next === '\\nolimits') {
+        pos += next.length;
+        mode = next === '\\limits' ? 'limits' : 'nolimits';
+        continue;
+      }
+      pos = save;
+      break;
+    }
+    return mode;
+  };
+
+  /**
+   * Splits `bodyRaw` at top-level `\middle<delim>` tokens (outside nested `\left..\right` and `{...}`).
+   */
+  const splitTopLevelMiddle = (
+    bodyRaw: string,
+  ): { parts: string[]; delims: string[] } => {
+    const parts: string[] = [];
+    const delims: string[] = [];
+    let lrDepth = 0;
+    let braceDepth = 0;
+    let partStart = 0;
+    let i = 0;
+    while (i < bodyRaw.length) {
+      if (bodyRaw[i] === '\\') {
+        if (bodyRaw.startsWith('\\left', i) && !/[a-zA-Z]/.test(bodyRaw[i + 5] ?? '')) {
+          lrDepth += 1;
+          i += 5;
+          continue;
+        }
+        if (bodyRaw.startsWith('\\right', i) && !/[a-zA-Z]/.test(bodyRaw[i + 6] ?? '')) {
+          lrDepth = Math.max(0, lrDepth - 1);
+          i += 6;
+          continue;
+        }
+        if (
+          lrDepth === 0 &&
+          braceDepth === 0 &&
+          bodyRaw.startsWith('\\middle', i) &&
+          !/[a-zA-Z]/.test(bodyRaw[i + 7] ?? '')
+        ) {
+          parts.push(bodyRaw.slice(partStart, i));
+          let dPos = i + 7;
+          while (dPos < bodyRaw.length && /\s/.test(bodyRaw[dPos])) dPos += 1;
+          let delim = '';
+          if (bodyRaw[dPos] === '\\') {
+            const dStart = dPos;
+            dPos += 1;
+            if (dPos < bodyRaw.length && /[a-zA-Z]/.test(bodyRaw[dPos])) {
+              while (dPos < bodyRaw.length && /[a-zA-Z]/.test(bodyRaw[dPos])) dPos += 1;
+            } else if (dPos < bodyRaw.length) {
+              dPos += 1;
+            }
+            delim = bodyRaw.slice(dStart, dPos);
+          } else if (dPos < bodyRaw.length) {
+            delim = bodyRaw[dPos];
+            dPos += 1;
+          }
+          delims.push(delim);
+          partStart = dPos;
+          i = dPos;
+          continue;
+        }
+        i += 2;
+        continue;
+      }
+      if (bodyRaw[i] === '{') braceDepth += 1;
+      else if (bodyRaw[i] === '}') braceDepth = Math.max(0, braceDepth - 1);
+      i += 1;
+    }
+    parts.push(bodyRaw.slice(partStart));
+    return { parts, delims };
+  };
+
+  /**
+   * Strips alignment `&` ONLY at the top level of an aligned/align environment, preserving
+   * every `&` inside nested `\begin{pmatrix}...\end{pmatrix}` / `{...}` / `\&` escapes!
+   */
+  const stripTopLevelAmpersands = (
+    bodyRaw: string,
+  ): { cleaned: string; hasMultiColumn: boolean } => {
+    let out = '';
+    let envDepth = 0;
+    let braceDepth = 0;
+    let rowTopLevelAmps = 0;
+    let hasMultiColumn = false;
+    let i = 0;
+    while (i < bodyRaw.length) {
+      if (bodyRaw[i] === '\\') {
+        if (bodyRaw.startsWith('\\begin{', i)) {
+          envDepth += 1;
+          out += '\\begin{';
+          i += 7;
+          continue;
+        }
+        if (bodyRaw.startsWith('\\end{', i)) {
+          envDepth = Math.max(0, envDepth - 1);
+          out += '\\end{';
+          i += 5;
+          continue;
+        }
+        if (bodyRaw.startsWith('\\\\', i)) {
+          if (envDepth === 0 && braceDepth === 0) {
+            rowTopLevelAmps = 0;
+          }
+          out += '\\\\';
+          i += 2;
+          continue;
+        }
+        // Preserve escaped characters including `\&`
+        out += bodyRaw.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (bodyRaw[i] === '{') {
+        braceDepth += 1;
+        out += '{';
+        i += 1;
+        continue;
+      }
+      if (bodyRaw[i] === '}') {
+        braceDepth = Math.max(0, braceDepth - 1);
+        out += '}';
+        i += 1;
+        continue;
+      }
+      if (bodyRaw[i] === '&' && envDepth === 0 && braceDepth === 0) {
+        rowTopLevelAmps += 1;
+        if (rowTopLevelAmps > 1) {
+          hasMultiColumn = true;
+          out += ' \\quad ';
+        }
+        i += 1;
+        continue;
+      }
+      out += bodyRaw[i];
+      i += 1;
+    }
+    return { cleaned: out, hasMultiColumn };
+  };
+
+  /**
+   * Unescapes standard LaTeX text escapes inside `\text{...}` (e.g. `a\_b 50\%` -> `a_b 50%`)
+   * so re-serialization never double-escapes backslashes. Returns `null` if complex inline math
+   * or unknown macros exist, signaling caller to preserve raw `\text{...}` losslessly.
+   */
+  const parseLatexTextArg = (arg: string): MathNode[] | null => {
+    const out: MathNode[] = [];
+    let i = 0;
+    while (i < arg.length) {
+      const c = arg[i];
+      if (c === '$') {
+        return null;
+      }
+      if (c === '\\') {
+        const next = arg[i + 1];
+        if (next === undefined) {
+          out.push(createCharNode('\\'));
+          i += 1;
+          continue;
+        }
+        if (
+          next === '_' ||
+          next === '%' ||
+          next === '&' ||
+          next === '#' ||
+          next === '$' ||
+          next === '{' ||
+          next === '}'
+        ) {
+          out.push(createCharNode(next));
+          i += 2;
+          continue;
+        }
+        if (next === ' ') {
+          out.push(createCharNode(' '));
+          i += 2;
+          continue;
+        }
+        if (arg.startsWith('\\textasciicircum', i) && !/[a-zA-Z]/.test(arg[i + 16] ?? '')) {
+          out.push(createCharNode('^'));
+          i += 16;
+          if (arg[i] === '{' && arg[i + 1] === '}') i += 2;
+          else if (arg[i] === ' ') i += 1;
+          continue;
+        }
+        if (arg.startsWith('\\textbackslash', i) && !/[a-zA-Z]/.test(arg[i + 14] ?? '')) {
+          out.push(createCharNode('\\'));
+          i += 14;
+          if (arg[i] === '{' && arg[i + 1] === '}') i += 2;
+          else if (arg[i] === ' ') i += 1;
+          continue;
+        }
+        if (arg.startsWith('\\textasciitilde', i) && !/[a-zA-Z]/.test(arg[i + 15] ?? '')) {
+          out.push(createCharNode('~'));
+          i += 15;
+          if (arg[i] === '{' && arg[i + 1] === '}') i += 2;
+          else if (arg[i] === ' ') i += 1;
+          continue;
+        }
+        return null;
+      }
+      out.push(createCharNode(c));
+      i += 1;
+    }
+    return out;
+  };
+
   const parseLeftRight = (): MathNode => {
     skipSpaces();
     let openDelim = '';
@@ -459,17 +677,17 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       pos += 1;
     }
     const start = pos;
-    let depth = 1;
+    let lrDepth = 1;
     let closeDelim = '';
-    while (!eof() && depth > 0) {
+    while (!eof() && lrDepth > 0) {
       if (src.startsWith('\\left', pos) && !/[a-zA-Z]/.test(src[pos + 5] ?? '')) {
-        depth += 1;
+        lrDepth += 1;
         pos += 5;
         continue;
       }
       if (src.startsWith('\\right', pos) && !/[a-zA-Z]/.test(src[pos + 6] ?? '')) {
-        depth -= 1;
-        if (depth === 0) {
+        lrDepth -= 1;
+        if (lrDepth === 0) {
           const bodyRaw = src.slice(start, pos).trim();
           pos += 6;
           skipSpaces();
@@ -477,6 +695,28 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           else if (!eof()) {
             closeDelim = src[pos];
             pos += 1;
+          }
+
+          const middleSplit = splitTopLevelMiddle(bodyRaw);
+          if (middleSplit.delims.length > 0) {
+            if (
+              openDelim === '\\{' &&
+              closeDelim === '\\}' &&
+              middleSplit.delims.length === 1 &&
+              (middleSplit.delims[0] === '|' || middleSplit.delims[0] === '\\vert')
+            ) {
+              const leftPart = middleSplit.parts[0].replace(/(?:\\,|\\;|\\:|\\ )*\s*$/, '').trim();
+              const rightPart = middleSplit.parts[1].replace(/^\s*(?:\\,|\\;|\\:|\\ )*/, '').trim();
+              return createStructNode(COMMANDS_BY_ID.get('set_builder')!, [
+                parseLatexNodes(leftPart, diagnostics, depth + 1),
+                parseLatexNodes(rightPart, diagnostics, depth + 1),
+              ]);
+            }
+            diagnostics.push({
+              severity: 'warning',
+              message: `以原生 LaTeX 保留带 \\middle 的定界符 \\left${openDelim}...\\right${closeDelim}`,
+            });
+            return createRawNode(`\\left${openDelim}${bodyRaw}\\right${closeDelim}`);
           }
 
           if (openDelim === '.' && (closeDelim === '|' || closeDelim === '\\|')) {
@@ -493,6 +733,8 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           else if (openDelim === '|' && closeDelim === '|') cmdId = 'abs';
           else if (openDelim === '[' && closeDelim === ']') cmdId = 'bracket';
           else if (openDelim === '\\{' && closeDelim === '\\}') cmdId = 'brace';
+          else if (openDelim === '(' && closeDelim === ']') cmdId = 'interval_oc';
+          else if (openDelim === '[' && closeDelim === ')') cmdId = 'interval_co';
           else if (
             (openDelim === '\\Vert' || openDelim === '\\|') &&
             (closeDelim === '\\Vert' || closeDelim === '\\|')
@@ -568,8 +810,14 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       envName === 'gather' ||
       envName === 'gather*'
     ) {
-      // Strip alignment `&` markers cleanly so lines import into editable multi-line root AST
-      const cleaned = body.replace(/(?<!\\)&/g, '');
+      // Strip ONLY top-level alignment `&` markers so nested matrices/cases retain every column separator!
+      const { cleaned, hasMultiColumn } = stripTopLevelAmpersands(body);
+      if (hasMultiColumn) {
+        diagnostics.push({
+          severity: 'warning',
+          message: `检测到 ${envName} 多列对齐 &，已保留列间距并转为单列推导`,
+        });
+      }
       return parseLatexNodes(cleaned, diagnostics, depth + 1);
     }
 
@@ -839,25 +1087,36 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         return [createStructNode(COMMANDS_BY_ID.get('binom')!, [n, k])];
       }
       if (macro === '\\int') {
+        const limitsMode = readOptionalLimitsMode();
         const { sub, sup } = readSubSup();
         const body = readBigOpBody(true);
-        return [
-          createStructNode(COMMANDS_BY_ID.get('integral')!, [
-            sub ?? [],
-            sup ?? [],
-            body,
-          ]),
-        ];
+        const struct = createStructNode(COMMANDS_BY_ID.get('integral')!, [
+          sub ?? [],
+          sup ?? [],
+          body,
+        ]);
+        if (limitsMode) struct.limitsMode = limitsMode;
+        return [struct];
       }
       if (macro === '\\sum') {
+        const limitsMode = readOptionalLimitsMode();
         const { sub, sup } = readSubSup();
         const body = readBigOpBody(false);
-        return [createStructNode(COMMANDS_BY_ID.get('sum')!, [sub ?? [], sup ?? [], body])];
+        const struct = createStructNode(COMMANDS_BY_ID.get('sum')!, [sub ?? [], sup ?? [], body]);
+        if (limitsMode) struct.limitsMode = limitsMode;
+        return [struct];
       }
       if (macro === '\\prod') {
+        const limitsMode = readOptionalLimitsMode();
         const { sub, sup } = readSubSup();
         const body = readBigOpBody(false);
-        return [createStructNode(COMMANDS_BY_ID.get('product')!, [sub ?? [], sup ?? [], body])];
+        const struct = createStructNode(COMMANDS_BY_ID.get('product')!, [
+          sub ?? [],
+          sup ?? [],
+          body,
+        ]);
+        if (limitsMode) struct.limitsMode = limitsMode;
+        return [struct];
       }
       if (macro === '\\iint' || macro === '\\oint' || macro === '\\iiint') {
         const idMap: Record<string, string> = {
@@ -865,27 +1124,46 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           '\\oint': 'contour_integral',
           '\\iiint': 'triple_integral',
         };
-        const { sub } = readSubSup();
+        const limitsMode = readOptionalLimitsMode();
+        const { sub, sup } = readSubSup();
         const body = readBigOpBody(true);
-        return [createStructNode(COMMANDS_BY_ID.get(idMap[macro])!, [sub ?? [], body])];
+        const struct = createStructNode(COMMANDS_BY_ID.get(idMap[macro])!, [
+          sub ?? [],
+          sup ?? [],
+          body,
+        ]);
+        if (limitsMode) struct.limitsMode = limitsMode;
+        return [struct];
       }
       if (macro === '\\lim') {
+        const limitsMode = readOptionalLimitsMode();
         skipSpaces();
         let varNodes: MathNode[] = [];
         let targetNodes: MathNode[] = [];
         if (peek() === '_') {
           pos += 1;
           const subRaw = readSingleTokenRaw();
-          const arrowSplit = subRaw.split(/\\to\b|\\rightarrow\b/);
+          // Use LaTeX macro boundary `(?![a-zA-Z])` instead of `\b` so `\lim_{x\to0^+}` splits cleanly!
+          const arrowSplit = subRaw.split(/\\(?:to|rightarrow)(?![a-zA-Z])/);
           if (arrowSplit.length >= 2) {
             varNodes = parseLatexNodes(arrowSplit[0].trim(), diagnostics, depth + 1);
-            targetNodes = parseLatexNodes(arrowSplit.slice(1).join('\\to').trim(), diagnostics, depth + 1);
+            targetNodes = parseLatexNodes(
+              arrowSplit.slice(1).join('\\to ').trim(),
+              diagnostics,
+              depth + 1,
+            );
           } else {
             varNodes = parseLatexNodes(subRaw, diagnostics, depth + 1);
           }
         }
         const body = readBigOpBody(false);
-        return [createStructNode(COMMANDS_BY_ID.get('limit')!, [varNodes, targetNodes, body])];
+        const struct = createStructNode(COMMANDS_BY_ID.get('limit')!, [
+          varNodes,
+          targetNodes,
+          body,
+        ]);
+        if (limitsMode) struct.limitsMode = limitsMode;
+        return [struct];
       }
       if (macro === '\\overbrace') {
         const body = readGroupNodes();
@@ -922,13 +1200,42 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         const body = readGroupNodes();
         return [createStructNode(COMMANDS_BY_ID.get('cancel')!, [body])];
       }
+      if (macro === '\\boxed') {
+        const body = readGroupNodes();
+        return [createStructNode(COMMANDS_BY_ID.get('boxed')!, [body])];
+      }
+      if (macro === '\\substack') {
+        const rawArg = readBracedRaw();
+        const rows = splitTopLevel(rawArg, '\\\\').map((r) => r.trim());
+        if (rows.length === 2) {
+          return [
+            createStructNode(COMMANDS_BY_ID.get('substack_2')!, [
+              parseLatexNodes(rows[0], diagnostics, depth + 1),
+              parseLatexNodes(rows[1], diagnostics, depth + 1),
+            ]),
+          ];
+        }
+        diagnostics.push({
+          severity: 'warning',
+          message: `以原生 LaTeX 保留多行 \\substack`,
+        });
+        return [createRawNode(`\\substack{${rawArg}}`)];
+      }
       if (macro === '\\pmod') {
         const body = readGroupNodes();
         return [createStructNode(COMMANDS_BY_ID.get('pmod')!, [body])];
       }
       if (macro === '\\text') {
         const arg = readBracedRaw();
-        return [createStructNode(COMMANDS_BY_ID.get('text_box')!, [textToCharNodes(arg)])];
+        const unescaped = parseLatexTextArg(arg);
+        if (unescaped !== null) {
+          return [createStructNode(COMMANDS_BY_ID.get('text_box')!, [unescaped])];
+        }
+        diagnostics.push({
+          severity: 'warning',
+          message: '含内嵌公式或特殊宏的 \\text 已以原生 LaTeX 保留',
+        });
+        return [createRawNode(`\\text{${arg}}`)];
       }
       if (ACCENT_MAP[macro]) {
         const body = readGroupNodes();
@@ -975,8 +1282,29 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         return [createCharNode(macro[1])];
       }
 
-      diagnostics.push({ severity: 'warning', message: `保留未内置宏 ${macro}` });
-      return [createRawNode(macro)];
+      // Preserve unknown macro together with any immediately attached optional `[...]` / `{...}` argument(s)
+      // so commands like `\phantom{x}` or `\color{red}` are never detached from their arguments.
+      let rawMacro = macro;
+      const saveArgPos = pos;
+      skipSpaces();
+      if (peek() === '[') {
+        const optArg = readBracketRaw();
+        if (optArg !== null) {
+          skipSpaces();
+          if (peek() === '{') {
+            rawMacro += `[${optArg}]{${readBracedRaw()}}`;
+          } else {
+            pos = saveArgPos;
+          }
+        }
+      } else if (peek() === '{') {
+        rawMacro += `{${readBracedRaw()}}`;
+      } else {
+        pos = saveArgPos;
+      }
+
+      diagnostics.push({ severity: 'warning', message: `以原生 LaTeX 保留未内置宏 ${macro}` });
+      return [createRawNode(rawMacro)];
     }
 
     pos += 1;

@@ -117,10 +117,148 @@ export function formatFormulaForEditorInsertion(
     .join('\n');
 }
 
+function isEscapedAt(text: string, idx: number): boolean {
+  let backslashes = 0;
+  for (let i = idx - 1; i >= 0 && text[i] === '\\'; i -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+/**
+ * Scans a single Markdown line (with blockquote prefix already stripped) for inline `$...$`
+ * or single-line `$$...$$` formulas while strictly skipping Markdown inline code spans
+ * (`` `...` ``, ``` ``...`` ```), escaped `\$`, and `$$$`+ sequences.
+ */
+function findInlineFormulaOnLine(
+  content: string,
+  cursorOffset: number,
+): { start: number; end: number; raw: string; delimiter: DelimiterStyle } | null {
+  let i = 0;
+  const n = content.length;
+
+  while (i < n) {
+    const ch = content[i];
+
+    // Skip Markdown inline code spans (matching exact backtick run length)
+    if (ch === '`' && !isEscapedAt(content, i)) {
+      let tickLen = 1;
+      while (i + tickLen < n && content[i + tickLen] === '`') tickLen += 1;
+      let scan = i + tickLen;
+      let closed = false;
+      while (scan < n) {
+        if (content[scan] === '`') {
+          let closeLen = 1;
+          while (scan + closeLen < n && content[scan + closeLen] === '`') closeLen += 1;
+          if (closeLen === tickLen) {
+            i = scan + closeLen;
+            closed = true;
+            break;
+          }
+          scan += closeLen;
+          continue;
+        }
+        scan += 1;
+      }
+      if (!closed) {
+        // Unclosed backtick run — treat as literal text and continue after the ticks
+        i += tickLen;
+      }
+      continue;
+    }
+
+    if (ch === '$' && !isEscapedAt(content, i)) {
+      let dollarCount = 1;
+      while (i + dollarCount < n && content[i + dollarCount] === '$') dollarCount += 1;
+
+      // Ignore `$$$` or longer runs
+      if (dollarCount >= 3) {
+        i += dollarCount;
+        continue;
+      }
+
+      if (dollarCount === 2) {
+        // Single-line `$$ ... $$`
+        let scan = i + 2;
+        let closeIdx = -1;
+        while (scan < n) {
+          if (content[scan] === '$' && !isEscapedAt(content, scan)) {
+            let closeCount = 1;
+            while (scan + closeCount < n && content[scan + closeCount] === '$') closeCount += 1;
+            if (closeCount === 2) {
+              closeIdx = scan;
+              break;
+            }
+            scan += closeCount;
+            continue;
+          }
+          scan += 1;
+        }
+        if (closeIdx > i + 2) {
+          const end = closeIdx + 2;
+          if (cursorOffset >= i && cursorOffset <= end) {
+            return {
+              start: i,
+              end,
+              raw: content.slice(i, end),
+              delimiter: 'block',
+            };
+          }
+          i = end;
+          continue;
+        }
+        i += 2;
+        continue;
+      }
+
+      // Single `$ ... $` inline math
+      let scan = i + 1;
+      let closeIdx = -1;
+      while (scan < n) {
+        if (content[scan] === '`' && !isEscapedAt(content, scan)) {
+          // Do not cross an inline code span boundary when searching for closing `$`
+          break;
+        }
+        if (content[scan] === '$' && !isEscapedAt(content, scan)) {
+          let closeCount = 1;
+          while (scan + closeCount < n && content[scan + closeCount] === '$') closeCount += 1;
+          if (closeCount === 1) {
+            closeIdx = scan;
+            break;
+          }
+          scan += closeCount;
+          continue;
+        }
+        scan += 1;
+      }
+      if (closeIdx > i + 1) {
+        const end = closeIdx + 1;
+        if (cursorOffset >= i && cursorOffset <= end) {
+          return {
+            start: i,
+            end,
+            raw: content.slice(i, end),
+            delimiter: 'inline',
+          };
+        }
+        i = end;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  return null;
+}
+
 /**
  * Detects an enclosing `$...$` (inline) or `$$...$$` (single/multi-line block) formula around
  * `cursor` in a Markdown document, properly handling blockquotes (`> ...`), nested blockquotes
- * (`> > ...`), and Obsidian Callouts (`> [!note] ...`).
+ * (`> > ...`), Obsidian Callouts (`> [!note] ...`), fenced code blocks, inline code spans, and
+ * escaped `\$` currency signs.
  */
 export function detectFormulaInLines(
   lines: string[],
@@ -132,33 +270,16 @@ export function detectFormulaInLines(
   const cursorSplit = extractBlockquotePrefix(cursorLineText);
   const cursorPrefixLen = cursorSplit.prefix.length;
   const cursorCanonicalPrefix = canonicalBlockquotePrefix(cursorSplit.prefix);
-
-  // 1. Check inline `$...$` or single-line `$$...$$` on the current line (after blockquote prefix)
-  const inlineRegex = /(\$\$[\s\S]*?\$\$|\$(?!\$)(?:\\\$|[^$\n])+\$)/g;
-  let match: RegExpExecArray | null;
-  while ((match = inlineRegex.exec(cursorSplit.content)) !== null) {
-    const start = cursorPrefixLen + match.index;
-    const end = start + match[0].length;
-    if (cursor.ch >= start && cursor.ch <= end) {
-      const isBlock = match[0].startsWith('$$');
-      return {
-        raw: match[0],
-        delimiter: isBlock ? 'block' : 'inline',
-        from: { line: cursor.line, ch: start },
-        to: { line: cursor.line, ch: end },
-        linePrefix: cursorCanonicalPrefix,
-        includeFirstLinePrefix: false,
-      };
-    }
-  }
-
-  // 2. Check multi-line `$$ ... $$` block surrounding cursor.line with exact blockquote-depth & code-fence parity
   const targetDepth = blockquoteDepth(cursorSplit.prefix);
+
+  // 1. Track fenced code blocks AND multi-line `$$ ... $$` blocks from line 0..cursor.line FIRST
+  //    so inline `$...$` inside fenced code blocks or multi-line blocks is NEVER misidentified!
   let insideBlock = false;
   let openLine = -1;
   let openPrefix = '';
   let codeFenceChar = '';
   let codeFenceLen = 0;
+  let cursorIsCodeFenceLine = false;
 
   for (let l = 0; l <= cursor.line; l += 1) {
     const split = extractBlockquotePrefix(lines[l]);
@@ -184,11 +305,13 @@ export function detectFormulaInLines(
         insideBlock = false;
         openLine = -1;
         openPrefix = '';
+        if (l === cursor.line) cursorIsCodeFenceLine = true;
         continue;
       }
       if (ch === codeFenceChar && len >= codeFenceLen && trimmed.slice(fenceMatch[0].length).trim() === '') {
         codeFenceChar = '';
         codeFenceLen = 0;
+        if (l === cursor.line) cursorIsCodeFenceLine = true;
         continue;
       }
     }
@@ -222,15 +345,16 @@ export function detectFormulaInLines(
     }
   }
 
-  if (codeFenceChar) return null;
+  // Never detect math on or inside a fenced code block!
+  if (codeFenceChar || cursorIsCodeFenceLine) return null;
 
+  // 2. If cursor is inside an open multi-line `$$ ... $$` block, resolve its closing fence
   if (insideBlock && openLine >= 0) {
     const maxLine = Math.min(lines.length - 1, cursor.line + 80);
     let closeLine = -1;
     for (let l = openLine + 1; l <= maxLine; l += 1) {
       const split = extractBlockquotePrefix(lines[l]);
       if (blockquoteDepth(split.prefix) !== targetDepth) {
-        // Exited the blockquote before finding closing `$$`
         break;
       }
       const trimmed = split.content.trim();
@@ -252,6 +376,22 @@ export function detectFormulaInLines(
         to: { line: closeLine, ch: lines[closeLine].length },
         linePrefix: openPrefix,
         includeFirstLinePrefix: openPrefix.length > 0,
+      };
+    }
+  }
+
+  // 3. Check inline `$...$` or single-line `$$...$$` on the current line (outside code spans & escapes)
+  const cursorOffset = cursor.ch - cursorPrefixLen;
+  if (cursorOffset >= 0) {
+    const inlineHit = findInlineFormulaOnLine(cursorSplit.content, cursorOffset);
+    if (inlineHit) {
+      return {
+        raw: inlineHit.raw,
+        delimiter: inlineHit.delimiter,
+        from: { line: cursor.line, ch: cursorPrefixLen + inlineHit.start },
+        to: { line: cursor.line, ch: cursorPrefixLen + inlineHit.end },
+        linePrefix: cursorCanonicalPrefix,
+        includeFirstLinePrefix: false,
       };
     }
   }

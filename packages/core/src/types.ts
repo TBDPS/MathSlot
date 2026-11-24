@@ -72,6 +72,8 @@ export interface StructNode {
   fillOrder?: number[];
   /** Auto-sized delimiter inserted from keyboard `(`, `[`, `{`: emits plain `(x)` when flat and `\left(...\right)` when tall */
   autoSized?: boolean;
+  /** Optional explicit `\limits` or `\nolimits` modifier preserved for big operators (`\int`, `\sum`, `\prod`, `\lim`, etc.) */
+  limitsMode?: 'limits' | 'nolimits';
   /** Optional dynamic matrix / cases grid dimensions */
   grid?: GridMeta;
 }

@@ -22,10 +22,10 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 143 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
-    expect(COMMANDS.length).toBe(143);
-    expect(COMMANDS_BY_ID.size).toBe(143);
-    expect(COMMANDS_BY_KEYS.size).toBe(141);
+  it('contains 148 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
+    expect(COMMANDS.length).toBe(148);
+    expect(COMMANDS_BY_ID.size).toBe(148);
+    expect(COMMANDS_BY_KEYS.size).toBe(146);
     expect(DIRECT_COMMANDS.length).toBe(9);
     expect(COMMANDS_BY_KEYS.has('u')).toBe(false);
     expect(COMMANDS_BY_KEYS.has('d')).toBe(false);

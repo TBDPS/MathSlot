@@ -60,6 +60,35 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
     }
   });
 
+  it('renders tricky imported formulas (\\middle|, \\boxed, \\text escapes, \\int\\limits) in interactive KaTeX without error', () => {
+    const cases = [
+      '\\left\\{x\\middle|x>0\\right\\}',
+      '\\left(a\\middle/b\\right)',
+      '\\boxed{E = mc^2}',
+      '\\text{a\\_b 50\\%}',
+      '\\int\\limits_0^1 f(x)\\,dx',
+      '\\iint_0^1 x\\,dx',
+      '\\lim_{x\\to0^+} \\frac{1}{x}',
+      '\\left(a, b\\right] \\cup \\left[c, d\\right)',
+      '\\sum_{\\substack{1 \\le i \\le n \\\\ i \\neq j}} a_{ij}',
+    ];
+    for (const src of cases) {
+      const engine = new MathSlotEngine();
+      engine.loadFormula(src);
+      const snap = engine.getSnapshot();
+      expect(
+        () =>
+          katex.renderToString(snap.interactiveLatex, {
+            displayMode: true,
+            throwOnError: true,
+            strict: false,
+            trust: strictInteractiveTrust,
+          }),
+        `interactive KaTeX failed for imported "${src}" -> ${snap.interactiveLatex}`,
+      ).not.toThrow();
+    }
+  });
+
   it('strictly blocks javascript: href injection under strictInteractiveTrust', () => {
     const html = katex.renderToString('\\href{javascript:alert(1)}{click}', {
       displayMode: true,

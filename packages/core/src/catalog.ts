@@ -35,9 +35,9 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "binom", "keys": ["e"], "label": "二项式", "category": "structure", "glyph": "C(n,k)", "slots": ["上标 n", "下标 k"], "latex": "\\binom{$1}{$2}", "doc": "二项式组合数：上标 n、下标 k", "examples": ["▸en;k;"], "wrapSlot": 0},
   {"id": "indef_integral", "keys": ["c", "a"], "label": "不定积分", "category": "calculus", "glyph": "∫", "slots": ["被积式"], "latex": "\\int $1", "doc": "不定积分：被积式", "examples": ["▸caf(x) dx;"], "wrapSlot": 0},
   {"id": "product", "keys": ["c", "b"], "label": "连乘", "category": "calculus", "glyph": "∏", "slots": ["下限", "上限", "连乘主体"], "optionalSlots": [0, 1], "latex": "\\prod_{$1}^{$2} $3", "doc": "连乘积：上下限可省略", "examples": ["▸cbi=1;n;a_i;"], "wrapSlot": 2},
-  {"id": "double_integral", "keys": ["c", "c"], "label": "二重积分", "category": "calculus", "glyph": "∬", "slots": ["积分区域", "被积式"], "optionalSlots": [0], "latex": "\\iint_{$1} $2", "doc": "二重积分：积分区域留空自动省略", "examples": ["▸ccD;f(x,y) dxdy;"], "wrapSlot": 1},
-  {"id": "contour_integral", "keys": ["c", "d"], "label": "环路积分", "category": "calculus", "glyph": "∮", "slots": ["积分路径", "被积式"], "optionalSlots": [0], "latex": "\\oint_{$1} $2", "doc": "闭合曲线/环路积分：积分路径留空自动省略", "examples": ["▸cdC;F·dr;"], "wrapSlot": 1},
-  {"id": "triple_integral", "keys": ["c", "e"], "label": "三重积分", "category": "calculus", "glyph": "∭", "slots": ["积分体", "被积式"], "optionalSlots": [0], "latex": "\\iiint_{$1} $2", "doc": "三重积分：积分体留空自动省略", "examples": ["▸ceV;f dV;"], "wrapSlot": 1},
+  {"id": "double_integral", "keys": ["c", "c"], "label": "二重积分", "category": "calculus", "glyph": "∬", "slots": ["积分区域", "上限", "被积式"], "optionalSlots": [0, 1], "latex": "\\iint_{$1}^{$2} $3", "doc": "二重积分：积分区域与上限可省略", "examples": ["▸ccD;;f(x,y) dxdy;"], "wrapSlot": 2},
+  {"id": "contour_integral", "keys": ["c", "d"], "label": "环路积分", "category": "calculus", "glyph": "∮", "slots": ["积分路径", "上限", "被积式"], "optionalSlots": [0, 1], "latex": "\\oint_{$1}^{$2} $3", "doc": "闭合曲线/环路积分：积分路径与上限可省略", "examples": ["▸cdC;;F·dr;"], "wrapSlot": 2},
+  {"id": "triple_integral", "keys": ["c", "e"], "label": "三重积分", "category": "calculus", "glyph": "∭", "slots": ["积分体", "上限", "被积式"], "optionalSlots": [0, 1], "latex": "\\iiint_{$1}^{$2} $3", "doc": "三重积分：积分体与上限可省略", "examples": ["▸ceV;;f dV;"], "wrapSlot": 2},
   {"id": "partial_frac", "keys": ["c", "g"], "label": "偏导分式", "category": "calculus", "glyph": "∂y/∂x", "slots": ["分子", "分母"], "latex": "\\frac{\\partial $1}{\\partial $2}", "doc": "偏导数分式：分子、分母", "examples": ["▸cgy;x;"], "wrapSlot": 0},
   {"id": "total_frac", "keys": ["c", "i"], "label": "全导分式", "category": "calculus", "glyph": "dy/dx", "slots": ["分子", "分母"], "latex": "\\frac{\\mathrm{d}$1}{\\mathrm{d}$2}", "doc": "全导数分式：分子、分母", "examples": ["▸ciy;x;"], "wrapSlot": 0},
   {"id": "matrix_2x2", "keys": ["m", "a"], "label": "2×2 矩阵", "category": "matrix", "glyph": "(2×2)", "slots": ["(1,1)", "(1,2)", "(2,1)", "(2,2)"], "latex": "\\begin{pmatrix} $1 & $2 \\\\ $3 & $4 \\end{pmatrix}", "doc": "2×2 圆括号矩阵", "examples": ["▸ma1;2;3;4;"], "wrapSlot": null},
@@ -71,6 +71,10 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "overset", "keys": ["a", "s"], "label": "上叠标注", "category": "accent", "glyph": "a/b", "slots": ["上标注", "主体"], "latex": "\\overset{$1}{$2}", "doc": "上方叠加标注：\\overset{上标注}{主体}", "examples": ["▸asdef;=;"], "wrapSlot": 1},
   {"id": "underset", "keys": ["a", "t"], "label": "下叠标注", "category": "accent", "glyph": "b/a", "slots": ["下标注", "主体"], "latex": "\\underset{$1}{$2}", "doc": "下方叠加标注：\\underset{下标注}{主体}", "examples": ["▸atx\\to 0;f(x);"], "wrapSlot": 1},
   {"id": "cancel", "keys": ["a", "u"], "label": "斜线消去", "category": "accent", "glyph": "x/", "slots": ["消去项"], "latex": "\\cancel{$1}", "doc": "划去/约分消去线：\\cancel{x}", "examples": ["▸aux;"], "wrapSlot": 0},
+  {"id": "boxed", "keys": ["a", "v"], "label": "公式外框", "category": "accent", "glyph": "[x]", "slots": ["框内公式"], "latex": "\\boxed{$1}", "doc": "高亮结论外框：\\boxed{E = mc^2}", "examples": ["▸avx;"], "wrapSlot": 0},
+  {"id": "interval_oc", "keys": ["a", "w"], "label": "左开右闭区间", "category": "accent", "glyph": "(a,b]", "slots": ["区间内容"], "latex": "\\left($1\\right]", "doc": "左开右闭混合区间：\\left(a, b\\right]", "examples": ["▸awa,b;"], "wrapSlot": 0},
+  {"id": "interval_co", "keys": ["a", "x"], "label": "左闭右开区间", "category": "accent", "glyph": "[a,b)", "slots": ["区间内容"], "latex": "\\left[$1\\right)", "doc": "左闭右开混合区间：\\left[a, b\\right)", "examples": ["▸axa,b;"], "wrapSlot": 0},
+  {"id": "substack_2", "keys": ["a", "y"], "label": "双行下标约束", "category": "accent", "glyph": "a/b", "slots": ["第一行", "第二行"], "latex": "\\substack{$1 \\\\ $2}", "doc": "多行求和/极限下标约束：\\substack{1 \\le i \\le n \\\\ i \\neq j}", "examples": ["▸ayi=1;j=1;"], "wrapSlot": 0},
   {"id": "alpha", "keys": ["g", "a"], "label": "alpha", "category": "greek", "glyph": "α", "slots": [], "latex": "\\alpha", "doc": "希腊字母：\\alpha", "examples": ["▸ga"], "wrapSlot": null},
   {"id": "beta", "keys": ["g", "b"], "label": "beta", "category": "greek", "glyph": "β", "slots": [], "latex": "\\beta", "doc": "希腊字母：\\beta", "examples": ["▸gb"], "wrapSlot": null},
   {"id": "gamma", "keys": ["g", "c"], "label": "gamma", "category": "greek", "glyph": "γ", "slots": [], "latex": "\\gamma", "doc": "希腊字母：\\gamma", "examples": ["▸gc"], "wrapSlot": null},
@@ -165,6 +169,7 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "setminus", "keys": ["q", "m"], "label": "差集", "category": "setlogic", "glyph": "∖", "slots": [], "latex": "\\setminus", "doc": "集合差集：\\setminus", "examples": ["▸qm"], "wrapSlot": null},
   {"id": "complex_set", "keys": ["q", "n"], "label": "复数集", "category": "setlogic", "glyph": "ℂ", "slots": [], "latex": "\\mathbb{C}", "doc": "复数集：\\mathbb{C}", "examples": ["▸qn"], "wrapSlot": null},
   {"id": "pmod", "keys": ["q", "o"], "label": "同余模", "category": "setlogic", "glyph": "(mod)", "slots": ["模数"], "latex": "\\pmod{$1}", "doc": "括号同余模运算：\\pmod{n}", "examples": ["▸qon;"], "wrapSlot": 0},
+  {"id": "set_builder", "keys": ["q", "p"], "label": "集合构造式", "category": "setlogic", "glyph": "{x|P}", "slots": ["元素", "条件"], "latex": "\\left\\{ $1 \\,\\middle|\\, $2 \\right\\}", "doc": "带自适应竖线的集合构造式：\\left\\{ x \\,\\middle|\\, x > 0 \\right\\}", "examples": ["▸qpx;x>0;"], "wrapSlot": 0},
 ];
 
 export const COMMANDS_BY_ID: ReadonlyMap<string, CommandDef> = new Map(

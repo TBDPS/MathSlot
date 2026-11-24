@@ -8,6 +8,8 @@ import {
   importFormula,
   listAllSlots,
   mergePresets,
+  parseUserCommandsJson,
+  parseUserPresetsJson,
   toLatex,
 } from '../src';
 
@@ -121,5 +123,133 @@ describe('Audit fixes & new math structures regression suite', () => {
       const hardErrors = res.diagnostics.filter((d) => d.severity === 'error');
       expect(hardErrors, `Preset ${preset.id} failed to parse`).toEqual([]);
     }
+  });
+
+  it('preserves nested matrix columns inside aligned environments across import -> edit -> export -> re-import', () => {
+    const src = '\\begin{aligned}\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}&=M\\end{aligned}';
+    const res = importFormula(src);
+    expect(res.lossless).toBe(true);
+    const first = res.doc.root.children[0];
+    expect(first.type).toBe('struct');
+    if (first.type === 'struct') {
+      expect(first.commandId).toBe('matrix_2x2');
+      expect(first.slots.length).toBe(4);
+    }
+
+    // Edit cell (1,2) from `2` -> `9`, export, then re-import and assert structure survived
+    const engine = new MathSlotEngine();
+    engine.loadFormula(src);
+    const mat = engine.getSnapshot().doc.root.children[0];
+    if (mat.type === 'struct') {
+      const cell12 = mat.slots[1];
+      engine.setCursor(cell12.id, cell12.children.length);
+      engine.backspace();
+      engine.insertText('9');
+    }
+    const exported = engine.getSnapshot().latex;
+    expect(exported).toBe('\\begin{pmatrix} 1 & 9 \\\\ 3 & 4 \\end{pmatrix} = M');
+
+    const reimported = importFormula(exported);
+    expect(reimported.lossless).toBe(true);
+    expect(toLatex(reimported.doc)).toBe('\\begin{pmatrix} 1 & 9 \\\\ 3 & 4 \\end{pmatrix} = M');
+
+    // Multi-column aligned emits explicit warning (`lossless: false`) instead of silently merging
+    const multiCol = importFormula('\\begin{aligned}a &= b & c &= d\\end{aligned}');
+    expect(multiCol.lossless).toBe(false);
+    expect(multiCol.diagnostics.some((d) => d.severity === 'warning')).toBe(true);
+  });
+
+  it('preserves \\lim_{x\\to0^+}, \\iint_0^1 upper bound, and \\int\\limits_0^1 without silent meaning drift', () => {
+    // 1. `\lim_{x\to0^+}` must split on LaTeX command boundary (no duplicate `\to`)
+    const limRes = importFormula('\\lim_{x\\to0^+} \\frac{1}{x}');
+    expect(limRes.lossless).toBe(true);
+    const limOut = toLatex(limRes.doc);
+    expect(limOut).toBe('\\lim_{x \\to 0^{+}} \\frac{1}{x}');
+    expect(limOut.match(/\\to/g)?.length).toBe(1);
+
+    // Unbraced `\lim_x f(x)` should not emit a dangling `\to`
+    const limSimple = importFormula('\\lim_x f(x)');
+    expect(toLatex(limSimple.doc)).toBe('\\lim_{x} f(x)');
+
+    // 2. `\iint_0^1 x\,dx` preserves BOTH lower and upper bounds
+    const iintRes = importFormula('\\iint_0^1 x\\,dx');
+    expect(iintRes.lossless).toBe(true);
+    expect(toLatex(iintRes.doc)).toBe('\\iint_{0}^{1} x\\,\\mathrm{d}x');
+
+    // 3. `\int\limits_0^1 f(x)\,dx` preserves `\limits`, lower, upper, and body
+    const limitsRes = importFormula('\\int\\limits_0^1 f(x)\\,dx');
+    expect(limitsRes.lossless).toBe(true);
+    expect(toLatex(limitsRes.doc)).toBe('\\int\\limits_{0}^{1} f(x)\\,\\mathrm{d}x');
+  });
+
+  it('excludes inline code, fenced code blocks, and escaped \\$ in Obsidian math detection', () => {
+    const doc = [
+      'Price is \\$5 and \\$10 total.',
+      'Code span `$x+1$` and ``$y+2$`` then real $z+3$.',
+      '```tex',
+      '$a+b$',
+      '```',
+      '~~~',
+      '$$c+d$$',
+      '~~~',
+    ];
+    // Escaped dollar signs never match
+    expect(detectFormulaInLines(doc, { line: 0, ch: 12 })).toBeNull();
+    // Inline code spans never match
+    expect(detectFormulaInLines(doc, { line: 1, ch: 13 })).toBeNull();
+    expect(detectFormulaInLines(doc, { line: 1, ch: 26 })).toBeNull();
+    // Real inline math after code spans on the SAME line DOES match!
+    const realHit = detectFormulaInLines(doc, { line: 1, ch: 45 });
+    expect(realHit?.raw).toBe('$z+3$');
+    expect(realHit?.delimiter).toBe('inline');
+    // Inline / block math inside ``` or ~~~ fenced code blocks NEVER matches
+    expect(detectFormulaInLines(doc, { line: 3, ch: 2 })).toBeNull();
+    expect(detectFormulaInLines(doc, { line: 6, ch: 3 })).toBeNull();
+  });
+
+  it('handles \\left\\{x\\middle|x>0\\right\\}, \\boxed{z}, \\text{a\\_b 50\\%}, mixed intervals, and unknown macros cleanly', () => {
+    // 1. Set builder with `\middle|` imports into editable struct
+    const setRes = importFormula('\\left\\{x\\middle|x>0\\right\\}');
+    expect(setRes.lossless).toBe(true);
+    expect(toLatex(setRes.doc)).toBe('\\left\\{ x \\,\\middle|\\, x > 0 \\right\\}');
+
+    // 2. `\boxed{z}` imports into editable `boxed` struct
+    const boxRes = importFormula('\\boxed{z}');
+    expect(boxRes.lossless).toBe(true);
+    expect(toLatex(boxRes.doc)).toBe('\\boxed{z}');
+    expect(boxRes.doc.root.children[0].type).toBe('struct');
+
+    // 3. `\text{a\_b 50\%}` does NOT double-escape backslashes on roundtrip
+    const textRes = importFormula('\\text{a\\_b 50\\%}');
+    expect(textRes.lossless).toBe(true);
+    expect(toLatex(textRes.doc)).toBe('\\text{a\\_b 50\\%}');
+
+    // 4. Mixed intervals `(a, b]` and `[a, b)` import into editable structs
+    const ocRes = importFormula('\\left(a, b\\right]');
+    expect(ocRes.lossless).toBe(true);
+    expect(toLatex(ocRes.doc)).toBe('\\left(a, b\\right]');
+    const coRes = importFormula('\\left[a, b\\right)');
+    expect(coRes.lossless).toBe(true);
+    expect(toLatex(coRes.doc)).toBe('\\left[a, b\\right)');
+
+    // 5. Unknown macro with argument stays attached as a single raw node with warning
+    const unkRes = importFormula('\\phantom{xyz} + 1');
+    expect(unkRes.lossless).toBe(false);
+    expect(toLatex(unkRes.doc)).toBe('\\phantom{xyz} + 1');
+  });
+
+  it('pastes compact math subscripts like x_1 as structs while supporting literal paste and marking broken JSON as failed', () => {
+    const engine = new MathSlotEngine();
+    engine.pasteText('x_1');
+    expect(engine.getSnapshot().latex).toBe('x_1');
+
+    engine.clear();
+    engine.pasteLiteralText('x_1');
+    expect(engine.getSnapshot().latex).toBe('x\\_1');
+
+    const badP = parseUserPresetsJson('{ invalid');
+    expect(badP.failed).toBe(true);
+    const badC = parseUserCommandsJson('{ invalid');
+    expect(badC.failed).toBe(true);
   });
 });
