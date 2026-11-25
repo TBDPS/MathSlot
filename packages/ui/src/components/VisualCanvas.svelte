@@ -140,7 +140,7 @@
     }
 
     const drawn = root.querySelectorAll(
-      'svg, .frac-line, .overline-line, .underline-line, .hline, .ms-empty-box, .ms-space-active',
+      'svg, .frac-line, .overline-line, .underline-line, .hline, .ms-empty-box',
     );
     for (const d of drawn) {
       propagate(d as HTMLElement, d.getBoundingClientRect());

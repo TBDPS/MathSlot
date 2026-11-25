@@ -122,9 +122,17 @@
   - 全部 24 个小写 + 11 个大写希腊字母（如 `pi`、`alpha`、`theta`、`Delta`、`Omega`）
   - 数学函数自动直立排版：`sin`, `cos`, `tan`, `ln`, `log`, `exp`, `lim`, `max`, `min`, `det`, `rank`, `tr`, `span` 等
   - 常用符号词：`oo` / `infty` ($\infty$)、`xx` ($\times$)、`partial` ($\partial$)、`nabla` ($\nabla$)、`forall` ($\forall$)、`exists` ($\exists$)、`in` ($\in$)、`vdots` ($\vdots$)、`ddots` ($\ddots$)
-  - 出版级直立微分：`dx`, `dt`, `dy`, `dz`, `du`, `dv`, `dr`, `dtheta` 等自动渲染并导出为 `\,\mathrm{d}x`
+  - 出版级直立微分：`d` + 单个字母（`dx`、`dy`、`da`、`dA` 等）以及 `dtheta`、`dphi` 等自动渲染并导出为 `\,\mathrm{d}x`；要表示 **d 乘 x** 或字面量 `dx`，请用 `d x`（空格作为词边界，不产生可见间距）或 `d*x` / `d\cdot x`
 
-### 4.2 LaTeX 原生命令实时兼容
+### 4.2 复制来的 LaTeX 外部包装
+从网页、论文或 AI 对话复制的公式可以直接粘贴/导入，下列外层包装会自动剥离：
+
+- `$...$`、`$$...$$`、`\(...\)`、`\[...\]`，以及 ` ```latex ... ``` ` 代码围栏；
+- `$a + \$5$` 这类公式内部的转义美元符号会保留为字面量；
+- 多个独立公式（如 `\(x^2\) + \(y^2\)`）不会被强行裁剪成一个公式，建议逐个导入或改用整段 LaTeX；
+- Obsidian 的光标处自动识别目前只针对 `$...$` / `$$...$$`；`\(...\)` / `\[...\]` 可通过导入或粘贴使用。
+
+### 4.3 LaTeX 原生命令实时兼容
 如果习惯直接打 LaTeX 命令（在默认引导键为 `Tab` 或 `/` 时）：
 - **结构命令**：输入 `\int`、`\sum`、`\prod`、`\lim`、`\iint`、`\iiint`、`\oint`、`\frac`、`\sqrt`、`\binom`、`\vec`、`\hat`、`\bar`、`\tilde`、`\overline`、`\underline`、`\overbrace`、`\underbrace`、`\pmatrix`、`\bmatrix`、`\vmatrix`、`\cases` 后，按 **`Space`** 或 **`Enter`** 立即转为 2D 交互结构并定位到首槽。
 - **定界符直入触发**：
@@ -133,7 +141,7 @@
   - `\frac{` / `\vec{` / `\hat{` 直接展开并落入**首槽**
 - **符号与上下标连写**：输入 `\alpha_1`、`\pi^2` 自动展开为 $\alpha_1$、$\pi^2$；输入 `\vdots `、`\ddots `、`\infty ` 立即展开为对应符号。
 
-### 4.3 自动向后包裹
+### 4.4 自动向后包裹
 在字母/符号后直接触发装饰命令（如先打 `x` 再按 `Tab a c`），自动将前一个原子包裹为 `\vec{x}`，无需手动选中。
 
 ---

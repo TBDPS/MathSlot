@@ -164,7 +164,7 @@
           <h4>独立词与符号简写（智能边界识别，不误伤普通单词）</h4>
           <div class="kv-grid wide">
             <div><code>pi</code> / <code>alpha</code> / <code>theta</code> → π / α / θ</div>
-            <div><code>oo</code> → ∞ · <code>dx</code> → \,\mathrm&#123;d&#125;x</div>
+            <div><code>oo</code> → ∞ · <code>dx</code>/<code>da</code>/<code>dA</code> → 直立微分；<code>d x</code> 表示字面量 d 与 x</div>
             <div><code>-&gt;</code> → → · <code>=&gt;</code> → ⇒ · <code>&lt;=&gt;</code> → ⇔</div>
             <div><code>&lt;=</code> / <code>&gt;=</code> / <code>!=</code> → ≤ / ≥ / ≠</div>
             <div><code>+-</code> → ± · <code>~~</code> → ≈ · <code>==</code> → ≡</div>

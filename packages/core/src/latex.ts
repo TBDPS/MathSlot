@@ -357,8 +357,11 @@ function tokenizeSlotForCanonical(
           tokens.push({ text: `\\${word}`, kind: 'func' });
         } else if (OPERATORNAME_FUNCTIONS[word]) {
           tokens.push({ text: OPERATORNAME_FUNCTIONS[word], kind: 'func' });
-        } else if (autoShorthands && DIFFERENTIAL_WORDS[word]) {
-          tokens.push({ text: DIFFERENTIAL_WORDS[word], kind: 'diff' });
+        } else if (autoShorthands && (DIFFERENTIAL_WORDS[word] || isGenericDiffWord(word))) {
+          tokens.push({
+            text: DIFFERENTIAL_WORDS[word] ?? `\\mathrm{d}${word.slice(1)}`,
+            kind: 'diff',
+          });
         } else if (autoShorthands && BARE_WORD_BINOPS[word]) {
           const lastNonSpace = findLastNonSpace(tokens);
           const unary = isUnaryContext(lastNonSpace);
@@ -1117,7 +1120,6 @@ interface InteractiveHints {
   funcEnds: Set<number>;
   diffStarts: Set<number>;
   wordSpans: Map<number, WordTokenSpan>;
-  keywordIndices: Set<number>;
 }
 
 function analyzeInteractiveHints(
@@ -1129,7 +1131,6 @@ function analyzeInteractiveHints(
   const funcEnds = new Set<number>();
   const diffStarts = new Set<number>();
   const wordSpans = new Map<number, WordTokenSpan>();
-  const keywordIndices = new Set<number>();
 
   let hasIntegral = false;
   let i = 0;
@@ -1175,17 +1176,15 @@ function analyzeInteractiveHints(
         funcEnds.add(end - 1);
         for (let k = start; k < end; k += 1) {
           upright.add(k);
-          keywordIndices.add(k);
         }
-      } else if (autoShorthands && DIFFERENTIAL_WORDS[word]) {
+      } else if (autoShorthands && (DIFFERENTIAL_WORDS[word] || isGenericDiffWord(word))) {
         diffStarts.add(start);
         wordSpans.set(start, {
           start,
           end,
           kind: 'diff',
-          latex: DIFFERENTIAL_WORDS[word],
+          latex: DIFFERENTIAL_WORDS[word] ?? `\\mathrm{d}${word.slice(1)}`,
         });
-        for (let k = start; k < end; k += 1) keywordIndices.add(k);
         hasIntegral = false;
       } else if (autoShorthands && BARE_WORD_BINOPS[word]) {
         wordSpans.set(start, {
@@ -1194,7 +1193,6 @@ function analyzeInteractiveHints(
           kind: 'binop',
           latex: BARE_WORD_BINOPS[word],
         });
-        for (let k = start; k < end; k += 1) keywordIndices.add(k);
       } else if (autoShorthands && BARE_WORD_ATOMS[word]) {
         wordSpans.set(start, {
           start,
@@ -1202,7 +1200,6 @@ function analyzeInteractiveHints(
           kind: 'symbol',
           latex: BARE_WORD_ATOMS[word],
         });
-        for (let k = start; k < end; k += 1) keywordIndices.add(k);
       } else if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && end < children.length))) {
         upright.add(start);
         diffStarts.add(start);
@@ -1212,7 +1209,7 @@ function analyzeInteractiveHints(
       i += 1;
     }
   }
-  return { upright, funcStarts, funcEnds, diffStarts, wordSpans, keywordIndices };
+  return { upright, funcStarts, funcEnds, diffStarts, wordSpans };
 }
 
 function isPrevExprForDiff(children: MathNode[], idx: number): boolean {
@@ -1345,30 +1342,17 @@ function emitSlotInteractive(
       }
     }
 
-    // Space atom: ALWAYS gives clear visible feedback while typing adjacent to caret,
-    // and tightens to natural TeX math kerning once surrounding tokens are completed!
+    // A plain typed space is a TOKEN SEPARATOR, not layout. In TeX math mode an ordinary
+    // space has no visual width; only `\,`, `\quad`, `\ ` etc. create real spacing.
+    // Keep a zero-width hit/caret anchor so the space remains selectable and editable,
+    // without making the canvas diverge from the exported LaTeX.
     if (child.type === 'char' && child.value === ' ') {
       const isSelected = selForSlot !== null && idx >= selForSlot.start && idx < selForSlot.end;
-      const caretAdjacent =
-        isActive && focused && (cursor.offset === idx + 1 || cursor.offset === idx);
-      const touchesKeywordOrOp =
-        hints.keywordIndices.has(idx - 1) ||
-        hints.keywordIndices.has(idx + 1) ||
-        prev?.type === 'symbol' ||
-        next?.type === 'symbol' ||
-        prev?.type === 'struct' ||
-        next?.type === 'struct' ||
-        (prev?.type === 'char' && /^[+=<>,\-~()[\]]$/.test(prev.value)) ||
-        (next?.type === 'char' && /^[+=<>,\-~()[\]]$/.test(next.value));
-
-      const spaceLatex = caretAdjacent
-        ? '\\htmlClass{ms-space-active}{\\,}'
-        : touchesKeywordOrOp
-          ? '\\kern 0.04em'
-          : '\\,';
-      const atomClasses = isSelected ? 'ms-atom ms-space-atom ms-selected' : 'ms-atom ms-space-atom';
+      const atomClasses = isSelected
+        ? 'ms-atom ms-space-atom ms-selected'
+        : 'ms-atom ms-space-atom';
       parts.push(
-        `\\htmlData{atom-slot=${slot.id},offset=${idx}}{\\htmlClass{${atomClasses}}{${spaceLatex}}}`,
+        `\\htmlData{atom-slot=${slot.id},offset=${idx}}{\\htmlClass{${atomClasses}}{\\kern0pt}}`,
       );
       continue;
     }

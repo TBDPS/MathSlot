@@ -4,6 +4,7 @@
     CATEGORY_LABELS,
     COMMANDS,
     PRESETS,
+    SHORTHAND_BY_COMMAND_ID,
     commandPreviewLatex,
     importFormula,
     toLatex,
@@ -100,13 +101,15 @@
     const base = q
       ? commands.filter((c) => {
           const keySeq = c.keys.join('').toLowerCase();
+          const shorthand = SHORTHAND_BY_COMMAND_ID.get(c.id)?.toLowerCase() ?? '';
           return (
             c.id.toLowerCase().includes(q) ||
             c.label.toLowerCase().includes(q) ||
             keySeq.includes(q) ||
             c.latex.toLowerCase().includes(q) ||
             c.glyph.toLowerCase().includes(q) ||
-            c.doc.toLowerCase().includes(q)
+            c.doc.toLowerCase().includes(q) ||
+            shorthand.includes(q)
           );
         })
       : [...commands].filter((c) => c.id !== 'inline_math');
@@ -358,6 +361,31 @@
   }
 </script>
 
+{#snippet commandMeta(cmd: CommandDef)}
+  {@const shorthand = SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
+  <div class="cmd-meta">
+    <span class="cmd-name">{cmd.label}</span>
+    <span class="cmd-badges">
+      {#if shorthand}
+        <span
+          class="cmd-short"
+          title={`简写：输入 ${shorthand}（词简写需空格/边界，标点简写即时生效）`}
+        >
+          {shorthand}
+        </span>
+      {/if}
+      {#if cmd.keys.length > 0}
+        <span class="cmd-keys">
+          <kbd>{leaderKey}</kbd>
+          {#each cmd.keys as k}
+            <kbd>{k}</kbd>
+          {/each}
+        </span>
+      {/if}
+    </span>
+  </div>
+{/snippet}
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }} onkeydown={handleKeyDown}>
   <div class="palette" role="dialog" aria-modal="true" aria-label="命令与公式库">
@@ -531,17 +559,7 @@
                         <div class="cmd-math">
                           {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
                         </div>
-                        <div class="cmd-meta">
-                          <span class="cmd-name">{cmd.label}</span>
-                          {#if cmd.keys.length > 0}
-                            <span class="cmd-keys">
-                              <kbd>{leaderKey}</kbd>
-                              {#each cmd.keys as k}
-                                <kbd>{k}</kbd>
-                              {/each}
-                            </span>
-                          {/if}
-                        </div>
+                        {@render commandMeta(cmd)}
                       </button>
                       {#if onToggleFavorite}
                         <button
@@ -621,17 +639,7 @@
                       <div class="cmd-math">
                         {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
                       </div>
-                      <div class="cmd-meta">
-                        <span class="cmd-name">{cmd.label}</span>
-                        {#if cmd.keys.length > 0}
-                          <span class="cmd-keys">
-                            <kbd>{leaderKey}</kbd>
-                            {#each cmd.keys as k}
-                              <kbd>{k}</kbd>
-                            {/each}
-                          </span>
-                        {/if}
-                      </div>
+                      {@render commandMeta(cmd)}
                     </button>
                     {#if onToggleFavorite}
                       <button
@@ -746,17 +754,7 @@
                       <div class="cmd-math">
                         {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
                       </div>
-                      <div class="cmd-meta">
-                        <span class="cmd-name">{cmd.label}</span>
-                        {#if cmd.keys.length > 0}
-                          <span class="cmd-keys">
-                            <kbd>{leaderKey}</kbd>
-                            {#each cmd.keys as k}
-                              <kbd>{k}</kbd>
-                            {/each}
-                          </span>
-                        {/if}
-                      </div>
+                      {@render commandMeta(cmd)}
                     </button>
                   </div>
                 {/each}
@@ -840,17 +838,7 @@
                       <div class="cmd-math">
                         {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
                       </div>
-                      <div class="cmd-meta">
-                        <span class="cmd-name">{cmd.label}</span>
-                        {#if cmd.keys.length > 0}
-                          <span class="cmd-keys">
-                            <kbd>{leaderKey}</kbd>
-                            {#each cmd.keys as k}
-                              <kbd>{k}</kbd>
-                            {/each}
-                          </span>
-                        {/if}
-                      </div>
+                      {@render commandMeta(cmd)}
                     </button>
                   </div>
                 {/each}
@@ -903,17 +891,7 @@
                 <div class="cmd-math">
                   {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
                 </div>
-                <div class="cmd-meta">
-                  <span class="cmd-name">{cmd.label}</span>
-                  {#if cmd.keys.length > 0}
-                    <span class="cmd-keys">
-                      <kbd>{leaderKey}</kbd>
-                      {#each cmd.keys as k}
-                        <kbd>{k}</kbd>
-                      {/each}
-                    </span>
-                  {/if}
-                </div>
+                {@render commandMeta(cmd)}
               </button>
                 {#if onToggleFavorite}
                   <button
@@ -1513,6 +1491,24 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
+  }
+
+  .cmd-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .cmd-short {
+    font-family: var(--ms-font-mono);
+    font-size: 9.5px;
+    line-height: 1.2;
+    padding: 1px 4px;
+    border-radius: 4px;
+    border: 1px dashed var(--ms-border);
+    color: var(--ms-fg-muted);
+    white-space: nowrap;
   }
 
   .cmd-name {

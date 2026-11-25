@@ -206,6 +206,32 @@ export function parseStreamCode(source: string): ImportResult {
   };
 }
 
+function isEscapedAt(text: string, idx: number): boolean {
+  let backslashes = 0;
+  for (let i = idx - 1; i >= 0 && text[i] === '\\'; i -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+function hasUnescapedDollar(text: string): boolean {
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '$' && !isEscapedAt(text, i)) return true;
+  }
+  return false;
+}
+
+function hasUnescapedDelimiter(text: string, delimiter: '\\(' | '\\)' | '\\[' | '\\]'): boolean {
+  let from = 0;
+  while (from <= text.length - delimiter.length) {
+    const idx = text.indexOf(delimiter, from);
+    if (idx === -1) return false;
+    if (!isEscapedAt(text, idx)) return true;
+    from = idx + 1;
+  }
+  return false;
+}
+
 export function stripOuterDelimiters(input: string): string {
   let s = input.trim();
   const fenceMatch = s.match(/^```(?:latex|tex|math)?\s*\n?([\s\S]*?)\n?```$/i);
@@ -213,16 +239,30 @@ export function stripOuterDelimiters(input: string): string {
     s = fenceMatch[1].trim();
   }
   if (s.startsWith('$$') && s.endsWith('$$') && s.length >= 4) {
-    return s.slice(2, -2).trim();
+    const inner = s.slice(2, -2);
+    // Avoid treating multiple display formulas (`$$a$$ + $$b$$`) as one formula.
+    if (!hasUnescapedDollar(inner)) return inner.trim();
+    return s;
   }
   if (s.startsWith('\\[') && s.endsWith('\\]') && s.length >= 4) {
-    return s.slice(2, -2).trim();
+    const inner = s.slice(2, -2);
+    if (!hasUnescapedDelimiter(inner, '\\[') && !hasUnescapedDelimiter(inner, '\\]')) {
+      return inner.trim();
+    }
+    return s;
   }
   if (s.startsWith('\\(') && s.endsWith('\\)') && s.length >= 4) {
-    return s.slice(2, -2).trim();
+    const inner = s.slice(2, -2);
+    if (!hasUnescapedDelimiter(inner, '\\(') && !hasUnescapedDelimiter(inner, '\\)')) {
+      return inner.trim();
+    }
+    return s;
   }
-  if (s.startsWith('$') && s.endsWith('$') && s.length >= 2 && !s.slice(1, -1).includes('$')) {
-    return s.slice(1, -1).trim();
+  if (s.startsWith('$') && s.endsWith('$') && s.length >= 2) {
+    const inner = s.slice(1, -1);
+    // Allow escaped `\$` inside a single inline formula, but never strip when multiple
+    // unescaped `$` delimiters are present (`$x$ + $y$`).
+    if (!hasUnescapedDollar(inner)) return inner.trim();
   }
   return s;
 }
