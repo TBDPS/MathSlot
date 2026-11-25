@@ -71,6 +71,10 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
       '\\lim_{x\\to0^+} \\frac{1}{x}',
       '\\left(a, b\\right] \\cup \\left[c, d\\right)',
       '\\sum_{\\substack{1 \\le i \\le n \\\\ i \\neq j}} a_{ij}',
+      'x\\,y\\!z \\quad w \\qquad v',
+      '\\begin{pmatrix} a & b \\\\[4pt] c & d \\end{pmatrix}',
+      '\\begin{pmatrix} 1 & 2 \\\\ \\\\ 3 & 4 \\end{pmatrix}',
+      '\\begin{align}a&=b & c&=d\\end{align}',
     ];
     for (const src of cases) {
       const engine = new MathSlotEngine();

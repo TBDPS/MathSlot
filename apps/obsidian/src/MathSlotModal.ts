@@ -31,8 +31,11 @@ async function copyTextWithFallback(text: string): Promise<void> {
   ta.style.opacity = '0';
   document.body.appendChild(ta);
   ta.select();
-  document.execCommand('copy');
+  const ok = document.execCommand('copy');
   ta.remove();
+  if (!ok) {
+    throw new Error('Clipboard copy failed');
+  }
 }
 
 export class MathSlotModal extends Modal {

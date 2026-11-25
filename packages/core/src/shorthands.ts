@@ -13,11 +13,14 @@ export interface ShorthandRule {
 }
 
 export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
-  // Multi-char punctuation / arrow / relation shorthands (instant, zero word collision)
+  // Multi-char punctuation / arrow / relation shorthands (longest first; prefix overlaps handled via upgrades!)
   { trigger: '<=>', commandId: 'iff', kind: 'punct' },
+  { trigger: '<->', commandId: 'leftrightarrow', kind: 'punct' },
+  { trigger: '|->', commandId: 'mapsto', kind: 'punct' },
   { trigger: '...', commandId: 'cdots', kind: 'punct' },
   { trigger: ':::', commandId: 'vdots', kind: 'punct' },
   { trigger: '->', commandId: 'to', kind: 'punct' },
+  { trigger: '<-', commandId: 'leftarrow', kind: 'punct' },
   { trigger: '=>', commandId: 'implies', kind: 'punct' },
   { trigger: '<=', commandId: 'leq', kind: 'punct' },
   { trigger: '>=', commandId: 'geq', kind: 'punct' },
@@ -147,4 +150,29 @@ export function matchTrailingShorthand(
     }
   }
   return null;
+}
+
+/**
+ * Upgrades an already-expanded prefix symbol when its completing character is typed next:
+ * - `<=` (`leq`) + `>` -> `<=>` (`iff`)
+ * - `<-` (`leftarrow`) + `>` -> `<->` (`leftrightarrow`)
+ */
+const SYMBOL_PREFIX_UPGRADES: Readonly<Record<string, string>> = {
+  'leq:>': 'iff',
+  'leftarrow:>': 'leftrightarrow',
+};
+
+export function matchShorthandUpgrade(
+  children: readonly MathNode[],
+  offset: number,
+): { start: number; command: CommandDef } | null {
+  if (offset < 2) return null;
+  const last = children[offset - 1];
+  const prev = children[offset - 2];
+  if (last.type !== 'char' || prev.type !== 'symbol') return null;
+  const upgradedId = SYMBOL_PREFIX_UPGRADES[`${prev.commandId}:${last.value}`];
+  if (!upgradedId) return null;
+  const cmd = COMMANDS_BY_ID.get(upgradedId);
+  if (!cmd) return null;
+  return { start: offset - 2, command: cmd };
 }

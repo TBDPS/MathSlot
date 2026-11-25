@@ -45,6 +45,8 @@ export interface CharNode {
   type: 'char';
   id: string;
   value: string;
+  /** True when imported from formal LaTeX or literal paste — suppresses bare-word shorthand expansion */
+  verbatim?: boolean;
 }
 
 export interface SymbolNode {
@@ -59,6 +61,8 @@ export interface GridMeta {
   env: string;
   rows: number;
   cols: number;
+  /** Optional explicit LaTeX row gap after row `r`, e.g. `'4pt'` from `\\[4pt]` */
+  rowGaps?: (string | undefined)[];
 }
 
 export interface StructNode {
@@ -195,6 +199,8 @@ export interface CustomCommandDef {
   key?: string;
   /** Optional instant auto-expand trigger (e.g. `EE`) */
   shorthand?: string;
+  /** Optional override: true = expand immediately without waiting for right word boundary; false = require boundary */
+  immediateShorthand?: boolean;
 }
 
 export interface Diagnostic {

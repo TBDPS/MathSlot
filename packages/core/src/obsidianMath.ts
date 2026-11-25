@@ -254,11 +254,24 @@ function findInlineFormulaOnLine(
   return null;
 }
 
+function stripNBlockquoteMarkers(line: string, count: number): string {
+  let pos = 0;
+  let stripped = 0;
+  while (stripped < count && pos < line.length) {
+    while (pos < line.length && (line[pos] === ' ' || line[pos] === '\t')) pos += 1;
+    if (line[pos] !== '>') break;
+    pos += 1;
+    if (line[pos] === ' ' || line[pos] === '\t') pos += 1;
+    stripped += 1;
+  }
+  return line.slice(pos);
+}
+
 /**
  * Detects an enclosing `$...$` (inline) or `$$...$$` (single/multi-line block) formula around
  * `cursor` in a Markdown document, properly handling blockquotes (`> ...`), nested blockquotes
- * (`> > ...`), Obsidian Callouts (`> [!note] ...`), fenced code blocks, inline code spans, and
- * escaped `\$` currency signs.
+ * (`> > ...`), Obsidian Callouts (`> [!note] ...`), outer fenced code blocks containing `>`,
+ * blockquotes containing fenced code blocks, inline code spans, and escaped `\$` currency signs.
  */
 export function detectFormulaInLines(
   lines: string[],
@@ -272,50 +285,66 @@ export function detectFormulaInLines(
   const cursorCanonicalPrefix = canonicalBlockquotePrefix(cursorSplit.prefix);
   const targetDepth = blockquoteDepth(cursorSplit.prefix);
 
-  // 1. Track fenced code blocks AND multi-line `$$ ... $$` blocks from line 0..cursor.line FIRST
-  //    so inline `$...$` inside fenced code blocks or multi-line blocks is NEVER misidentified!
+  // 1. Container-first scan from line 0..cursor.line:
+  //    An open fenced code block at depth `d` encloses ALL lines with blockquote depth `>= d`
+  //    (so `~~~md` followed by `> $$` / `> x^2` / `> $$` / `~~~` is recognized as code, NEVER math!).
   let insideBlock = false;
   let openLine = -1;
   let openPrefix = '';
-  let codeFenceChar = '';
-  let codeFenceLen = 0;
+  let fenceState: { depth: number; char: string; len: number } | null = null;
   let cursorIsCodeFenceLine = false;
 
   for (let l = 0; l <= cursor.line; l += 1) {
     const split = extractBlockquotePrefix(lines[l]);
     const depth = blockquoteDepth(split.prefix);
-    if (depth !== targetDepth) {
-      // Crossed a blockquote / callout boundary — reset fence parity
-      insideBlock = false;
-      openLine = -1;
-      openPrefix = '';
-      codeFenceChar = '';
-      codeFenceLen = 0;
-      continue;
+
+    if (fenceState !== null) {
+      if (depth < fenceState.depth) {
+        // Exited the blockquote container that owned this code fence
+        fenceState = null;
+      } else {
+        // Still inside the container of `fenceState` — strip ONLY `fenceState.depth` `>` markers!
+        const innerTrimmed = stripNBlockquoteMarkers(lines[l], fenceState.depth).trim();
+        const closeMatch = CODE_FENCE_RE.exec(innerTrimmed);
+        if (
+          closeMatch &&
+          closeMatch[2][0] === fenceState.char &&
+          closeMatch[2].length >= fenceState.len &&
+          innerTrimmed.slice(closeMatch[0].length).trim() === ''
+        ) {
+          fenceState = null;
+          if (l === cursor.line) cursorIsCodeFenceLine = true;
+        }
+        continue;
+      }
     }
 
     const trimmed = split.content.trim();
     const fenceMatch = CODE_FENCE_RE.exec(trimmed);
     if (fenceMatch) {
-      const ch = fenceMatch[2][0];
-      const len = fenceMatch[2].length;
-      if (!codeFenceChar) {
-        codeFenceChar = ch;
-        codeFenceLen = len;
+      fenceState = {
+        depth,
+        char: fenceMatch[2][0],
+        len: fenceMatch[2].length,
+      };
+      if (depth <= targetDepth) {
         insideBlock = false;
         openLine = -1;
         openPrefix = '';
-        if (l === cursor.line) cursorIsCodeFenceLine = true;
-        continue;
       }
-      if (ch === codeFenceChar && len >= codeFenceLen && trimmed.slice(fenceMatch[0].length).trim() === '') {
-        codeFenceChar = '';
-        codeFenceLen = 0;
-        if (l === cursor.line) cursorIsCodeFenceLine = true;
-        continue;
-      }
+      if (l === cursor.line) cursorIsCodeFenceLine = true;
+      continue;
     }
-    if (codeFenceChar) continue;
+
+    if (depth !== targetDepth) {
+      // Crossed a blockquote / callout boundary — reset `$$` parity if shallower than targetDepth
+      if (depth < targetDepth) {
+        insideBlock = false;
+        openLine = -1;
+        openPrefix = '';
+      }
+      continue;
+    }
 
     if (isDollarFenceLine(trimmed)) {
       if (!insideBlock) {
@@ -346,11 +375,11 @@ export function detectFormulaInLines(
   }
 
   // Never detect math on or inside a fenced code block!
-  if (codeFenceChar || cursorIsCodeFenceLine) return null;
+  if (fenceState !== null || cursorIsCodeFenceLine) return null;
 
   // 2. If cursor is inside an open multi-line `$$ ... $$` block, resolve its closing fence
   if (insideBlock && openLine >= 0) {
-    const maxLine = Math.min(lines.length - 1, cursor.line + 80);
+    const maxLine = Math.min(lines.length - 1, cursor.line + 400);
     let closeLine = -1;
     for (let l = openLine + 1; l <= maxLine; l += 1) {
       const split = extractBlockquotePrefix(lines[l]);

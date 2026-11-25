@@ -133,6 +133,8 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "ddots", "keys": ["o", "t"], "label": "斜省略号", "category": "symbol", "glyph": "⋱", "slots": [], "latex": "\\ddots", "doc": "斜向省略号：\\ddots (也可直输 ddots)", "examples": ["▸ot"], "wrapSlot": null},
   {"id": "xrightarrow", "keys": ["o", "u"], "label": "标注右箭头", "category": "symbol", "glyph": "─→", "slots": ["下标", "上标"], "optionalSlots": [0], "latex": "\\xrightarrow[$1]{$2}", "doc": "带上下标注的长右箭头（下标可省略）：\\xrightarrow[下]{上}", "examples": ["▸ouf;"], "wrapSlot": 1},
   {"id": "xleftarrow", "keys": ["o", "v"], "label": "标注左箭头", "category": "symbol", "glyph": "←─", "slots": ["下标", "上标"], "optionalSlots": [0], "latex": "\\xleftarrow[$1]{$2}", "doc": "带上下标注的长左箭头（下标可省略）：\\xleftarrow[下]{上}", "examples": ["▸ovg;"], "wrapSlot": 1},
+  {"id": "quad_space", "keys": ["o", "w"], "label": "宽空格", "category": "symbol", "glyph": "␣␣", "slots": [], "latex": "\\quad", "doc": "1em 显式排版间距：\\quad (也可直输 \\quad 或 quad)", "examples": ["▸ow"], "wrapSlot": null},
+  {"id": "thin_space", "keys": ["o", "x"], "label": "细空格", "category": "symbol", "glyph": "␣", "slots": [], "latex": "\\,", "doc": "细排版间距：\\, (也可直输 \\,)", "examples": ["▸ox"], "wrapSlot": null},
   {"id": "equiv", "keys": ["x", "a"], "label": "恒等", "category": "relation", "glyph": "≡", "slots": [], "latex": "\\equiv", "doc": "恒等于/同余：\\equiv", "examples": ["▸xa"], "wrapSlot": null},
   {"id": "approx", "keys": ["x", "b"], "label": "近似", "category": "relation", "glyph": "≈", "slots": [], "latex": "\\approx", "doc": "约等于：\\approx", "examples": ["▸xb"], "wrapSlot": null},
   {"id": "sim", "keys": ["x", "c"], "label": "相似", "category": "relation", "glyph": "∼", "slots": [], "latex": "\\sim", "doc": "相似于：\\sim", "examples": ["▸xc"], "wrapSlot": null},

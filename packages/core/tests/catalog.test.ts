@@ -22,19 +22,26 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 148 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
-    expect(COMMANDS.length).toBe(148);
-    expect(COMMANDS_BY_ID.size).toBe(148);
-    expect(COMMANDS_BY_KEYS.size).toBe(146);
+  it('contains 150 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
+    expect(COMMANDS.length).toBe(150);
+    expect(COMMANDS_BY_ID.size).toBe(150);
+    expect(COMMANDS_BY_KEYS.size).toBe(148);
     expect(DIRECT_COMMANDS.length).toBe(9);
     expect(COMMANDS_BY_KEYS.has('u')).toBe(false);
     expect(COMMANDS_BY_KEYS.has('d')).toBe(false);
     expect(COMMANDS_BY_KEYS.get('b')?.id).toBe('subsup');
     expect(SUBMENUS.length).toBe(7);
 
-    // Every auto-shorthand must resolve to a real command in COMMANDS_BY_ID
+    // Every auto-shorthand must resolve to a real command AND actually expand when typed on the canvas!
     for (const rule of AUTO_SHORTHANDS) {
-      expect(COMMANDS_BY_ID.has(rule.commandId), `shorthand ${rule.trigger} -> missing ${rule.commandId}`).toBe(true);
+      const cmd = COMMANDS_BY_ID.get(rule.commandId);
+      expect(cmd, `shorthand ${rule.trigger} -> missing ${rule.commandId}`).toBeDefined();
+      const probe = new MathSlotEngine();
+      for (const ch of rule.trigger) probe.insertText(ch);
+      expect(
+        probe.getSnapshot().latex,
+        `shorthand "${rule.trigger}" (${rule.kind}) did not expand to ${cmd!.latex}`,
+      ).not.toBe(rule.trigger);
     }
 
     // Ensure no direct command key collides with any submenu prefix key

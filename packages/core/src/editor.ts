@@ -25,9 +25,16 @@ import {
   getSubmenuCommands,
   getSubmenuDefaultCommandId,
 } from './catalog';
-import { MATH_FUNCTIONS, emitNodesCanonical, toInteractiveLatex, toLatex } from './latex';
+import {
+  BARE_WORD_ATOMS,
+  MATH_FUNCTIONS,
+  OPERATORNAME_FUNCTIONS,
+  emitNodesCanonical,
+  toInteractiveLatex,
+  toLatex,
+} from './latex';
 import { importFormula } from './parser';
-import { matchTrailingShorthand } from './shorthands';
+import { matchShorthandUpgrade, matchTrailingShorthand } from './shorthands';
 import { getSlotOrder } from './slotOrder';
 import type {
   ActiveGridInfo,
@@ -166,7 +173,9 @@ export class MathSlotEngine {
       emptySlotCount: countEmptySlots(this.doc.root),
       canUndo: this.undoStack.length > 0,
       canRedo: this.redoStack.length > 0,
-      isEmpty: this.doc.root.children.length === 0,
+      isEmpty:
+        this.doc.root.children.length === 0 ||
+        this.doc.root.children.every((n) => n.type === 'char' && n.value === ' '),
     };
   }
 
@@ -270,12 +279,27 @@ export class MathSlotEngine {
   public pasteLiteralText(text: string): void {
     const clean = text.replace(/\r\n/g, '\n');
     if (!clean) return;
-    this.insertText(clean);
+    // Bypass interactive smart triggers (`/`, `^`, `_`, `(`, shorthands) completely and mark chars verbatim!
+    this.mode = { kind: 'edit' };
+    this.pushHistory();
+    this.deleteSelectionInternal();
+    const slot = this.currentSlot();
+    const nodes: MathNode[] = [];
+    const lines = clean.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      nodes.push(...textToCharNodes(lines[i], true));
+      if (i < lines.length - 1) {
+        nodes.push(createRawNode('\\\\'));
+      }
+    }
+    slot.children.splice(this.cursor.offset, 0, ...nodes);
+    this.cursor.offset += nodes.length;
   }
 
   public pasteText(text: string): void {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const isUrlLike = trimmed.includes('://');
     const isStrongLatex =
       trimmed.includes('\\') ||
       trimmed.includes('▸') ||
@@ -283,14 +307,34 @@ export class MathSlotEngine {
     // Multi-letter snake_case identifiers like `foo_bar` or `user_id` stay literal,
     // while standard math subscripts like `x_1`, `a_n`, `x_{i+1}` import as real subscript structs!
     const isLikelySnakeCaseIdentifier = /^[a-zA-Z]{2,}_[a-zA-Z0-9_]+$/.test(trimmed);
+    const hasPunctMathShorthand =
+      !isUrlLike && /(?:<=>|<->|\|->|->|<-|=>|<=|>=|!=|~=|\+-|-\+)/.test(trimmed);
     const isCompactScript =
       !trimmed.includes('\n') &&
       !/\s{2,}/.test(trimmed) &&
       trimmed.split(/\s+/).length <= 4 &&
-      (trimmed.includes('^') || (trimmed.includes('_') && !isLikelySnakeCaseIdentifier));
+      (trimmed.includes('^') ||
+        hasPunctMathShorthand ||
+        (trimmed.includes('_') && !isLikelySnakeCaseIdentifier));
 
     if (isStrongLatex || isCompactScript) {
-      const res = importFormula(trimmed);
+      const normalized =
+        hasPunctMathShorthand && !isStrongLatex
+          ? trimmed
+              .replace(/<=>/g, ' \\Leftrightarrow ')
+              .replace(/<->/g, ' \\leftrightarrow ')
+              .replace(/\|->/g, ' \\mapsto ')
+              .replace(/->/g, ' \\to ')
+              .replace(/<-/g, ' \\leftarrow ')
+              .replace(/=>/g, ' \\Rightarrow ')
+              .replace(/<=/g, ' \\le ')
+              .replace(/>=/g, ' \\ge ')
+              .replace(/!=/g, ' \\neq ')
+              .replace(/~=/g, ' \\cong ')
+              .replace(/\+-/g, ' \\pm ')
+              .replace(/-\+/g, ' \\mp ')
+          : trimmed;
+      const res = importFormula(normalized);
       const hasError = res.diagnostics.some((d) => d.severity === 'error');
       if (!hasError && res.doc.root.children.length > 0) {
         this.pushHistory();
@@ -302,7 +346,7 @@ export class MathSlotEngine {
         return;
       }
     }
-    this.insertText(trimmed);
+    this.pasteLiteralText(trimmed);
   }
 
   public getSelectedLatex(): string {
@@ -854,7 +898,39 @@ export class MathSlotEngine {
     // Single-character smart triggers
     if (text.length === 1) {
       const ch = text;
-      if (ch === ';' && this.settings.semicolonNextSlot) {
+      // Direct explicit LaTeX spacing macros (`\,`, `\:`, `\;`, `\!`, `\ `) when preceded by `\`
+      if (
+        this.isEscapedBeforeCursor() &&
+        (ch === ',' || ch === ':' || ch === ';' || ch === '!' || ch === ' ')
+      ) {
+        this.pushHistory();
+        const slot = this.currentSlot();
+        slot.children.splice(this.cursor.offset - 1, 1, createRawNode(`\\${ch}`));
+        return;
+      }
+
+      // Expand alphabetic custom shorthands (e.g. `EE` -> `\mathbb{E}`) ONLY on a right-side word boundary
+      // so typing `EEx` stays literal `EEx` while `EE x` or `EE[X]` expands cleanly!
+      if (
+        this.settings.autoShorthands &&
+        !this.selection &&
+        !/^[a-zA-Z]$/.test(ch) &&
+        ch !== '\\'
+      ) {
+        const curSlot = this.currentSlot();
+        const alphaCustom = this.matchCustomShorthand(curSlot.children, this.cursor.offset, 'word');
+        if (alphaCustom) {
+          this.pushHistory();
+          curSlot.children.splice(alphaCustom.start, this.cursor.offset - alphaCustom.start);
+          this.cursor.offset = alphaCustom.start;
+          this.insertCustomCommandInternal(alphaCustom.command);
+          if (ch === ' ') {
+            return;
+          }
+        }
+      }
+
+      if (ch === ';' && this.settings.semicolonNextSlot && !this.isEscapedBeforeCursor()) {
         const path = findSlotPath(this.doc.root, this.cursor.slotId);
         if (path && path.length > 1) {
           this.selection = null;
@@ -862,8 +938,8 @@ export class MathSlotEngine {
           return;
         }
       }
-      // Inline LaTeX command compatibility (`\frac{`, `\sqrt[`, `\int_`, `\sum^`, `\alpha_1`, etc.)
-      if ((ch === '{' || ch === '[') && this.tryExpandInlineMacro(ch)) {
+      // Inline LaTeX command compatibility (`\frac{`, `\sqrt[`, `\sin(`, `\int_`, `\sum^`, `\alpha_1`, etc.)
+      if ((ch === '{' || ch === '[' || ch === '(') && this.tryExpandInlineMacro(ch)) {
         return;
       }
       // Auto-closing brackets `( )`, `[ ]`, `{ }` + overtype skip-out on closing `)`, `]`, `}`!
@@ -891,13 +967,29 @@ export class MathSlotEngine {
         this.insertNaturalFraction();
         return;
       }
-      // Inline `\int `, `\frac `, `\alpha ` completion or optional Space-exits-script
+      // Inline `\int `, `\frac `, `\sin `, `\quad `, `\alpha ` completion or optional Space-exits-script
       if (ch === ' ') {
         if (this.tryExpandInlineMacro('space')) {
           return;
         }
         if (this.settings.spaceExitsScript && this.trySpaceExitScript()) {
           return;
+        }
+        // Outside `\text{...}`, avoid piling up duplicate invisible spaces or leading root spaces
+        if (!this.selection) {
+          const path = findSlotPath(this.doc.root, this.cursor.slotId);
+          const inTextBox = path?.some((e) => e.parentStruct?.commandId === 'text_box') ?? false;
+          if (!inTextBox) {
+            const curSlot = this.currentSlot();
+            if (curSlot.id === this.doc.root.id && curSlot.children.length === 0) {
+              return;
+            }
+            const prevNode =
+              this.cursor.offset > 0 ? curSlot.children[this.cursor.offset - 1] : undefined;
+            if (prevNode && prevNode.type === 'char' && prevNode.value === ' ') {
+              return;
+            }
+          }
         }
       }
     }
@@ -910,8 +1002,8 @@ export class MathSlotEngine {
     this.cursor.offset += nodes.length;
 
     if (this.settings.autoShorthands && text.length === 1) {
-      // Check user-defined custom shorthands first
-      const customMatched = this.matchCustomShorthand(slot.children, this.cursor.offset);
+      // Check non-alphabetic user-defined custom shorthands (alphabetic ones trigger on right boundary above!)
+      const customMatched = this.matchCustomShorthand(slot.children, this.cursor.offset, 'punct');
       if (customMatched) {
         this.pushHistory();
         slot.children.splice(customMatched.start, this.cursor.offset - customMatched.start);
@@ -920,9 +1012,19 @@ export class MathSlotEngine {
         return;
       }
 
+      // Check prefix-overlapping upgrades (`<=` + `>` -> `<=>`, `<-` + `>` -> `<->`)
+      const upgraded = matchShorthandUpgrade(slot.children, this.cursor.offset);
+      if (upgraded) {
+        this.pushHistory();
+        const sym = createSymbolNode(upgraded.command);
+        slot.children.splice(upgraded.start, this.cursor.offset - upgraded.start, sym);
+        this.cursor.offset = upgraded.start + 1;
+        return;
+      }
+
       const matched = matchTrailingShorthand(slot.children, this.cursor.offset);
       if (matched) {
-        // Push separate history step so a single Ctrl+Z reverts `\infty` back to literal `oo`
+        // Push separate history step so a single Ctrl+Z reverts `\to` back to literal `->`
         this.pushHistory();
         const sym = createSymbolNode(matched.command);
         slot.children.splice(matched.start, this.cursor.offset - matched.start, sym);
@@ -934,11 +1036,20 @@ export class MathSlotEngine {
   private matchCustomShorthand(
     children: readonly MathNode[],
     offset: number,
+    filterKind: 'word' | 'punct',
   ): { start: number; command: CustomCommandDef } | null {
     if (this.customCommands.length === 0 || offset <= 0) return null;
     for (const cmd of this.customCommands) {
       const trigger = cmd.shorthand?.trim();
       if (!trigger || trigger.length > offset) continue;
+      const isAlpha = /^[a-zA-Z]+$/.test(trigger);
+      // 0-slot alphabetic symbol shorthands wait for a right word boundary by default (`EEx` stays `EEx`),
+      // whereas multi-slot custom structures (`\mathbb{E}\left[$1\right]`) expand immediately into slot $1!
+      const requiresBoundary = cmd.immediateShorthand !== undefined
+        ? !cmd.immediateShorthand
+        : isAlpha && cmd.slots.length === 0;
+      if (filterKind === 'word' && !requiresBoundary) continue;
+      if (filterKind === 'punct' && requiresBoundary) continue;
       let ok = true;
       const start = offset - trigger.length;
       for (let i = 0; i < trigger.length; i += 1) {
@@ -949,7 +1060,7 @@ export class MathSlotEngine {
         }
       }
       if (!ok) continue;
-      if (/^[a-zA-Z]+$/.test(trigger) && start > 0) {
+      if (isAlpha && start > 0) {
         const prev = children[start - 1];
         if (prev.type === 'char' && /^[a-zA-Z]$/.test(prev.value)) continue;
       }
@@ -1049,6 +1160,8 @@ export class MathSlotEngine {
   }
 
   private trySpaceExitScript(): boolean {
+    // If there is an active selection, Space must replace the selection rather than orphaning it!
+    if (this.selection !== null) return false;
     const path = findSlotPath(this.doc.root, this.cursor.slotId);
     if (!path || path.length <= 1) return false;
     const cur = path[path.length - 1];
@@ -1068,6 +1181,7 @@ export class MathSlotEngine {
 
     if (!isScriptEnd) return false;
 
+    this.selection = null;
     if (cmdId === 'subsup' && sIdx === 1 && parentStruct.slots[2].children.length === 0) {
       this.cursor = { slotId: parentStruct.slots[2].id, offset: 0 };
       return true;
@@ -1077,7 +1191,7 @@ export class MathSlotEngine {
   }
 
   private tryExpandInlineMacro(
-    trigger: 'space' | 'enter' | '_' | '^' | '{' | '[' = 'space',
+    trigger: 'space' | 'enter' | '_' | '^' | '{' | '[' | '(' = 'space',
   ): boolean {
     const slot = this.currentSlot();
     let start = this.cursor.offset - 1;
@@ -1150,7 +1264,7 @@ export class MathSlotEngine {
       if (trigger === '[' && structCmdId !== 'sqrt') {
         return false;
       }
-      if (trigger === '{' && isBigOp) {
+      if (trigger === '(' || (trigger === '{' && isBigOp)) {
         return false;
       }
 
@@ -1186,17 +1300,38 @@ export class MathSlotEngine {
       return ok;
     }
 
-    // 2. Standard math functions (`\sin`, `\cos`, `\ln`, `\log`, ...) -> upright function name chars
-    if (MATH_FUNCTIONS.has(name) && (trigger === 'space' || trigger === 'enter')) {
+    // 2. Explicit spacing macros (`\quad`, `\qquad`)
+    if ((name === 'quad' || name === 'qquad') && (trigger === 'space' || trigger === 'enter')) {
       this.pushHistory();
-      const fnNodes = textToCharNodes(name);
-      slot.children.splice(start, this.cursor.offset - start, ...fnNodes);
-      this.cursor.offset = start + fnNodes.length;
+      const raw = createRawNode(`\\${name}`);
+      slot.children.splice(start, this.cursor.offset - start, raw);
+      this.cursor.offset = start + 1;
       return true;
     }
 
-    // 3. Atomic LaTeX symbol macros (`\alpha`, `\pi`, `\vdots`, `\ddots`, `\infty`, `\le`, ...)
-    if (trigger === '{' || trigger === '[') return false;
+    // 3. Standard math & operatorname functions (`\sin`, `\cos`, `\ln`, `\argmin`, `\Var`, ...)
+    if (MATH_FUNCTIONS.has(name) || Boolean(OPERATORNAME_FUNCTIONS[name])) {
+      if (trigger === '{' || trigger === '[') return false;
+      this.pushHistory();
+      const fnNodes = textToCharNodes(name, false);
+      if (trigger === 'space') {
+        // Keep a real token-separating space node so `\sin` + Space + `x` stays `\sin x` (never `sinx`!)
+        const withSep = [...fnNodes, createCharNode(' ')];
+        slot.children.splice(start, this.cursor.offset - start, ...withSep);
+        this.cursor.offset = start + withSep.length;
+        return true;
+      }
+      slot.children.splice(start, this.cursor.offset - start, ...fnNodes);
+      this.cursor.offset = start + fnNodes.length;
+      if (trigger === 'enter') {
+        return true;
+      }
+      // For `(`, `_`, `^` (e.g. `\sin(x)`, `\sin^2 x`, `\lim_{x}`), let the delimiter handler proceed!
+      return false;
+    }
+
+    // 4. Atomic LaTeX symbol macros (`\alpha`, `\pi`, `\vdots`, `\ddots`, `\infty`, `\le`, ...)
+    if (trigger === '{' || trigger === '[' || trigger === '(') return false;
     const parsed = importFormula(`\\${name}`);
     const hasErr = parsed.diagnostics.some((d) => d.severity === 'error');
     const hasWarn = parsed.diagnostics.some((d) => d.severity === 'warning');
@@ -1252,7 +1387,7 @@ export class MathSlotEngine {
         prev.type !== 'char' ||
         !/^[\s+=,;:\-<>()[\]]$/.test(prev.value)
       ) {
-        // Grab contiguous digits/letters or single symbol/struct atom
+        // Grab contiguous digits, whole isolated function/Greek words (`sin^2`, `pi^2`), or single atom
         if (prev.type === 'char' && /[0-9]/.test(prev.value)) {
           let start = this.cursor.offset - 1;
           while (start > 0) {
@@ -1262,6 +1397,29 @@ export class MathSlotEngine {
           }
           baseNodes = slot.children.splice(start, this.cursor.offset - start);
           this.cursor.offset = start;
+        } else if (prev.type === 'char' && !prev.verbatim && /[A-Za-z]/.test(prev.value)) {
+          let wordStart = this.cursor.offset - 1;
+          while (wordStart > 0) {
+            const c = slot.children[wordStart - 1];
+            if (c.type === 'char' && !c.verbatim && /[A-Za-z]/.test(c.value)) wordStart -= 1;
+            else break;
+          }
+          const word = slot.children
+            .slice(wordStart, this.cursor.offset)
+            .map((n) => (n.type === 'char' ? n.value : ''))
+            .join('');
+          if (
+            word.length > 1 &&
+            (MATH_FUNCTIONS.has(word) ||
+              Boolean(OPERATORNAME_FUNCTIONS[word]) ||
+              (this.settings.autoShorthands && Boolean(BARE_WORD_ATOMS[word])))
+          ) {
+            baseNodes = slot.children.splice(wordStart, this.cursor.offset - wordStart);
+            this.cursor.offset = wordStart;
+          } else {
+            baseNodes = slot.children.splice(this.cursor.offset - 1, 1);
+            this.cursor.offset -= 1;
+          }
         } else {
           baseNodes = slot.children.splice(this.cursor.offset - 1, 1);
           this.cursor.offset -= 1;

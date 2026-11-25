@@ -69,12 +69,13 @@ export default class MathSlotPlugin extends Plugin {
         }
       }
     } else if (editor) {
-      const total = editor.lineCount();
+      const cursor = editor.getCursor();
+      // Only read up to cursor.line + 400 lines instead of scanning an entire 10,000-line note!
+      const limit = Math.min(editor.lineCount(), cursor.line + 401);
       const lines: string[] = [];
-      for (let i = 0; i < total; i += 1) {
+      for (let i = 0; i < limit; i += 1) {
         lines.push(editor.getLine(i));
       }
-      const cursor = editor.getCursor();
       const detected = detectFormulaInLines(lines, cursor);
       if (detected) {
         initialFormula = detected.raw;

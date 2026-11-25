@@ -39,8 +39,10 @@ export function createEmptyDocument(): Document {
   };
 }
 
-export function createCharNode(value: string): CharNode {
-  return { type: 'char', id: nextId('c'), value };
+export function createCharNode(value: string, verbatim = false): CharNode {
+  return verbatim
+    ? { type: 'char', id: nextId('c'), value, verbatim: true }
+    : { type: 'char', id: nextId('c'), value };
 }
 
 export function createSymbolNode(cmd: CommandDef): SymbolNode {
@@ -72,8 +74,8 @@ export function createRawNode(latex: string): RawNode {
   return { type: 'raw', id: nextId('r'), latex };
 }
 
-export function textToCharNodes(text: string): CharNode[] {
-  return Array.from(text).map((ch) => createCharNode(ch));
+export function textToCharNodes(text: string, verbatim = false): CharNode[] {
+  return Array.from(text).map((ch) => createCharNode(ch, verbatim));
 }
 
 /**
@@ -94,7 +96,12 @@ export function cloneNode(node: MathNode): MathNode {
         slots: node.slots.map((s) => cloneSlot(s)),
         customLatex: node.customLatex,
         fillOrder: node.fillOrder ? [...node.fillOrder] : undefined,
-        grid: node.grid ? { ...node.grid } : undefined,
+        grid: node.grid
+          ? {
+              ...node.grid,
+              ...(node.grid.rowGaps ? { rowGaps: [...node.grid.rowGaps] } : {}),
+            }
+          : undefined,
       };
   }
 }
@@ -130,7 +137,12 @@ export function cloneNodeFresh(node: MathNode): MathNode {
           children: s.children.map((ch) => cloneNodeFresh(ch)),
         })),
         fillOrder: node.fillOrder ? [...node.fillOrder] : undefined,
-        grid: node.grid ? { ...node.grid } : undefined,
+        grid: node.grid
+          ? {
+              ...node.grid,
+              ...(node.grid.rowGaps ? { rowGaps: [...node.grid.rowGaps] } : {}),
+            }
+          : undefined,
       };
   }
 }

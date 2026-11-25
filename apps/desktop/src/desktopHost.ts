@@ -33,8 +33,11 @@ export function createDesktopHost(): HostAdapter {
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      document.execCommand('copy');
+      const ok = document.execCommand('copy');
       ta.remove();
+      if (!ok) {
+        throw new Error('Clipboard copy failed');
+      }
     },
 
     async copyImagePng(rgba: Uint8Array, width: number, height: number, blob: Blob): Promise<void> {
@@ -106,12 +109,8 @@ export function createDesktopHost(): HostAdapter {
         await tauriInvoke('save_user_libraries', { presetsJson, commandsJson });
         return;
       }
-      try {
-        localStorage.setItem('mathslot.v2.presets.json', presetsJson);
-        localStorage.setItem('mathslot.v2.commands.json', commandsJson);
-      } catch {
-        // Ignore quota errors
-      }
+      localStorage.setItem('mathslot.v2.presets.json', presetsJson);
+      localStorage.setItem('mathslot.v2.commands.json', commandsJson);
     },
 
     async openConfigDir(): Promise<void> {
@@ -186,14 +185,10 @@ export function createDesktopHost(): HostAdapter {
           await tauriInvoke('save_store', { payload });
           return;
         } catch {
-          // Fallback
+          // Fallback to localStorage below; if both fail, propagate error to UI!
         }
       }
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY, payload);
-      } catch {
-        // Ignore quota errors
-      }
+      localStorage.setItem(LOCAL_STORAGE_KEY, payload);
     },
   };
 }

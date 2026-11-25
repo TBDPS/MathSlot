@@ -252,12 +252,106 @@ function splitTopLevel(input: string, delimiter: '\\\\' | '&'): string[] {
   return parts;
 }
 
+function splitMatrixRows(input: string): {
+  rows: string[];
+  rowGaps: (string | undefined)[];
+  hasGaps: boolean;
+} {
+  const rows: string[] = [];
+  const rowGaps: (string | undefined)[] = [];
+  let hasGaps = false;
+  let braceDepth = 0;
+  let envDepth = 0;
+  let start = 0;
+  let i = 0;
+  while (i < input.length) {
+    if (input.startsWith('\\begin{', i)) {
+      envDepth += 1;
+      i += 7;
+      continue;
+    }
+    if (input.startsWith('\\end{', i)) {
+      envDepth = Math.max(0, envDepth - 1);
+      i += 5;
+      continue;
+    }
+    if (input[i] === '{') {
+      braceDepth += 1;
+      i += 1;
+      continue;
+    }
+    if (input[i] === '}') {
+      braceDepth = Math.max(0, braceDepth - 1);
+      i += 1;
+      continue;
+    }
+    if (braceDepth === 0 && envDepth === 0 && input.startsWith('\\\\', i)) {
+      rows.push(input.slice(start, i).trim());
+      i += 2;
+      if (input[i] === '*') i += 1;
+      let scan = i;
+      while (scan < input.length && (input[scan] === ' ' || input[scan] === '\t')) scan += 1;
+      if (input[scan] === '[') {
+        const closeBracket = input.indexOf(']', scan + 1);
+        if (closeBracket !== -1 && !input.slice(scan + 1, closeBracket).includes('\n')) {
+          const gap = input.slice(scan + 1, closeBracket).trim();
+          rowGaps.push(gap || undefined);
+          if (gap) hasGaps = true;
+          i = closeBracket + 1;
+        } else {
+          rowGaps.push(undefined);
+        }
+      } else {
+        rowGaps.push(undefined);
+      }
+      start = i;
+      continue;
+    }
+    if (input[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    i += 1;
+  }
+  rows.push(input.slice(start).trim());
+  // Only drop a single trailing empty segment after a trailing `\\` (preserving ALL interior empty rows!)
+  if (rows.length > 1 && rows[rows.length - 1] === '' && !rowGaps[rows.length - 2]) {
+    rows.pop();
+    rowGaps.pop();
+  }
+  return { rows, rowGaps, hasGaps };
+}
+
+function stripTexComments(input: string): { cleaned: string; hadComments: boolean } {
+  let out = '';
+  let hadComments = false;
+  let i = 0;
+  while (i < input.length) {
+    if (input[i] === '%') {
+      let bs = 0;
+      for (let k = i - 1; k >= 0 && input[k] === '\\'; k -= 1) bs += 1;
+      if (bs % 2 === 0) {
+        hadComments = true;
+        while (i < input.length && input[i] !== '\n') i += 1;
+        continue;
+      }
+    }
+    out += input[i];
+    i += 1;
+  }
+  return { cleaned: out, hadComments };
+}
+
 /**
  * Clean single-pass recursive descent parser for standard mathematical LaTeX -> MathSlot Document AST.
  */
 export function parseLatex(input: string): ImportResult {
-  const src = stripOuterDelimiters(input);
+  const strippedDelim = stripOuterDelimiters(input);
   const diagnostics: Diagnostic[] = [];
+  const { cleaned: src, hadComments } = stripTexComments(strippedDelim);
+  if (hadComments) {
+    diagnostics.push({ severity: 'warning', message: '已忽略 LaTeX % 行尾注释' });
+  }
   const nodes = parseLatexNodes(src, diagnostics);
   const doc = createEmptyDocument();
   doc.root = createSlot('公式', nodes);
@@ -815,19 +909,19 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       if (hasMultiColumn) {
         diagnostics.push({
           severity: 'warning',
-          message: `检测到 ${envName} 多列对齐 &，已保留列间距并转为单列推导`,
+          message: `检测到 ${envName} 多列对齐，已按原生 LaTeX 整体保留以保证对齐语义`,
         });
+        const katexEnv = envName === 'align' || envName === 'align*' ? 'aligned' : envName;
+        return [createRawNode(`\\begin{${katexEnv}} ${body} \\end{${katexEnv}}`)];
       }
       return parseLatexNodes(cleaned, diagnostics, depth + 1);
     }
 
-    const rows = splitTopLevel(body, '\\\\')
-      .map((r) => r.trim())
-      .filter((r) => r.length > 0);
+    const { rows, rowGaps, hasGaps } = splitMatrixRows(body);
     const cells = rows.map((r) => splitTopLevel(r, '&').map((c) => c.trim()));
 
-    if (envName === 'cases' && rows.length >= 1) {
-      if (rows.length === 2 && cells.every((r) => r.length <= 2)) {
+    if (envName === 'cases' && rows.length >= 1 && (rows.length > 1 || cells[0][0] !== '')) {
+      if (!hasGaps && rows.length === 2 && cells.every((r) => r.length <= 2)) {
         return [
           createStructNode(COMMANDS_BY_ID.get('cases_2')!, [
             parseLatexNodes(cells[0][0] ?? '', diagnostics, depth + 1),
@@ -837,7 +931,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           ]),
         ];
       }
-      if (rows.length === 3 && cells.every((r) => r.length <= 2)) {
+      if (!hasGaps && rows.length === 3 && cells.every((r) => r.length <= 2)) {
         return [
           createStructNode(COMMANDS_BY_ID.get('cases_3')!, [
             parseLatexNodes(cells[0][0] ?? '', diagnostics, depth + 1),
@@ -863,14 +957,19 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         { id: 'cases_2', slots: slotLabels, latex: '' },
         slotContents,
       );
-      struct.grid = { env: 'cases', rows: rows.length, cols: 2 };
+      struct.grid = {
+        env: 'cases',
+        rows: rows.length,
+        cols: 2,
+        ...(hasGaps ? { rowGaps } : {}),
+      };
       return [struct];
     }
 
-    if (SUPPORTED_MATRIX_ENVS.has(envName) && rows.length >= 1) {
+    if (SUPPORTED_MATRIX_ENVS.has(envName) && rows.length >= 1 && (rows.length > 1 || cells[0][0] !== '')) {
       const colCount = Math.max(...cells.map((r) => r.length), 1);
       const matMap = MATRIX_ENV_MAP[envName];
-      if (matMap && rows.length === 2 && colCount === 2) {
+      if (!hasGaps && matMap && rows.length === 2 && colCount === 2) {
         return [
           createStructNode(
             COMMANDS_BY_ID.get(matMap.two)!,
@@ -881,7 +980,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           ),
         ];
       }
-      if (matMap && rows.length === 3 && colCount === 3) {
+      if (!hasGaps && matMap && rows.length === 3 && colCount === 3) {
         return [
           createStructNode(
             COMMANDS_BY_ID.get(matMap.three)!,
@@ -907,7 +1006,12 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         { id: baseCmdId, slots: slotLabels, latex: '' },
         slotContents,
       );
-      struct.grid = { env: envName, rows: rows.length, cols: colCount };
+      struct.grid = {
+        env: envName,
+        rows: rows.length,
+        cols: colCount,
+        ...(hasGaps ? { rowGaps } : {}),
+      };
       return [struct];
     }
 
@@ -1013,7 +1117,24 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
 
     if (ch === '\\') {
       const macro = readMacroName();
-      if (macro === '\\\\') return [createRawNode('\\\\')];
+      if (macro === '\\\\') {
+        let star = '';
+        if (peek() === '*') {
+          star = '*';
+          pos += 1;
+        }
+        let scan = pos;
+        while (scan < src.length && (src[scan] === ' ' || src[scan] === '\t')) scan += 1;
+        if (src[scan] === '[') {
+          const closeIdx = src.indexOf(']', scan + 1);
+          if (closeIdx !== -1 && !src.slice(scan + 1, closeIdx).includes('\n')) {
+            const gap = src.slice(scan + 1, closeIdx).trim();
+            pos = closeIdx + 1;
+            if (gap) return [createRawNode(`\\\\${star}[${gap}]`)];
+          }
+        }
+        return [createRawNode('\\\\')];
+      }
       if (
         macro === '\\,' ||
         macro === '\\;' ||
@@ -1023,7 +1144,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         macro === '\\quad' ||
         macro === '\\qquad'
       ) {
-        return [createCharNode(' ')];
+        return [createRawNode(macro)];
       }
       if (
         macro === '\\displaystyle' ||
@@ -1206,8 +1327,8 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       }
       if (macro === '\\substack') {
         const rawArg = readBracedRaw();
-        const rows = splitTopLevel(rawArg, '\\\\').map((r) => r.trim());
-        if (rows.length === 2) {
+        const { rows, hasGaps } = splitMatrixRows(rawArg);
+        if (!hasGaps && rows.length === 2) {
           return [
             createStructNode(COMMANDS_BY_ID.get('substack_2')!, [
               parseLatexNodes(rows[0], diagnostics, depth + 1),
@@ -1254,17 +1375,22 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         macro === '\\mathtt' ||
         macro === '\\operatorname'
       ) {
+        let star = '';
+        if (macro === '\\operatorname' && peek() === '*') {
+          star = '*';
+          pos += 1;
+        }
         const arg = readBracedRaw();
         if (macro === '\\mathbb') {
           const setSym = lookupSymbol(`\\mathbb{${arg}}`);
           if (setSym) return [createSymbolNode(setSym)];
         }
-        return [createRawNode(`${macro}{${arg}}`)];
+        return [createRawNode(`${macro}${star}{${arg}}`)];
       }
 
       const fnName = macro.slice(1);
       if (MATH_FUNCTIONS.has(fnName)) {
-        return textToCharNodes(fnName);
+        return textToCharNodes(fnName, false);
       }
 
       const sym = lookupSymbol(macro);
@@ -1308,7 +1434,9 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
     }
 
     pos += 1;
-    return [createCharNode(ch)];
+    // Mark plain imported ASCII letters as verbatim so formal LaTeX `x=oo+pi` or `y=dx`
+    // preserves literal variable names instead of triggering interactive bare-word shorthands!
+    return [createCharNode(ch, /^[A-Za-z]$/.test(ch))];
   };
 
   const parseTermUnits = (): MathNode[] => {

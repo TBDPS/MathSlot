@@ -252,4 +252,174 @@ describe('Audit fixes & new math structures regression suite', () => {
     const badC = parseUserCommandsJson('{ invalid');
     expect(badC.failed).toBe(true);
   });
+
+  it('roundtrips explicit TeX spacing (\\,, \\!, \\quad, \\qquad, \\;, \\:) losslessly and supports inline canvas typing', () => {
+    for (const sample of ['x\\,y', 'x\\!y', 'x \\quad y', 'x \\qquad y', 'x\\;y', 'x\\:y', '\\frac{x\\!y}{a \\quad b}']) {
+      const res = importFormula(sample);
+      expect(res.lossless, `spacing sample ${sample} not lossless`).toBe(true);
+      expect(toLatex(res.doc)).toBe(sample);
+    }
+
+    // Typing `\,`, `\!`, and `\quad ` directly on canvas
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+    type('x\\,y\\!z\\quad w');
+    expect(engine.getSnapshot().latex).toBe('x\\,y\\!z \\quad w');
+  });
+
+  it('expands \\sin + Space / ( / ^2 cleanly without merging into sinx and grabs whole function/Greek script bases', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    type('\\sin x');
+    expect(engine.getSnapshot().latex).toBe('\\sin x');
+
+    engine.clear();
+    type('\\sin(x)');
+    expect(engine.getSnapshot().latex).toBe('\\sin(x)');
+
+    engine.clear();
+    type('\\sin^2');
+    engine.nextSlot();
+    type(' x');
+    expect(engine.getSnapshot().latex).toBe('\\sin^2 x');
+
+    engine.clear();
+    type('pi^2');
+    engine.nextSlot();
+    expect(engine.getSnapshot().latex).toBe('\\pi^2');
+  });
+
+  it('upgrades prefix-overlapping punctuation shorthands (<=>, <->, |->) and waits for word boundary on interactive preview & custom EE', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // `<` -> `=` -> `>` upgrades `\le` into `\Leftrightarrow`
+    type('A<=>B');
+    expect(engine.getSnapshot().latex).toBe('A \\Leftrightarrow B');
+
+    // Standalone `<=` still works
+    engine.clear();
+    type('a<=b');
+    expect(engine.getSnapshot().latex).toBe('a \\le b');
+
+    // `<-`, `<->`, `|->`
+    engine.clear();
+    type('x<-y<->z|->w');
+    expect(engine.getSnapshot().latex).toBe('x \\leftarrow y \\leftrightarrow z \\mapsto w');
+
+    // Calm word-boundary interactive rendering: `n pi` stays plain while caret is at `pi|`, then morphs on Space!
+    engine.clear();
+    type('n pi');
+    expect(engine.getSnapshot().interactiveLatex).not.toContain('\\pi');
+    type(' ');
+    expect(engine.getSnapshot().interactiveLatex).toContain('\\pi');
+    type('x');
+    expect(engine.getSnapshot().latex).toBe('n \\pi x');
+
+    // Alphabetic custom shorthand `EE` requires a right word boundary (`EEx` stays literal, `EE[X]` expands!)
+    engine.setCustomCommands([
+      { id: 'cust-exp', label: '期望', latex: '\\mathbb{E}', slots: [], shorthand: 'EE' },
+    ]);
+    engine.clear();
+    type('EEx');
+    expect(engine.getSnapshot().latex).toBe('EEx');
+
+    engine.clear();
+    type('EE[X]');
+    expect(engine.getSnapshot().latex).toBe('\\mathbb{E}[X]');
+  });
+
+  it('maintains selection invariants on spaceExitsScript, respects autoShorthands=false on ~, and prevents literal / fraction trigger', () => {
+    const engine = new MathSlotEngine({ spaceExitsScript: true });
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+    type('x^2');
+    // Select `2` inside exponent slot and press Space: must replace `2` inside exponent, NOT orphan selection!
+    const expSlotId = engine.getSnapshot().cursor.slotId;
+    engine.setSelection(expSlotId, 0, 1);
+    type(' ');
+    expect(engine.getSnapshot().selection).toBeNull();
+    expect(engine.getSnapshot().cursor.slotId).toBe(expSlotId);
+
+    // Duplicate spaces and leading empty root space
+    engine.clear();
+    type('   ');
+    expect(engine.getSnapshot().isEmpty).toBe(true);
+    expect(engine.getSnapshot().latex).toBe('');
+    type('x  y');
+    expect(engine.getSnapshot().latex).toBe('x y');
+
+    // `autoShorthands: false` does not turn `~` into `\sim`
+    engine.updateSettings({ autoShorthands: false });
+    engine.clear();
+    type('a~b');
+    expect(engine.getSnapshot().latex).not.toContain('\\sim');
+    engine.updateSettings({ autoShorthands: true });
+
+    // `pasteLiteralText('/')` after `a` stays literal `a/` (never creates `\frac{a}{}`)
+    engine.clear();
+    type('a');
+    engine.pasteLiteralText('/');
+    expect(engine.getSnapshot().latex).toBe('a/');
+
+    // `pasteText('x->y')` normalizes math arrow just like typing
+    engine.clear();
+    engine.pasteText('x->y');
+    expect(engine.getSnapshot().latex).toBe('x \\to y');
+  });
+
+  it('preserves interior empty matrix rows, \\[4pt] row gaps, multi-column align, TeX % comments, and formal LaTeX literal oo/pi/dx', () => {
+    // 1. Interior empty row in 3x2 matrix is preserved!
+    const emptyRowSrc = '\\begin{pmatrix} 1 & 2 \\\\ \\\\ 3 & 4 \\end{pmatrix}';
+    const emptyRowRes = importFormula(emptyRowSrc);
+    expect(emptyRowRes.lossless).toBe(true);
+    const matNode = emptyRowRes.doc.root.children[0];
+    expect(matNode.type).toBe('struct');
+    if (matNode.type === 'struct') {
+      expect(matNode.grid?.rows).toBe(3);
+      expect(matNode.grid?.cols).toBe(2);
+    }
+    expect(toLatex(emptyRowRes.doc)).toBe('\\begin{pmatrix} 1 & 2 \\\\ & \\\\ 3 & 4 \\end{pmatrix}');
+
+    // 2. Matrix `\\[4pt]` row spacing is preserved in `grid.rowGaps`, NOT stuffed into cell (2,1)!
+    const gapSrc = '\\begin{pmatrix} a & b \\\\[4pt] c & d \\end{pmatrix}';
+    const gapRes = importFormula(gapSrc);
+    expect(gapRes.lossless).toBe(true);
+    expect(toLatex(gapRes.doc)).toBe('\\begin{pmatrix} a & b \\\\[4pt] c & d \\end{pmatrix}');
+
+    // 3. Multi-column `align` is preserved intact as `aligned` with warning (never flattened to `a = b c = d`)
+    const alignRes = importFormula('\\begin{align}a&=b & c&=d\\end{align}');
+    expect(alignRes.lossless).toBe(false);
+    expect(toLatex(alignRes.doc)).toContain('a&=b & c&=d');
+
+    // 4. Unescaped TeX `%` comment stripped to end-of-line with warning, while `\%` stays literal
+    const commentRes = importFormula('x %行尾注释\n+ 50\\%');
+    expect(commentRes.lossless).toBe(false);
+    expect(toLatex(commentRes.doc)).toBe('x + 50\\%');
+
+    // 5. Formal LaTeX import preserves `oo`, `pi`, and standalone `dx` as literal variables!
+    expect(toLatex(importFormula('x=oo+pi').doc)).toBe('x = oo + pi');
+    expect(toLatex(importFormula('y=dx').doc)).toBe('y = dx');
+  });
+
+  it('handles outer fenced code blocks containing > $$ examples and blockquotes containing fenced code blocks in Obsidian', () => {
+    // Outer `~~~md` containing blockquote-styled math example MUST NOT be detected as math!
+    const outerCode = ['~~~md', '> $$', '> x^2', '> $$', '~~~'];
+    expect(detectFormulaInLines(outerCode, { line: 2, ch: 3 })).toBeNull();
+
+    // Blockquote containing a fenced code block skips code inside fence, then detects real math after fence!
+    const quotedCode = ['> ~~~tex', '> $a+b$', '> ~~~', '> $c+d$'];
+    expect(detectFormulaInLines(quotedCode, { line: 1, ch: 4 })).toBeNull();
+    const realAfter = detectFormulaInLines(quotedCode, { line: 3, ch: 4 });
+    expect(realAfter?.raw).toBe('$c+d$');
+    expect(realAfter?.linePrefix).toBe('> ');
+  });
 });

@@ -1,7 +1,7 @@
 {
   "id": "mathslot",
   "name": "MathSlot",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "minAppVersion": "1.4.0",
   "description": "Visual-first keyboard-flow math formula editor (zero WASM)",
   "author": "MathSlot Authors",
