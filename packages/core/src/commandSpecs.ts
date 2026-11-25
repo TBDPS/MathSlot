@@ -37,6 +37,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   frac: { bottomSlots: [1], isTall: true, inlineMacros: ['frac', 'dfrac', 'tfrac'] },
   partial_frac: { bottomSlots: [1], isTall: true },
   total_frac: { bottomSlots: [1], isTall: true },
+  diff: { tightSlots: [0], isSelfDelimited: true, inlineMacros: ['diff'] },
   binom: { bottomSlots: [1], isTall: true, inlineMacros: ['binom'] },
   sqrt: { tightSlots: [0], isTall: true, inlineMacros: ['sqrt'] },
   nth_root: { tightSlots: [0], isTall: true },

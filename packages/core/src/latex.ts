@@ -13,6 +13,11 @@ import {
   isTightSlot,
   sanitizeLatexTemplate,
 } from './commandSpecs';
+import {
+  BARE_WORD_ATOMS,
+  BARE_WORD_BINOPS,
+  DIFFERENTIAL_WORDS,
+} from './shorthands';
 import type {
   Cursor,
   DelimiterStyle,
@@ -90,137 +95,6 @@ export const EXPLICIT_SPACE_MACROS = new Set([
 export function isLineBreakRaw(node: MathNode): boolean {
   return node.type === 'raw' && /^\\\\(?:\*?\[[^\]]*\])?$/.test(node.latex.trim());
 }
-
-/**
- * Isolated alphabetic bare-word -> LaTeX macro table (matching v0.8.1's proven word rules).
- * Only matches an ENTIRE contiguous ASCII letter word (bounded by spaces, digits, operators,
- * brackets, or start/end of slot), so `n pi x` -> `n \pi x`, `2pi` -> `2\pi`, `oo` -> `\infty`,
- * while `spin`, `spi`, `pin`, `foo`, `sin` are NEVER corrupted!
- */
-export const BARE_WORD_ATOMS: Readonly<Record<string, string>> = {
-  // Lowercase Greek (all 24 + standard TeX variants)
-  alpha: '\\alpha',
-  beta: '\\beta',
-  gamma: '\\gamma',
-  delta: '\\delta',
-  epsilon: '\\varepsilon',
-  varepsilon: '\\varepsilon',
-  zeta: '\\zeta',
-  eta: '\\eta',
-  theta: '\\theta',
-  vartheta: '\\vartheta',
-  iota: '\\iota',
-  kappa: '\\kappa',
-  varkappa: '\\varkappa',
-  lambda: '\\lambda',
-  mu: '\\mu',
-  nu: '\\nu',
-  xi: '\\xi',
-  pi: '\\pi',
-  varpi: '\\varpi',
-  rho: '\\rho',
-  varrho: '\\varrho',
-  sigma: '\\sigma',
-  varsigma: '\\varsigma',
-  tau: '\\tau',
-  upsilon: '\\upsilon',
-  phi: '\\phi',
-  varphi: '\\varphi',
-  chi: '\\chi',
-  psi: '\\psi',
-  omega: '\\omega',
-  // Uppercase Greek (all 11)
-  Gamma: '\\Gamma',
-  Delta: '\\Delta',
-  Theta: '\\Theta',
-  Lambda: '\\Lambda',
-  Xi: '\\Xi',
-  Pi: '\\Pi',
-  Sigma: '\\Sigma',
-  Upsilon: '\\Upsilon',
-  Phi: '\\Phi',
-  Psi: '\\Psi',
-  Omega: '\\Omega',
-  // Common symbolic words & ISO constants
-  oo: '\\infty',
-  infty: '\\infty',
-  nabla: '\\nabla',
-  partial: '\\partial',
-  forall: '\\forall',
-  exists: '\\exists',
-  emptyset: '\\varnothing',
-  hbar: '\\hbar',
-  ell: '\\ell',
-  ldots: '\\ldots',
-  cdots: '\\cdots',
-  vdots: '\\vdots',
-  ddots: '\\ddots',
-  dots: '\\ldots',
-  quad: '\\quad',
-  qquad: '\\qquad',
-  dd: '\\mathrm{d}',
-  ee: '\\mathrm{e}',
-  ii: '\\mathrm{i}',
-};
-
-export const BARE_WORD_BINOPS: Readonly<Record<string, string>> = {
-  xx: '\\times',
-  times: '\\times',
-  cdot: '\\cdot',
-  div: '\\div',
-  pm: '\\pm',
-  mp: '\\mp',
-  in: '\\in',
-  notin: '\\notin',
-  subset: '\\subset',
-  subseteq: '\\subseteq',
-  supset: '\\supset',
-  supseteq: '\\supseteq',
-  cup: '\\cup',
-  cap: '\\cap',
-  to: '\\to',
-  rightarrow: '\\to',
-  leftarrow: '\\leftarrow',
-  leftrightarrow: '\\leftrightarrow',
-  uparrow: '\\uparrow',
-  downarrow: '\\downarrow',
-  hookrightarrow: '\\hookrightarrow',
-  implies: '\\Rightarrow',
-  iff: '\\Leftrightarrow',
-  mapsto: '\\mapsto',
-  approx: '\\approx',
-  equiv: '\\equiv',
-  sim: '\\sim',
-  cong: '\\cong',
-  propto: '\\propto',
-  leq: '\\le',
-  le: '\\le',
-  geq: '\\ge',
-  ge: '\\ge',
-  neq: '\\neq',
-  ne: '\\neq',
-  mid: '\\mid',
-};
-
-export const DIFFERENTIAL_WORDS: Readonly<Record<string, string>> = {
-  dx: '\\mathrm{d}x',
-  dt: '\\mathrm{d}t',
-  dy: '\\mathrm{d}y',
-  dz: '\\mathrm{d}z',
-  du: '\\mathrm{d}u',
-  dv: '\\mathrm{d}v',
-  dr: '\\mathrm{d}r',
-  ds: '\\mathrm{d}s',
-  dp: '\\mathrm{d}p',
-  dq: '\\mathrm{d}q',
-  dV: '\\mathrm{d}V',
-  dS: '\\mathrm{d}S',
-  dtheta: '\\mathrm{d}\\theta',
-  dphi: '\\mathrm{d}\\phi',
-  dtau: '\\mathrm{d}\\tau',
-  domega: '\\mathrm{d}\\omega',
-  dxi: '\\mathrm{d}\\xi',
-};
 
 type SpacingLevel = 'display' | 'tight';
 
@@ -491,13 +365,22 @@ function tokenizeSlotForCanonical(
     // StructNode
     const isBigOp = PREFIX_BIGOPS.has(node.commandId);
     const isFuncStruct = node.commandId === 'operatorname';
+    const isDiffStruct = node.commandId === 'diff';
     const isBinOpStruct =
       node.commandId === 'xrightarrow' ||
       node.commandId === 'xleftarrow' ||
       node.commandId === 'pmod';
     tokens.push({
       text: emitStructCanonical(node, level, autoShorthands),
-      kind: isBigOp ? 'bigop' : isFuncStruct ? 'func' : isBinOpStruct ? 'binop' : 'struct',
+      kind: isBigOp
+        ? 'bigop'
+        : isDiffStruct
+          ? 'diff'
+          : isFuncStruct
+            ? 'func'
+            : isBinOpStruct
+              ? 'binop'
+              : 'struct',
       structCmdId: node.commandId,
       isIntegral: INTEGRAL_OPS.has(node.commandId),
     });
@@ -879,6 +762,11 @@ function resolveAdaptiveStructTemplate(
     case 'xleftarrow':
       if (node.slots.length === 2) {
         return hasSlot(0) ? '\\xleftarrow[$1]{$2}' : '\\xleftarrow{$2}';
+      }
+      return null;
+    case 'diff':
+      if (node.slots.length === 2) {
+        return hasSlot(0) ? '\\mathrm{d}^{$1}$2' : '\\mathrm{d}$2';
       }
       return null;
     case 'subsup': {
@@ -1457,8 +1345,11 @@ function emitSlotInteractive(
       continue;
     }
 
-    // Thin space before fallback upright differential `\,\mathrm{d}x`
-    if (hints.diffStarts.has(idx) && isPrevExprForDiff(slot.children, idx)) {
+    // Thin space before explicit `diff` struct or fallback upright differential `\,\mathrm{d}x`
+    if (
+      (hints.diffStarts.has(idx) || (child.type === 'struct' && child.commandId === 'diff')) &&
+      isPrevExprForDiff(slot.children, idx)
+    ) {
       parts.push('\\,');
     }
 
@@ -1803,6 +1694,9 @@ export function commandPreviewLatex(template: string): string {
   }
   if (safe === '\\operatorname{$1}') {
     return '\\operatorname{op}';
+  }
+  if (safe === '\\mathrm{d}^{$1}$2') {
+    return '\\mathrm{d}\\square';
   }
   if (safe === '\\left\\{ $1 \\,\\middle|\\, $2 \\right\\}') {
     return '\\left\\{ \\square \\,\\middle|\\, \\square \\right\\}';

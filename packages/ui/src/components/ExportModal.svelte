@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { formatExport, type DelimiterStyle } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
   import {
     latexToMathML,
     renderLatexToPng,
@@ -209,7 +210,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label="导出与复制公式">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="导出与复制公式" use:focusTrap>
     <div class="modal-head">
       <span>导出与复制公式</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>

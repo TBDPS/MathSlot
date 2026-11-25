@@ -12,6 +12,63 @@ import {
 } from '@mathslot/core';
 import { MathSlotModal } from './MathSlotModal';
 
+/**
+ * 3-way delta merge for ID-keyed collections so two concurrent Obsidian modals never
+ * overwrite each other's newly added snippets, history entries, or custom commands.
+ */
+function mergeByIdDelta<T extends { id: string }>(
+  base: readonly T[],
+  disk: readonly T[],
+  local: readonly T[],
+): T[] {
+  const baseIds = new Set(base.map((x) => x.id));
+  const localIds = new Set(local.map((x) => x.id));
+  const deleted = new Set([...baseIds].filter((id) => !localIds.has(id)));
+  const localById = new Map(local.map((x) => [x.id, x]));
+
+  const out: T[] = [];
+  const seen = new Set<string>();
+  // Keep local order/updates first
+  for (const item of local) {
+    out.push(item);
+    seen.add(item.id);
+  }
+  // Preserve concurrent disk additions that were not deleted by this modal
+  for (const item of disk) {
+    if (!seen.has(item.id) && !deleted.has(item.id)) {
+      out.push(localById.get(item.id) ?? item);
+      seen.add(item.id);
+    }
+  }
+  return out;
+}
+
+function mergeStringSetDelta(
+  base: readonly string[],
+  disk: readonly string[],
+  local: readonly string[],
+  maxLen?: number,
+): string[] {
+  const baseSet = new Set(base);
+  const localSet = new Set(local);
+  const deleted = new Set([...baseSet].filter((x) => !localSet.has(x)));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of local) {
+    if (!seen.has(item)) {
+      out.push(item);
+      seen.add(item);
+    }
+  }
+  for (const item of disk) {
+    if (!seen.has(item) && !deleted.has(item)) {
+      out.push(item);
+      seen.add(item);
+    }
+  }
+  return maxLen ? out.slice(0, maxLen) : out;
+}
+
 export default class MathSlotPlugin extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
 
@@ -96,6 +153,7 @@ export default class MathSlotPlugin extends Plugin {
       }
     }
 
+    let loadedBase: PersistedStore | null = null;
     const modal = new MathSlotModal(this.app, {
       editor,
       initialFormula,
@@ -106,7 +164,7 @@ export default class MathSlotPlugin extends Plugin {
       forceDelimiter: forceDelimiter ?? detectedDelimiter,
       loadStore: async () => {
         const data = (await this.loadData()) as Partial<PersistedStore> | null;
-        return {
+        const normalized: PersistedStore = {
           settings: data?.settings ?? {},
           snippets: Array.isArray(data?.snippets) ? data.snippets : [],
           customCommands: Array.isArray(data?.customCommands) ? data.customCommands : [],
@@ -117,15 +175,45 @@ export default class MathSlotPlugin extends Plugin {
           recentIds: Array.isArray(data?.recentIds) ? data.recentIds : [],
           lastDraftLatex: typeof data?.lastDraftLatex === 'string' ? data.lastDraftLatex : '',
         };
+        loadedBase = normalized;
+        return normalized;
       },
       saveStore: async (store: PersistedStore) => {
         const run = this.saveQueue.then(async () => {
           const prev = ((await this.loadData()) as Partial<PersistedStore> | null) ?? {};
-          await this.saveData({
+          const base = loadedBase;
+          const merged: PersistedStore = {
             ...prev,
             ...store,
             settings: { ...(prev.settings ?? {}), ...(store.settings ?? {}) },
-          });
+            snippets: base
+              ? mergeByIdDelta(base.snippets ?? [], prev.snippets ?? [], store.snippets ?? [])
+              : (store.snippets ?? []),
+            customCommands: base
+              ? mergeByIdDelta(
+                  base.customCommands ?? [],
+                  prev.customCommands ?? [],
+                  store.customCommands ?? [],
+                )
+              : (store.customCommands ?? []),
+            history: base
+              ? mergeByIdDelta(base.history ?? [], prev.history ?? [], store.history ?? []).slice(0, 40)
+              : (store.history ?? []),
+            userPresets: base
+              ? mergeByIdDelta(base.userPresets ?? [], prev.userPresets ?? [], store.userPresets ?? [])
+              : (store.userPresets ?? []),
+            userCommands: base
+              ? mergeByIdDelta(base.userCommands ?? [], prev.userCommands ?? [], store.userCommands ?? [])
+              : (store.userCommands ?? []),
+            favoriteIds: base
+              ? mergeStringSetDelta(base.favoriteIds ?? [], prev.favoriteIds ?? [], store.favoriteIds ?? [])
+              : (store.favoriteIds ?? []),
+            recentIds: base
+              ? mergeStringSetDelta(base.recentIds ?? [], prev.recentIds ?? [], store.recentIds ?? [], 16)
+              : (store.recentIds ?? []),
+          };
+          loadedBase = merged;
+          await this.saveData(merged);
         });
         this.saveQueue = run.catch(() => {});
         await run;

@@ -17,6 +17,7 @@
     type Snippet,
   } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
 
   type DrawerTab = 'all' | 'commands' | 'presets' | 'snippets' | 'custom' | 'history';
 
@@ -101,7 +102,7 @@
     const base = q
       ? commands.filter((c) => {
           const keySeq = c.keys.join('').toLowerCase();
-          const shorthand = SHORTHAND_BY_COMMAND_ID.get(c.id)?.toLowerCase() ?? '';
+          const shorthand = (c.shorthand ?? SHORTHAND_BY_COMMAND_ID.get(c.id))?.toLowerCase() ?? '';
           return (
             c.id.toLowerCase().includes(q) ||
             c.label.toLowerCase().includes(q) ||
@@ -362,7 +363,7 @@
 </script>
 
 {#snippet commandMeta(cmd: CommandDef)}
-  {@const shorthand = SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
+  {@const shorthand = cmd.shorthand ?? SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
   <div class="cmd-meta">
     <span class="cmd-name" title={cmd.label}>{cmd.label}</span>
     <span class="cmd-badges">
@@ -388,7 +389,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }} onkeydown={handleKeyDown}>
-  <div class="palette" role="dialog" aria-modal="true" aria-label="命令与公式库">
+  <div class="palette" role="dialog" aria-modal="true" aria-label="命令与公式库" use:focusTrap>
     <div class="palette-top">
       <div class="search-row">
         <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

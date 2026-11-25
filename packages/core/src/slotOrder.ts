@@ -71,8 +71,9 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
 ];
 
 const STANDARD_DEFAULT_ORDERS: Readonly<Record<string, readonly number[]>> = {
-  // Unified root starts in radicand (`被开方式`) for instant square-root flow; Enter hops to optional index!
+  // Unified root & differential start in main variable slot; Enter hops to optional index/order!
   sqrt: [1, 0],
+  diff: [1, 0],
   xrightarrow: [1, 0],
   xleftarrow: [1, 0],
 };
@@ -83,6 +84,7 @@ const WRITING_CN_ORDERS: Readonly<Record<string, readonly number[]>> = {
   total_frac: [1, 0],
   sqrt: [1, 0],
   nth_root: [1, 0],
+  diff: [1, 0],
   binom: [1, 0],
   xrightarrow: [1, 0],
   xleftarrow: [1, 0],

@@ -24,27 +24,31 @@ MathSlot 的核心竞争力仍然是 **槽位 AST + 键盘流 + Obsidian 原位�
 
 | 项目 | 结果 |
 | --- | --- |
-| 命令数 | **165** |
+| 命令数 | **166** |
 | 预置公式 | **89** |
-| 核心测试 | **86 passed / 7 files** |
+| 核心测试 | **87 passed / 7 files** |
 | `svelte-check` | **0 errors / 0 warnings** |
 | Obsidian `tsc --noEmit` | 通过 |
-| KaTeX 全量渲染 | 165 命令 + 89 预置零错误 |
+| KaTeX 全量渲染 | 166 命令 + 89 预置零错误 |
 
 ### 0.2 仍需优先关注的问题
 
 | 优先级 | 问题 | 影响 |
 | --- | --- | --- |
-| P1 | 没有 `DifferentialNode`，微分仍依赖单字母简写 | `d\theta`、`d\vec{r}`、`d^2x`、多字母变量在积分体外无法可靠表达；`dx` 与 `d x` 的语义只能靠空格约定 |
-| P1 | 简写仍是两套管线 | 标点简写在输入时改 AST，单词简写在渲染时识别；`AUTO_SHORTHANDS` 的 word 规则不参与实际匹配，提示/文档/行为可能漂移 |
 | P1 | 多行对齐没有一等节点 | 画布用 `gathered`、导出用 `aligned`；多列对齐、`\tag` 只能 Raw 保留，无法结构化编辑 |
 | P1 | 选区仍是单槽 | 无法跨槽复制/剪切/包裹；长公式局部结构操作受限 |
-| P1 | 持久化仍以 LaTeX/整包快照为主 | 草稿是 `lastDraftLatex` 字符串而非 Document JSON；Obsidian 两个模态的数组快照仍可能被整包覆盖；双轨库删除语义未定义 |
+| P1 | 持久化仍以 LaTeX 草稿为主 | 草稿是 `lastDraftLatex` 字符串而非 DocumentV1 JSON；双轨库删除语义仍可继续收敛 |
 | P2 | Grid/Text/LineBreak 没有一等节点 | `array`/增广矩阵依赖 `StructNode.grid`；文本框/内嵌数学仍复用结构槽；换行仍是 RawNode |
-| P2 | 桌面/Obsidian 一些体验仍未闭环 | 弹窗焦点陷阱、移动端 `isDesktopOnly:false` 的验证、屏幕阅读器仍读原始 LaTeX |
+| P2 | 桌面/Obsidian 移动端与无障碍仍待完善 | 移动端 `isDesktopOnly:false` 真机验证、屏幕阅读器语义 MathML 朗读仍待补齐 |
 | P3 | 发布与平台工程 | macOS/Windows 签名、公证、自动更新、ARM/Intel 覆盖仍待完善 |
 
-> 已于本轮补齐：原生 LaTeX 实时键入兼容（`\alpha` 草稿不再误输出 `\backslash`、运算符/数字/连续 `\` 自动展开、`\frac{1}{2}`/`\sqrt[3]{8}`/`\mathbb{R}`/`\mathrm{d}x`/`e^{-x^2}`/`\int_{0}^{\infty}` 原生 `{}`/`[]` 闭合推进、`\left(...\right)` 与 `\{`/`\}`/`\|`/`\%`/`\\` 转义）、`\int f(x) d x` 预览/导出一致性、空槽首空格拦截、多公式导入 warning 提示、以及 Obsidian 光标处 `\(...\)` / `\[...\]`（含多行与引用块）原位识别。
+> 已于本轮补齐：
+> 1. **原生 LaTeX 实时键入兼容**：`\alpha` 草稿不再误输出 `\backslash`、运算符/数字/连续 `\` 自动展开、`\frac{1}{2}`/`\sqrt[3]{8}`/`\mathbb{R}`/`\mathrm{d}x`/`e^{-x^2}`/`\int_{0}^{\infty}` 原生 `{}`/`[]` 闭合推进、`\left(...\right)` 与 `\{`/`\}`/`\|`/`\%`/`\\` 转义；
+> 2. **预览空格与边界一致性**：`\int f(x) d x` 预览/导出一致、非根空槽首空格拦截；
+> 3. **多公式导入提示与 Obsidian 定界符**：多公式导入给出显式 warning、Obsidian 原位检测覆盖单行/多行 `\(...\)` 与 `\[...\]`；
+> 4. **一等微分结构 `diff`（`Tab c f`）**：支持可选高阶槽位 `\mathrm{d}^{n}` 与任意变量（`\theta`、`\vec{r}` 等），自动添加 `\,` 细空格，并支持 `\mathrm{d}x`/`\mathrm{d}\vec{r}`/`\mathrm{d}^{2}x` 无损解析回环；
+> 5. **单一简写注册表 `SHORTHAND_SPECS`**：`shorthands.ts` 作为唯一数据源派生 `AUTO_SHORTHANDS`、`BARE_WORD_ATOMS`、`BARE_WORD_BINOPS`、`DIFFERENTIAL_WORDS`、`SHORTHAND_BY_COMMAND_ID` 及标点前缀升级表，消除双套管线漂移；
+> 6. **Obsidian 并发持久化与外部命令简写 + 弹窗焦点陷阱**：Obsidian `saveStore` 升级为按 ID 三向增量合并避免多模态覆盖、`commands.json` 支持 `shorthand`/`immediateShorthand` 并实时生效、主要弹窗接入 `focusTrap` 初始聚焦/Tab 环回/关闭还原。
 
 ### 0.3 建议的总体方向
 

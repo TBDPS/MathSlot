@@ -8,9 +8,11 @@ import {
   INLINE_STRUCT_MAP,
   MathSlotEngine,
   SHORTHAND_BY_COMMAND_ID,
+  SHORTHAND_SPECS,
   forEachSlot,
   getOptionalSlots,
   importFormula,
+  mergeCommands,
   normalizeSettings,
   parseUserCommandsJson,
   parseUserPresetsJson,
@@ -310,5 +312,62 @@ describe('MathSlot v2.3 architecture contracts & new capabilities', () => {
     expect(structCount).toBe(1);
 
     unsub();
+  });
+
+  it('supports first-class diff structure (Tab c f), arbitrary/higher-order differentials, single-source ShorthandSpecs, and commands.json shorthands', () => {
+    // 1. Explicit differential structure: arbitrary variables (\theta, \vec{r}) and order (d^2 x)
+    const engine = new MathSlotEngine();
+    for (const ch of 'f(x)') engine.insertText(ch);
+    engine.triggerLeader();
+    engine.handleLeaderKey('c');
+    engine.handleLeaderKey('f');
+    engine.insertCommand('theta');
+    expect(engine.getSnapshot().latex).toBe('f(x)\\,\\mathrm{d}\\theta');
+    expect(engine.getSnapshot().interactiveLatex).toContain('\\,');
+
+    // Fill optional order slot 0 -> d^{2}\theta
+    engine.nextSlot();
+    engine.insertText('2');
+    expect(engine.getSnapshot().latex).toBe('f(x)\\,\\mathrm{d}^{2}\\theta');
+
+    // Roundtrip parsing of structured differentials (\mathrm{d}\vec{r}, \mathrm{d}^{2}x)
+    const vecDiff = importFormula('\\int f(\\vec{r})\\,\\mathrm{d}\\vec{r}');
+    expect(vecDiff.lossless).toBe(true);
+    expect(toLatex(vecDiff.doc)).toBe('\\int f(\\vec{r})\\,\\mathrm{d}\\vec{r}');
+
+    const secondOrder = importFormula('\\mathrm{d}^{2}x');
+    expect(secondOrder.lossless).toBe(true);
+    expect(secondOrder.doc.root.children[0].type).toBe('struct');
+    expect((secondOrder.doc.root.children[0] as { commandId?: string }).commandId).toBe('diff');
+    expect(toLatex(secondOrder.doc)).toBe('\\mathrm{d}^{2}x');
+
+    // 2. Single-source ShorthandSpec integrity & auto-derived prefix upgrades (`<=`+`>` -> `<=>`)
+    expect(SHORTHAND_SPECS.length).toBeGreaterThan(100);
+    engine.clear();
+    for (const ch of 'a <=> b <-> c') engine.insertText(ch);
+    expect(engine.getSnapshot().latex).toBe('a \\Leftrightarrow b \\leftrightarrow c');
+
+    // 3. External commands.json shorthand support (live expansion!)
+    const parsedCmds = parseUserCommandsJson(
+      JSON.stringify({
+        commands: [
+          {
+            id: 'user-laplace-sh',
+            label: '拉氏变换',
+            category: 'calculus',
+            keys: ['c', 'z'],
+            latex: '\\mathcal{L}\\{$1\\}',
+            slots: ['原函数'],
+            shorthand: 'LL',
+          },
+        ],
+      }),
+    );
+    expect(parsedCmds.entries[0].shorthand).toBe('LL');
+    const merged = mergeCommands(COMMANDS, parsedCmds.entries);
+    engine.clear();
+    engine.setEffectiveCommands(merged);
+    for (const ch of 'LLf(t)') engine.insertText(ch);
+    expect(engine.getSnapshot().latex).toBe('\\mathcal{L}\\{f(t)\\}');
   });
 });

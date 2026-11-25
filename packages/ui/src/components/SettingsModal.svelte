@@ -10,6 +10,7 @@
     type SlotOrderPreset,
     type ThemeMode,
   } from '@mathslot/core';
+  import { focusTrap } from '../focusTrap';
 
   interface Props {
     settings: AppSettings;
@@ -89,7 +90,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label="设置">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="设置" use:focusTrap>
     <div class="modal-head">
       <span>设置</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>

@@ -21,6 +21,10 @@ export interface CommandDef {
   readonly doc: string;
   readonly examples: readonly string[];
   readonly wrapSlot: number | null;
+  /** Optional shorthand trigger declared via external commands.json */
+  readonly shorthand?: string;
+  /** When true, alphabetic shorthands from commands.json expand immediately without waiting for a word boundary */
+  readonly immediateShorthand?: boolean;
 }
 
 export interface SubmenuMeta {

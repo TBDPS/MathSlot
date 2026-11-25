@@ -1,146 +1,256 @@
 import { COMMANDS_BY_ID } from './catalog';
 import type { CommandDef, MathNode } from './types';
 
-export interface ShorthandRule {
+export interface ShorthandSpec {
   readonly trigger: string;
-  readonly commandId: string;
   /**
    * 'punct': multi-char non-letter shorthand expanded immediately on keystroke (e.g. `->`, `<=`, `+-`, `~~`)
    * 'word': isolated alphabetic token recognized non-destructively at word-boundary level
    *         (e.g. `n pi x` -> `n \pi x`, `oo` -> `\infty`, while `spin`/`spi`/`foo` stay literal!)
+   * 'direct': direct structural input trigger handled by MathSlotEngine.insertChar (e.g. `/`, `^`, `_`, `(`)
    */
+  readonly kind: 'punct' | 'word' | 'direct';
+  /** Built-in catalog commandId for UI badges, search, and AST SymbolNode creation */
+  readonly commandId?: string;
+  /** Canonical LaTeX emitted for word shorthands */
+  readonly latex?: string;
+  /** Semantic token role for word shorthands consumed directly by latex.ts */
+  readonly role?: 'atom' | 'binop' | 'diff';
+}
+
+export interface ShorthandRule {
+  readonly trigger: string;
+  readonly commandId: string;
   readonly kind: 'punct' | 'word';
 }
 
-export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
-  // Multi-char punctuation / arrow / relation shorthands (longest first; prefix overlaps handled via upgrades!)
-  { trigger: '<=>', commandId: 'iff', kind: 'punct' },
-  { trigger: '<->', commandId: 'leftrightarrow', kind: 'punct' },
-  { trigger: '|->', commandId: 'mapsto', kind: 'punct' },
-  { trigger: '...', commandId: 'cdots', kind: 'punct' },
-  { trigger: ':::', commandId: 'vdots', kind: 'punct' },
-  { trigger: '->', commandId: 'to', kind: 'punct' },
-  { trigger: '<-', commandId: 'leftarrow', kind: 'punct' },
-  { trigger: '=>', commandId: 'implies', kind: 'punct' },
-  { trigger: '<=', commandId: 'leq', kind: 'punct' },
-  { trigger: '>=', commandId: 'geq', kind: 'punct' },
-  { trigger: '<<', commandId: 'll', kind: 'punct' },
-  { trigger: '>>', commandId: 'gg', kind: 'punct' },
-  { trigger: '||', commandId: 'parallel', kind: 'punct' },
-  { trigger: '!=', commandId: 'neq', kind: 'punct' },
-  { trigger: '~=', commandId: 'cong', kind: 'punct' },
-  { trigger: '~~', commandId: 'approx', kind: 'punct' },
-  { trigger: '==', commandId: 'equiv', kind: 'punct' },
-  { trigger: '+-', commandId: 'pm', kind: 'punct' },
-  { trigger: '-+', commandId: 'mp', kind: 'punct' },
-  { trigger: '**', commandId: 'cdot', kind: 'punct' },
+/**
+ * Single source of truth for ALL built-in shorthands (punct, word atoms, word binops,
+ * multi-letter differentials, and direct structural input triggers).
+ * Every runtime lookup table (`AUTO_SHORTHANDS`, `SHORTHAND_BY_COMMAND_ID`,
+ * `BARE_WORD_ATOMS`, `BARE_WORD_BINOPS`, `DIFFERENTIAL_WORDS`, and prefix upgrades)
+ * is derived directly from this registry so behavior, badges, and docs never drift!
+ */
+export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
+  // 1. Direct-typing structural shorthands (handled by MathSlotEngine.insertChar)
+  { trigger: '/', kind: 'direct', commandId: 'frac' },
+  { trigger: '^', kind: 'direct', commandId: 'sup' },
+  { trigger: '_', kind: 'direct', commandId: 'sub' },
+  { trigger: '_ / ^', kind: 'direct', commandId: 'subsup' },
+  { trigger: '(', kind: 'direct', commandId: 'paren' },
+  { trigger: '[', kind: 'direct', commandId: 'bracket' },
+  { trigger: '{', kind: 'direct', commandId: 'brace' },
 
-  // Isolated-word shorthands (recognized cleanly at word boundaries — never break `spin`, `spi`, `foo`, `sin`!)
-  { trigger: 'oo', commandId: 'infty', kind: 'word' },
-  { trigger: 'xx', commandId: 'times', kind: 'word' },
-  { trigger: 'emptyset', commandId: 'emptyset', kind: 'word' },
-  { trigger: 'epsilon', commandId: 'epsilon', kind: 'word' },
-  { trigger: 'upsilon', commandId: 'upsilon', kind: 'word' },
-  { trigger: 'partial', commandId: 'partial', kind: 'word' },
-  { trigger: 'propto', commandId: 'propto', kind: 'word' },
-  { trigger: 'approx', commandId: 'approx', kind: 'word' },
-  { trigger: 'forall', commandId: 'forall', kind: 'word' },
-  { trigger: 'exists', commandId: 'exists', kind: 'word' },
-  { trigger: 'lambda', commandId: 'lambda', kind: 'word' },
-  { trigger: 'Lambda', commandId: 'cap_lambda', kind: 'word' },
-  { trigger: 'alpha', commandId: 'alpha', kind: 'word' },
-  { trigger: 'gamma', commandId: 'gamma', kind: 'word' },
-  { trigger: 'Gamma', commandId: 'cap_gamma', kind: 'word' },
-  { trigger: 'delta', commandId: 'delta', kind: 'word' },
-  { trigger: 'Delta', commandId: 'cap_delta', kind: 'word' },
-  { trigger: 'theta', commandId: 'theta', kind: 'word' },
-  { trigger: 'Theta', commandId: 'cap_theta', kind: 'word' },
-  { trigger: 'kappa', commandId: 'kappa', kind: 'word' },
-  { trigger: 'sigma', commandId: 'sigma', kind: 'word' },
-  { trigger: 'Sigma', commandId: 'cap_sigma', kind: 'word' },
-  { trigger: 'omega', commandId: 'omega', kind: 'word' },
-  { trigger: 'Omega', commandId: 'cap_omega', kind: 'word' },
-  { trigger: 'infty', commandId: 'infty', kind: 'word' },
-  { trigger: 'nabla', commandId: 'nabla', kind: 'word' },
-  { trigger: 'equiv', commandId: 'equiv', kind: 'word' },
-  { trigger: 'times', commandId: 'times', kind: 'word' },
-  { trigger: 'beta', commandId: 'beta', kind: 'word' },
-  { trigger: 'zeta', commandId: 'zeta', kind: 'word' },
-  { trigger: 'iota', commandId: 'iota', kind: 'word' },
-  { trigger: 'cdot', commandId: 'cdot', kind: 'word' },
-  { trigger: 'sim', commandId: 'sim', kind: 'word' },
-  { trigger: 'leq', commandId: 'leq', kind: 'word' },
-  { trigger: 'geq', commandId: 'geq', kind: 'word' },
-  { trigger: 'neq', commandId: 'neq', kind: 'word' },
-  { trigger: 'rho', commandId: 'rho', kind: 'word' },
-  { trigger: 'tau', commandId: 'tau', kind: 'word' },
-  { trigger: 'phi', commandId: 'phi', kind: 'word' },
-  { trigger: 'Phi', commandId: 'cap_phi', kind: 'word' },
-  { trigger: 'chi', commandId: 'chi', kind: 'word' },
-  { trigger: 'psi', commandId: 'psi', kind: 'word' },
-  { trigger: 'Psi', commandId: 'cap_psi', kind: 'word' },
-  { trigger: 'eta', commandId: 'eta', kind: 'word' },
-  { trigger: 'pi', commandId: 'pi', kind: 'word' },
-  { trigger: 'Pi', commandId: 'cap_pi', kind: 'word' },
-  { trigger: 'mu', commandId: 'mu', kind: 'word' },
-  { trigger: 'nu', commandId: 'nu', kind: 'word' },
-  { trigger: 'xi', commandId: 'xi', kind: 'word' },
-  { trigger: 'Xi', commandId: 'cap_xi', kind: 'word' },
-  { trigger: 'in', commandId: 'in', kind: 'word' },
-  { trigger: 'notin', commandId: 'notin', kind: 'word' },
-  { trigger: 'subset', commandId: 'subset', kind: 'word' },
-  { trigger: 'subseteq', commandId: 'subseteq', kind: 'word' },
-  { trigger: 'cup', commandId: 'cup', kind: 'word' },
-  { trigger: 'cap', commandId: 'cap', kind: 'word' },
-  { trigger: 'to', commandId: 'to', kind: 'word' },
-  { trigger: 'cong', commandId: 'cong', kind: 'word' },
-  { trigger: 'pm', commandId: 'pm', kind: 'word' },
-  { trigger: 'mp', commandId: 'mp', kind: 'word' },
-  { trigger: 'vdots', commandId: 'vdots', kind: 'word' },
-  { trigger: 'ddots', commandId: 'ddots', kind: 'word' },
-  { trigger: 'varphi', commandId: 'varphi', kind: 'word' },
-  { trigger: 'vartheta', commandId: 'vartheta', kind: 'word' },
-  { trigger: 'Upsilon', commandId: 'cap_upsilon', kind: 'word' },
-  { trigger: 'hbar', commandId: 'hbar', kind: 'word' },
-  { trigger: 'ell', commandId: 'ell', kind: 'word' },
-  { trigger: 'quad', commandId: 'quad_space', kind: 'word' },
-  { trigger: 'uparrow', commandId: 'uparrow', kind: 'word' },
-  { trigger: 'downarrow', commandId: 'downarrow', kind: 'word' },
-  { trigger: 'hookrightarrow', commandId: 'hookrightarrow', kind: 'word' },
-  { trigger: 'mid', commandId: 'mid_rel', kind: 'word' },
-  { trigger: 'leftarrow', commandId: 'leftarrow', kind: 'word' },
-  { trigger: 'leftrightarrow', commandId: 'leftrightarrow', kind: 'word' },
+  // 2. Multi-char punctuation / arrow / relation shorthands (longest first; prefix upgrades auto-derived!)
+  { trigger: '<=>', kind: 'punct', commandId: 'iff' },
+  { trigger: '<->', kind: 'punct', commandId: 'leftrightarrow' },
+  { trigger: '|->', kind: 'punct', commandId: 'mapsto' },
+  { trigger: '...', kind: 'punct', commandId: 'cdots' },
+  { trigger: ':::', kind: 'punct', commandId: 'vdots' },
+  { trigger: '->', kind: 'punct', commandId: 'to' },
+  { trigger: '<-', kind: 'punct', commandId: 'leftarrow' },
+  { trigger: '=>', kind: 'punct', commandId: 'implies' },
+  { trigger: '<=', kind: 'punct', commandId: 'leq' },
+  { trigger: '>=', kind: 'punct', commandId: 'geq' },
+  { trigger: '<<', kind: 'punct', commandId: 'll' },
+  { trigger: '>>', kind: 'punct', commandId: 'gg' },
+  { trigger: '||', kind: 'punct', commandId: 'parallel' },
+  { trigger: '!=', kind: 'punct', commandId: 'neq' },
+  { trigger: '~=', kind: 'punct', commandId: 'cong' },
+  { trigger: '~~', kind: 'punct', commandId: 'approx' },
+  { trigger: '==', kind: 'punct', commandId: 'equiv' },
+  { trigger: '+-', kind: 'punct', commandId: 'pm' },
+  { trigger: '-+', kind: 'punct', commandId: 'mp' },
+  { trigger: '**', kind: 'punct', commandId: 'cdot' },
+
+  // 3. Isolated-word atomic shorthands (all Greek letters + TeX variants + symbolic atoms)
+  { trigger: 'alpha', kind: 'word', role: 'atom', commandId: 'alpha', latex: '\\alpha' },
+  { trigger: 'beta', kind: 'word', role: 'atom', commandId: 'beta', latex: '\\beta' },
+  { trigger: 'gamma', kind: 'word', role: 'atom', commandId: 'gamma', latex: '\\gamma' },
+  { trigger: 'delta', kind: 'word', role: 'atom', commandId: 'delta', latex: '\\delta' },
+  { trigger: 'epsilon', kind: 'word', role: 'atom', commandId: 'epsilon', latex: '\\varepsilon' },
+  { trigger: 'varepsilon', kind: 'word', role: 'atom', latex: '\\varepsilon' },
+  { trigger: 'zeta', kind: 'word', role: 'atom', commandId: 'zeta', latex: '\\zeta' },
+  { trigger: 'eta', kind: 'word', role: 'atom', commandId: 'eta', latex: '\\eta' },
+  { trigger: 'theta', kind: 'word', role: 'atom', commandId: 'theta', latex: '\\theta' },
+  { trigger: 'vartheta', kind: 'word', role: 'atom', commandId: 'vartheta', latex: '\\vartheta' },
+  { trigger: 'iota', kind: 'word', role: 'atom', commandId: 'iota', latex: '\\iota' },
+  { trigger: 'kappa', kind: 'word', role: 'atom', commandId: 'kappa', latex: '\\kappa' },
+  { trigger: 'varkappa', kind: 'word', role: 'atom', latex: '\\varkappa' },
+  { trigger: 'lambda', kind: 'word', role: 'atom', commandId: 'lambda', latex: '\\lambda' },
+  { trigger: 'mu', kind: 'word', role: 'atom', commandId: 'mu', latex: '\\mu' },
+  { trigger: 'nu', kind: 'word', role: 'atom', commandId: 'nu', latex: '\\nu' },
+  { trigger: 'xi', kind: 'word', role: 'atom', commandId: 'xi', latex: '\\xi' },
+  { trigger: 'pi', kind: 'word', role: 'atom', commandId: 'pi', latex: '\\pi' },
+  { trigger: 'varpi', kind: 'word', role: 'atom', latex: '\\varpi' },
+  { trigger: 'rho', kind: 'word', role: 'atom', commandId: 'rho', latex: '\\rho' },
+  { trigger: 'varrho', kind: 'word', role: 'atom', latex: '\\varrho' },
+  { trigger: 'sigma', kind: 'word', role: 'atom', commandId: 'sigma', latex: '\\sigma' },
+  { trigger: 'varsigma', kind: 'word', role: 'atom', latex: '\\varsigma' },
+  { trigger: 'tau', kind: 'word', role: 'atom', commandId: 'tau', latex: '\\tau' },
+  { trigger: 'upsilon', kind: 'word', role: 'atom', commandId: 'upsilon', latex: '\\upsilon' },
+  { trigger: 'phi', kind: 'word', role: 'atom', commandId: 'phi', latex: '\\phi' },
+  { trigger: 'varphi', kind: 'word', role: 'atom', commandId: 'varphi', latex: '\\varphi' },
+  { trigger: 'chi', kind: 'word', role: 'atom', commandId: 'chi', latex: '\\chi' },
+  { trigger: 'psi', kind: 'word', role: 'atom', commandId: 'psi', latex: '\\psi' },
+  { trigger: 'omega', kind: 'word', role: 'atom', commandId: 'omega', latex: '\\omega' },
+
+  { trigger: 'Gamma', kind: 'word', role: 'atom', commandId: 'cap_gamma', latex: '\\Gamma' },
+  { trigger: 'Delta', kind: 'word', role: 'atom', commandId: 'cap_delta', latex: '\\Delta' },
+  { trigger: 'Theta', kind: 'word', role: 'atom', commandId: 'cap_theta', latex: '\\Theta' },
+  { trigger: 'Lambda', kind: 'word', role: 'atom', commandId: 'cap_lambda', latex: '\\Lambda' },
+  { trigger: 'Xi', kind: 'word', role: 'atom', commandId: 'cap_xi', latex: '\\Xi' },
+  { trigger: 'Pi', kind: 'word', role: 'atom', commandId: 'cap_pi', latex: '\\Pi' },
+  { trigger: 'Sigma', kind: 'word', role: 'atom', commandId: 'cap_sigma', latex: '\\Sigma' },
+  { trigger: 'Upsilon', kind: 'word', role: 'atom', commandId: 'cap_upsilon', latex: '\\Upsilon' },
+  { trigger: 'Phi', kind: 'word', role: 'atom', commandId: 'cap_phi', latex: '\\Phi' },
+  { trigger: 'Psi', kind: 'word', role: 'atom', commandId: 'cap_psi', latex: '\\Psi' },
+  { trigger: 'Omega', kind: 'word', role: 'atom', commandId: 'cap_omega', latex: '\\Omega' },
+
+  { trigger: 'oo', kind: 'word', role: 'atom', commandId: 'infty', latex: '\\infty' },
+  { trigger: 'infty', kind: 'word', role: 'atom', commandId: 'infty', latex: '\\infty' },
+  { trigger: 'nabla', kind: 'word', role: 'atom', commandId: 'nabla', latex: '\\nabla' },
+  { trigger: 'partial', kind: 'word', role: 'atom', commandId: 'partial', latex: '\\partial' },
+  { trigger: 'forall', kind: 'word', role: 'atom', commandId: 'forall', latex: '\\forall' },
+  { trigger: 'exists', kind: 'word', role: 'atom', commandId: 'exists', latex: '\\exists' },
+  { trigger: 'emptyset', kind: 'word', role: 'atom', commandId: 'emptyset', latex: '\\varnothing' },
+  { trigger: 'hbar', kind: 'word', role: 'atom', commandId: 'hbar', latex: '\\hbar' },
+  { trigger: 'ell', kind: 'word', role: 'atom', commandId: 'ell', latex: '\\ell' },
+  { trigger: 'ldots', kind: 'word', role: 'atom', latex: '\\ldots' },
+  { trigger: 'cdots', kind: 'word', role: 'atom', commandId: 'cdots', latex: '\\cdots' },
+  { trigger: 'vdots', kind: 'word', role: 'atom', commandId: 'vdots', latex: '\\vdots' },
+  { trigger: 'ddots', kind: 'word', role: 'atom', commandId: 'ddots', latex: '\\ddots' },
+  { trigger: 'dots', kind: 'word', role: 'atom', latex: '\\ldots' },
+  { trigger: 'quad', kind: 'word', role: 'atom', commandId: 'quad_space', latex: '\\quad' },
+  { trigger: 'qquad', kind: 'word', role: 'atom', latex: '\\qquad' },
+  { trigger: 'dd', kind: 'word', role: 'atom', latex: '\\mathrm{d}' },
+  { trigger: 'ee', kind: 'word', role: 'atom', latex: '\\mathrm{e}' },
+  { trigger: 'ii', kind: 'word', role: 'atom', latex: '\\mathrm{i}' },
+
+  // 4. Isolated-word binary operators & relations
+  { trigger: 'xx', kind: 'word', role: 'binop', commandId: 'times', latex: '\\times' },
+  { trigger: 'times', kind: 'word', role: 'binop', commandId: 'times', latex: '\\times' },
+  { trigger: 'cdot', kind: 'word', role: 'binop', commandId: 'cdot', latex: '\\cdot' },
+  { trigger: 'div', kind: 'word', role: 'binop', latex: '\\div' },
+  { trigger: 'pm', kind: 'word', role: 'binop', commandId: 'pm', latex: '\\pm' },
+  { trigger: 'mp', kind: 'word', role: 'binop', commandId: 'mp', latex: '\\mp' },
+  { trigger: 'in', kind: 'word', role: 'binop', commandId: 'in', latex: '\\in' },
+  { trigger: 'notin', kind: 'word', role: 'binop', commandId: 'notin', latex: '\\notin' },
+  { trigger: 'subset', kind: 'word', role: 'binop', commandId: 'subset', latex: '\\subset' },
+  { trigger: 'subseteq', kind: 'word', role: 'binop', commandId: 'subseteq', latex: '\\subseteq' },
+  { trigger: 'supset', kind: 'word', role: 'binop', latex: '\\supset' },
+  { trigger: 'supseteq', kind: 'word', role: 'binop', latex: '\\supseteq' },
+  { trigger: 'cup', kind: 'word', role: 'binop', commandId: 'cup', latex: '\\cup' },
+  { trigger: 'cap', kind: 'word', role: 'binop', commandId: 'cap', latex: '\\cap' },
+  { trigger: 'to', kind: 'word', role: 'binop', commandId: 'to', latex: '\\to' },
+  { trigger: 'rightarrow', kind: 'word', role: 'binop', commandId: 'to', latex: '\\to' },
+  { trigger: 'leftarrow', kind: 'word', role: 'binop', commandId: 'leftarrow', latex: '\\leftarrow' },
+  { trigger: 'leftrightarrow', kind: 'word', role: 'binop', commandId: 'leftrightarrow', latex: '\\leftrightarrow' },
+  { trigger: 'uparrow', kind: 'word', role: 'binop', commandId: 'uparrow', latex: '\\uparrow' },
+  { trigger: 'downarrow', kind: 'word', role: 'binop', commandId: 'downarrow', latex: '\\downarrow' },
+  { trigger: 'hookrightarrow', kind: 'word', role: 'binop', commandId: 'hookrightarrow', latex: '\\hookrightarrow' },
+  { trigger: 'implies', kind: 'word', role: 'binop', commandId: 'implies', latex: '\\Rightarrow' },
+  { trigger: 'iff', kind: 'word', role: 'binop', commandId: 'iff', latex: '\\Leftrightarrow' },
+  { trigger: 'mapsto', kind: 'word', role: 'binop', commandId: 'mapsto', latex: '\\mapsto' },
+  { trigger: 'approx', kind: 'word', role: 'binop', commandId: 'approx', latex: '\\approx' },
+  { trigger: 'equiv', kind: 'word', role: 'binop', commandId: 'equiv', latex: '\\equiv' },
+  { trigger: 'sim', kind: 'word', role: 'binop', commandId: 'sim', latex: '\\sim' },
+  { trigger: 'cong', kind: 'word', role: 'binop', commandId: 'cong', latex: '\\cong' },
+  { trigger: 'propto', kind: 'word', role: 'binop', commandId: 'propto', latex: '\\propto' },
+  { trigger: 'leq', kind: 'word', role: 'binop', commandId: 'leq', latex: '\\le' },
+  { trigger: 'le', kind: 'word', role: 'binop', commandId: 'leq', latex: '\\le' },
+  { trigger: 'geq', kind: 'word', role: 'binop', commandId: 'geq', latex: '\\ge' },
+  { trigger: 'ge', kind: 'word', role: 'binop', commandId: 'geq', latex: '\\ge' },
+  { trigger: 'neq', kind: 'word', role: 'binop', commandId: 'neq', latex: '\\neq' },
+  { trigger: 'ne', kind: 'word', role: 'binop', commandId: 'neq', latex: '\\neq' },
+  { trigger: 'mid', kind: 'word', role: 'binop', commandId: 'mid_rel', latex: '\\mid' },
+
+  // 5. Differential word shorthands (note: generic `d` + single ASCII letter is also supported;
+  //    explicit multi-letter Greek differentials live here alongside `dx` -> `diff` UI hint!)
+  { trigger: 'dx', kind: 'word', role: 'diff', commandId: 'diff', latex: '\\mathrm{d}x' },
+  { trigger: 'dt', kind: 'word', role: 'diff', latex: '\\mathrm{d}t' },
+  { trigger: 'dy', kind: 'word', role: 'diff', latex: '\\mathrm{d}y' },
+  { trigger: 'dz', kind: 'word', role: 'diff', latex: '\\mathrm{d}z' },
+  { trigger: 'du', kind: 'word', role: 'diff', latex: '\\mathrm{d}u' },
+  { trigger: 'dv', kind: 'word', role: 'diff', latex: '\\mathrm{d}v' },
+  { trigger: 'dr', kind: 'word', role: 'diff', latex: '\\mathrm{d}r' },
+  { trigger: 'ds', kind: 'word', role: 'diff', latex: '\\mathrm{d}s' },
+  { trigger: 'dp', kind: 'word', role: 'diff', latex: '\\mathrm{d}p' },
+  { trigger: 'dq', kind: 'word', role: 'diff', latex: '\\mathrm{d}q' },
+  { trigger: 'dV', kind: 'word', role: 'diff', latex: '\\mathrm{d}V' },
+  { trigger: 'dS', kind: 'word', role: 'diff', latex: '\\mathrm{d}S' },
+  { trigger: 'dtheta', kind: 'word', role: 'diff', latex: '\\mathrm{d}\\theta' },
+  { trigger: 'dphi', kind: 'word', role: 'diff', latex: '\\mathrm{d}\\phi' },
+  { trigger: 'dtau', kind: 'word', role: 'diff', latex: '\\mathrm{d}\\tau' },
+  { trigger: 'domega', kind: 'word', role: 'diff', latex: '\\mathrm{d}\\omega' },
+  { trigger: 'dxi', kind: 'word', role: 'diff', latex: '\\mathrm{d}\\xi' },
 ];
 
-/**
- * Direct-typing structural shorthands handled by MathSlotEngine.insertChar
- * (natural fraction, natural scripts, and auto-closing brackets).
- */
-export const DIRECT_INPUT_SHORTHANDS: Readonly<Record<string, string>> = {
-  frac: '/',
-  sup: '^',
-  sub: '_',
-  subsup: '_ / ^',
-  paren: '(',
-  bracket: '[',
-  brace: '{',
-};
+export const DIRECT_INPUT_SHORTHANDS: Readonly<Record<string, string>> = Object.fromEntries(
+  SHORTHAND_SPECS.filter((s) => s.kind === 'direct' && s.commandId).map((s) => [
+    s.commandId!,
+    s.trigger,
+  ]),
+);
+
+export const AUTO_SHORTHANDS: readonly ShorthandRule[] = SHORTHAND_SPECS.filter(
+  (s): s is ShorthandSpec & { kind: 'punct' | 'word'; commandId: string } =>
+    (s.kind === 'punct' || s.kind === 'word') && Boolean(s.commandId),
+).map((s) => ({ trigger: s.trigger, commandId: s.commandId, kind: s.kind }));
+
+export const BARE_WORD_ATOMS: Readonly<Record<string, string>> = Object.fromEntries(
+  SHORTHAND_SPECS.filter((s) => s.kind === 'word' && s.role === 'atom' && s.latex).map((s) => [
+    s.trigger,
+    s.latex!,
+  ]),
+);
+
+export const BARE_WORD_BINOPS: Readonly<Record<string, string>> = Object.fromEntries(
+  SHORTHAND_SPECS.filter((s) => s.kind === 'word' && s.role === 'binop' && s.latex).map((s) => [
+    s.trigger,
+    s.latex!,
+  ]),
+);
+
+export const DIFFERENTIAL_WORDS: Readonly<Record<string, string>> = Object.fromEntries(
+  SHORTHAND_SPECS.filter((s) => s.kind === 'word' && s.role === 'diff' && s.latex).map((s) => [
+    s.trigger,
+    s.latex!,
+  ]),
+);
 
 export const SHORTHAND_BY_COMMAND_ID: ReadonlyMap<string, string> = (() => {
   const map = new Map<string, string>();
-  for (const [commandId, trigger] of Object.entries(DIRECT_INPUT_SHORTHANDS)) {
-    map.set(commandId, trigger);
-  }
-  for (const rule of AUTO_SHORTHANDS) {
-    const existing = map.get(rule.commandId);
-    if (!existing || rule.trigger.length < existing.length) {
-      map.set(rule.commandId, rule.trigger);
+  for (const spec of SHORTHAND_SPECS) {
+    if (!spec.commandId) continue;
+    const existing = map.get(spec.commandId);
+    if (!existing || spec.trigger.length < existing.length) {
+      map.set(spec.commandId, spec.trigger);
     }
   }
   return map;
 })();
 
 const PUNCT_RULES = AUTO_SHORTHANDS.filter((r) => r.kind === 'punct');
+
+/**
+ * Automatically derives prefix-overlapping upgrades from `PUNCT_RULES`!
+ * Whenever punct rule A (`<=` -> `leq`) + 1 trailing char (`>`) matches punct rule B (`<=>` -> `iff`),
+ * typing `>` right after `leq` automatically upgrades it to `iff` with zero hardcoded pairs!
+ */
+const SYMBOL_PREFIX_UPGRADES: Readonly<Record<string, string>> = (() => {
+  const upgrades: Record<string, string> = {};
+  for (const longer of PUNCT_RULES) {
+    if (longer.trigger.length < 3) continue;
+    const prefix = longer.trigger.slice(0, -1);
+    const suffix = longer.trigger[longer.trigger.length - 1];
+    const shorter = PUNCT_RULES.find((r) => r.trigger === prefix);
+    if (shorter && shorter.commandId !== longer.commandId) {
+      upgrades[`${shorter.commandId}:${suffix}`] = longer.commandId;
+    }
+  }
+  return upgrades;
+})();
 
 /**
  * Matches ONLY multi-character punctuation shorthands (`->`, `<=`, `+-`, `~~`, `~=`, etc.)
@@ -178,15 +288,9 @@ export function matchTrailingShorthand(
 }
 
 /**
- * Upgrades an already-expanded prefix symbol when its completing character is typed next:
- * - `<=` (`leq`) + `>` -> `<=>` (`iff`)
- * - `<-` (`leftarrow`) + `>` -> `<->` (`leftrightarrow`)
+ * Upgrades an already-expanded prefix symbol when its completing character is typed next
+ * (auto-derived from `PUNCT_RULES`, e.g. `<=` + `>` -> `<=>`, `<-` + `>` -> `<->`).
  */
-const SYMBOL_PREFIX_UPGRADES: Readonly<Record<string, string>> = {
-  'leq:>': 'iff',
-  'leftarrow:>': 'leftrightarrow',
-};
-
 export function matchShorthandUpgrade(
   children: readonly MathNode[],
   offset: number,

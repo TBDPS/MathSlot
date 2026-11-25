@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { focusTrap } from '../focusTrap';
+
   interface Props {
     configDir?: string;
     onOpenConfigDir?: () => void;
@@ -19,7 +21,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label="使用文档与快速开始">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="使用文档与快速开始" use:focusTrap>
     <div class="modal-head">
       <div class="head-title">
         <span>MathSlot 使用手册</span>

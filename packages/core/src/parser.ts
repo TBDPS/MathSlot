@@ -21,7 +21,8 @@ import {
   isCasesEnv,
   isSupportedColSpec,
 } from './commandSpecs';
-import { DIFFERENTIAL_WORDS, MATH_FUNCTIONS } from './latex';
+import { MATH_FUNCTIONS } from './latex';
+import { DIFFERENTIAL_WORDS } from './shorthands';
 import type { CommandDef, Diagnostic, Document, ImportResult, MathNode } from './types';
 
 // Build reverse lookup from normalized LaTeX macro -> atomic Symbol CommandDef
@@ -474,6 +475,9 @@ export function parseLatex(input: string): ImportResult {
 function endsWithDifferential(nodes: readonly MathNode[]): boolean {
   if (nodes.length === 0) return false;
   const last = nodes[nodes.length - 1];
+  if (last.type === 'struct' && last.commandId === 'diff') {
+    return true;
+  }
   const prev = nodes.length >= 2 ? nodes[nodes.length - 2] : undefined;
 
   // Case 1: `\mathrm{d}` followed by single variable char or Greek symbol (e.g. `\mathrm{d}x`, `\mathrm{d}\theta`)
@@ -1637,6 +1641,26 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         macro === '\\mathtt'
       ) {
         const arg = readBracedRaw();
+        // Parse structured upright differentials `\mathrm{d}x`, `\mathrm{d}\theta`, `\mathrm{d}\vec{r}`, `\mathrm{d}^{2}x`
+        if (macro === '\\mathrm' && arg.trim() === 'd') {
+          const saveDiffPos = pos;
+          let orderNodes: MathNode[] = [];
+          if (peek() === '^') {
+            pos += 1;
+            orderNodes = readGroupNodes();
+          }
+          const beforeVarPos = pos;
+          if (orderNodes.length > 0) skipSpaces();
+          const nextCh = peek();
+          if (nextCh && /[A-Za-z\\]/.test(nextCh)) {
+            const varUnits = parseSingleUnit();
+            const diffCmd = COMMANDS_BY_ID.get('diff');
+            if (diffCmd && varUnits.length > 0) {
+              return [createStructNode(diffCmd, [orderNodes, varUnits])];
+            }
+          }
+          pos = beforeVarPos === pos ? saveDiffPos : saveDiffPos;
+        }
         return [createRawNode(`${macro}{${arg}}`)];
       }
 

@@ -259,7 +259,7 @@
       {:else}
         <div class="cat-grid" class:matrix-grid={activeCategory === 'matrix'}>
           {#each popoverCommands as cmd (cmd.id)}
-            {@const shorthand = SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
+            {@const shorthand = cmd.shorthand ?? SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
             {@const isDefault =
               pendingDefaultId === cmd.id ||
               (activeGroup ? SUBMENU_BY_KEY.get(activeGroup.key)?.defaultCommandId === cmd.id : false)}

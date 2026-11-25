@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { importFormula, toLatex } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
 
   interface Props {
     onReadClipboard?: () => Promise<string>;
@@ -69,7 +70,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label="导入 LaTeX">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="导入 LaTeX" use:focusTrap>
     <div class="modal-head">
       <span>导入 LaTeX</span>
       <div class="head-actions">

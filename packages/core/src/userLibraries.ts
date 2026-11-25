@@ -22,6 +22,10 @@ export interface UserCommandEntry {
   latex: string;
   doc?: string;
   wrapSlot?: number | null;
+  /** Optional shorthand trigger (e.g. `lap` or `::=`) for external commands.json entries */
+  shorthand?: string;
+  /** Optional immediate expansion flag for alphabetic shorthands */
+  immediateShorthand?: boolean;
   /** Set true to hide a built-in command by id without editing source code */
   disabled?: boolean;
 }
@@ -177,6 +181,11 @@ export function parseUserCommandsJson(raw: string): {
       slots = Array.from({ length: maxIdx }, (_, idx) => `槽位 ${idx + 1}`);
     }
 
+    const shorthand =
+      typeof obj.shorthand === 'string' && obj.shorthand.trim() ? obj.shorthand.trim() : undefined;
+    const immediateShorthand =
+      typeof obj.immediateShorthand === 'boolean' ? obj.immediateShorthand : undefined;
+
     entries.push({
       id,
       keys,
@@ -187,6 +196,8 @@ export function parseUserCommandsJson(raw: string): {
       latex,
       doc: typeof obj.doc === 'string' ? obj.doc : `${label}：${latex}`,
       wrapSlot: typeof obj.wrapSlot === 'number' ? obj.wrapSlot : slots.length > 0 ? 0 : null,
+      ...(shorthand ? { shorthand } : {}),
+      ...(immediateShorthand !== undefined ? { immediateShorthand } : {}),
     });
   }
   return { entries, warnings, failed: false };
@@ -268,6 +279,8 @@ export function mergeCommands(
         latex: ov.latex || cmd.latex,
         doc: ov.doc ?? cmd.doc,
         wrapSlot: ov.wrapSlot !== undefined ? ov.wrapSlot : cmd.wrapSlot,
+        ...(ov.shorthand ? { shorthand: ov.shorthand } : {}),
+        ...(ov.immediateShorthand !== undefined ? { immediateShorthand: ov.immediateShorthand } : {}),
       });
     } else {
       merged.push(cmd);
@@ -286,6 +299,8 @@ export function mergeCommands(
       doc: item.doc ?? `${item.label}：${item.latex}`,
       examples: [],
       wrapSlot: item.wrapSlot ?? (item.slots && item.slots.length > 0 ? 0 : null),
+      ...(item.shorthand ? { shorthand: item.shorthand } : {}),
+      ...(item.immediateShorthand !== undefined ? { immediateShorthand: item.immediateShorthand } : {}),
     });
   }
   return merged;

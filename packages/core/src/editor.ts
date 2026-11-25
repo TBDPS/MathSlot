@@ -42,7 +42,6 @@ import {
   toggleColRightBar,
 } from './commandSpecs';
 import {
-  BARE_WORD_ATOMS,
   MATH_FUNCTIONS,
   OPERATORNAME_FUNCTIONS,
   emitNodesCanonical,
@@ -51,7 +50,7 @@ import {
   toLatex,
 } from './latex';
 import { importFormula, stripOuterDelimiters } from './parser';
-import { matchShorthandUpgrade, matchTrailingShorthand } from './shorthands';
+import { BARE_WORD_ATOMS, matchShorthandUpgrade, matchTrailingShorthand } from './shorthands';
 import { getSlotOrder } from './slotOrder';
 import type {
   ActiveGridInfo,
@@ -1460,8 +1459,22 @@ export class MathSlotEngine {
     offset: number,
     filterKind: 'word' | 'punct',
   ): { start: number; command: CustomCommandDef } | null {
-    if (this.customCommands.length === 0 || offset <= 0) return null;
-    for (const cmd of this.customCommands) {
+    if (offset <= 0) return null;
+    const candidates: CustomCommandDef[] = [...this.customCommands];
+    for (const cmd of this.effectiveCommands) {
+      if (cmd.shorthand?.trim()) {
+        candidates.push({
+          id: cmd.id,
+          label: cmd.label,
+          latex: cmd.latex,
+          slots: [...cmd.slots],
+          shorthand: cmd.shorthand,
+          immediateShorthand: cmd.immediateShorthand,
+        });
+      }
+    }
+    if (candidates.length === 0) return null;
+    for (const cmd of candidates) {
       const trigger = cmd.shorthand?.trim();
       if (!trigger || trigger.length > offset) continue;
       const isAlpha = /^[a-zA-Z]+$/.test(trigger);
