@@ -6,6 +6,7 @@
     MathSlotEngine,
     PRESETS,
     formatExport,
+    formatFormulaWithWrapper,
     mergeCommands,
     mergePresets,
     normalizeSettings,
@@ -19,8 +20,11 @@
     type DelimiterStyle,
     type EditorSnapshot,
     type HistoryFormula,
+    type MathWrapperKind,
+    type PersistedDraftV1,
     type PresetFormula,
     type Snippet,
+    type TreePoint,
     type UserCommandEntry,
     type UserPresetEntry,
   } from '@mathslot/core';
@@ -55,13 +59,18 @@
   let favoriteIds = $state<string[]>([]);
   let recentIds = $state<string[]>([]);
   let lastDraftLatex = $state('');
+  let lastDraftV1 = $state<PersistedDraftV1 | null>(null);
   let configDir = $state('');
+  let topbarEl = $state<HTMLElement | null>(null);
   let history = $state<HistoryFormula[]>([]);
   let pinned = $state(false);
   let snapshot = $state<EditorSnapshot>(engine.getSnapshot());
   let systemDark = $state(false);
   let sessionDelimiter = $state<DelimiterStyle | null>(
     untrack(() => host.initialDelimiter ?? null),
+  );
+  let sessionWrapper = $state<MathWrapperKind | null>(
+    untrack(() => host.initialWrapper ?? null),
   );
   let persistChain: Promise<void> = Promise.resolve();
   let draftSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,13 +121,28 @@
 
   function scheduleDraftSave(nextLatex: string): void {
     if (!storeHydrated || host.compactToolbar || host.initialFormula) return;
-    if (nextLatex === lastDraftLatex) return;
+    const nextDraft = nextLatex.trim() ? engine.exportDraftV1(sessionWrapper ?? undefined) : null;
+    if (nextLatex === lastDraftLatex && JSON.stringify(nextDraft?.cursor) === JSON.stringify(lastDraftV1?.cursor)) {
+      return;
+    }
     lastDraftLatex = nextLatex;
+    lastDraftV1 = nextDraft;
     if (draftSaveTimer) clearTimeout(draftSaveTimer);
     draftSaveTimer = setTimeout(() => {
       draftSaveTimer = null;
       void persist();
     }, 800);
+  }
+
+  function flushDraftNow(): void {
+    if (!storeHydrated || host.compactToolbar || host.initialFormula) return;
+    if (draftSaveTimer) {
+      clearTimeout(draftSaveTimer);
+      draftSaveTimer = null;
+      lastDraftLatex = snapshot.latex;
+      lastDraftV1 = snapshot.latex.trim() ? engine.exportDraftV1(sessionWrapper ?? undefined) : null;
+      void persist();
+    }
   }
 
   function recordRecent(itemKey: string): void {
@@ -153,6 +177,7 @@
       favoriteIds: [...favoriteIds],
       recentIds: [...recentIds],
       lastDraftLatex,
+      lastDraftV1,
     };
     const next = persistChain.then(async () => {
       await host.saveStore(payload);
@@ -179,21 +204,6 @@
     }
   }
 
-  function mergeLibraryById<T extends { id: string }>(
-    storeItems: readonly T[],
-    extItems: readonly T[],
-  ): T[] {
-    if (storeItems.length === 0) return [...extItems];
-    if (extItems.length === 0) return [...storeItems];
-    const extById = new Map(extItems.map((it) => [it.id, it]));
-    const merged = storeItems.map((it) => extById.get(it.id) ?? it);
-    const storeIds = new Set(storeItems.map((it) => it.id));
-    for (const ext of extItems) {
-      if (!storeIds.has(ext.id)) merged.push(ext);
-    }
-    return merged;
-  }
-
   async function loadExternalLibraries(silent = false): Promise<void> {
     if (!host.loadUserLibraries) return;
     try {
@@ -204,21 +214,17 @@
       let needsSyncBack = false;
 
       if (!pRes.failed) {
-        if (ext.presetsNewlyCreated || (silent && pRes.entries.length === 0 && userPresets.length > 0)) {
-          // Never let a freshly-created empty starter file wipe existing store presets!
+        if (ext.presetsNewlyCreated) {
+          // Only seed a freshly-created starter file from store presets; thereafter disk JSON is single source of truth!
           if (userPresets.length > 0) needsSyncBack = true;
-        } else if (silent && userPresets.length > 0) {
-          userPresets = mergeLibraryById(userPresets, pRes.entries);
         } else {
           userPresets = pRes.entries;
         }
       }
 
       if (!cRes.failed) {
-        if (ext.commandsNewlyCreated || (silent && cRes.entries.length === 0 && userCommands.length > 0)) {
+        if (ext.commandsNewlyCreated) {
           if (userCommands.length > 0) needsSyncBack = true;
-        } else if (silent && userCommands.length > 0) {
-          userCommands = mergeLibraryById(userCommands, cRes.entries);
         } else {
           userCommands = cRes.entries;
         }
@@ -341,6 +347,7 @@
     const order: DelimiterStyle[] = ['inline', 'block', 'none', 'codeblock'];
     const idx = order.indexOf(effectiveDelimiter);
     const next = order[(idx + 1) % order.length];
+    sessionWrapper = null;
     if (sessionDelimiter !== null) {
       sessionDelimiter = next;
     } else {
@@ -421,7 +428,9 @@
   }
 
   async function handlePrimarySubmit(): Promise<void> {
-    const formatted = formatExport(snapshot.latex, effectiveDelimiter);
+    const formatted = sessionWrapper
+      ? formatFormulaWithWrapper(snapshot.latex, sessionWrapper)
+      : formatExport(snapshot.latex, effectiveDelimiter);
     if (!formatted) return;
     recordHistory(snapshot.latex);
     try {
@@ -511,13 +520,14 @@
   }
 
   async function handleCopySelection(): Promise<void> {
-    const text = snapshot.selection
-      ? engine.getSelectedLatex()
-      : formatExport(snapshot.latex, effectiveDelimiter);
+    const text =
+      snapshot.selection || snapshot.gridSelection
+        ? engine.getSelectedLatex()
+        : formatExport(snapshot.latex, effectiveDelimiter);
     if (!text) return;
     try {
       await host.copyText(text);
-      flash('已复制');
+      flash(snapshot.gridSelection ? '已复制子矩阵' : '已复制');
     } catch {
       flash('剪贴板写入失败');
     }
@@ -525,7 +535,8 @@
 
   async function handleCutSelection(): Promise<void> {
     const sel = snapshot.selection ? { ...snapshot.selection } : null;
-    if (!sel) {
+    const gsel = snapshot.gridSelection ? { ...snapshot.gridSelection } : null;
+    if (!sel && !gsel) {
       flash('请先选中要剪切的内容');
       return;
     }
@@ -538,18 +549,16 @@
       return;
     }
     // Only delete selection AFTER clipboard write succeeds and selection is unchanged
-    const curSel = engine.getSnapshot().selection;
+    const curSnap = engine.getSnapshot();
+    const curSel = curSnap.selection;
+    const curGsel = curSnap.gridSelection;
     if (
-      sel &&
-      curSel &&
-      curSel.slotId === sel.slotId &&
-      curSel.start === sel.start &&
-      curSel.end === sel.end
+      (sel && curSel && curSel.slotId === sel.slotId && curSel.start === sel.start && curSel.end === sel.end) ||
+      (gsel && curGsel && curGsel.structId === gsel.structId && curGsel.r1 === gsel.r1 && curGsel.r2 === gsel.r2 && curGsel.c1 === gsel.c1 && curGsel.c2 === gsel.c2)
     ) {
       engine.backspace();
-      sync();
     }
-    flash('已剪切');
+    flash(gsel ? '已剪切子矩阵' : '已剪切');
   }
 
   async function handlePasteLiteral(): Promise<void> {
@@ -852,6 +861,18 @@
       drawerOpen = !drawerOpen;
       return;
     }
+    // Phase 4 P2-7: Standard keyboard focus escape (`Ctrl+M` or `F6`) so users can leave canvas even when `Tab` is Leader
+    if ((e.key === 'F6' || (mod && e.key.toLowerCase() === 'm')) && !anyOtherModalOpen && !drawerOpen) {
+      e.preventDefault();
+      const inTopbar = topbarEl?.contains(document.activeElement) ?? false;
+      if (inTopbar) {
+        canvasRef?.focus();
+      } else {
+        const firstBtn = topbarEl?.querySelector<HTMLElement>('button:not([disabled])');
+        firstBtn?.focus();
+      }
+      return;
+    }
     if (e.key === 'Escape' && moreMenuOpen) {
       moreMenuOpen = false;
     }
@@ -925,6 +946,9 @@
       if (typeof loaded.lastDraftLatex === 'string') {
         lastDraftLatex = loaded.lastDraftLatex;
       }
+      if (loaded.lastDraftV1) {
+        lastDraftV1 = loaded.lastDraftV1;
+      }
       if (host.initialFormula && host.initialFormula.trim()) {
         const initRes = engine.loadFormulaWithRawFallback(host.initialFormula);
         const initErr = initRes.diagnostics.find((d) => d.severity === 'error');
@@ -934,8 +958,11 @@
         } else if (initWarn) {
           flash(initWarn.message);
         }
-      } else if (!host.compactToolbar && lastDraftLatex.trim()) {
-        engine.loadFormulaWithRawFallback(lastDraftLatex);
+      } else if (!host.compactToolbar) {
+        const restoredV1 = lastDraftV1 ? engine.restoreDraftV1(lastDraftV1) : false;
+        if (!restoredV1 && lastDraftLatex.trim()) {
+          engine.loadFormulaWithRawFallback(lastDraftLatex);
+        }
       }
       storeHydrated = true;
       if (host.loadUserLibraries) {
@@ -943,14 +970,26 @@
       }
       sync();
     });
-    return () => unsubscribe();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushDraftNow();
+    };
+    const onPageHide = () => flushDraftNow();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('beforeunload', onPageHide);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('beforeunload', onPageHide);
+    };
   });
 </script>
 
 <svelte:window onkeydown={handleWindowKeyDown} onpointerdown={handleWindowPointerDown} />
 
 <div class="ms-studio studio-shell" class:compact-obsidian={!!host.compactToolbar} data-theme={resolvedTheme}>
-  <header class="topbar ms-topbar">
+  <header class="topbar ms-topbar" bind:this={topbarEl}>
     <div class="brand">
       <svg class="brand-mark" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
         <defs>
@@ -1386,56 +1425,47 @@
       onKeyEvent={handleKeyEvent}
       onTextInput={(text) => {
         engine.insertText(text);
-        sync();
       }}
       onPaste={(text) => {
         engine.pasteText(text);
-        sync();
       }}
       onClickSlot={(slotId, offset) => {
         engine.setCursor(slotId, offset);
-        sync();
       }}
       onDragSelect={(slotId, anchor, focus) => {
         engine.setSelection(slotId, anchor, focus);
-        sync();
+      }}
+      onCrossSlotDragSelect={(anchor: TreePoint, focus: TreePoint) => {
+        engine.selectBetweenPoints(anchor, focus);
       }}
       onDoubleClickAtom={(slotId, offset) => {
         engine.selectWordOrAtomAt(slotId, offset);
-        sync();
       }}
       onJumpTarget={(label) => {
         engine.handleJumpKey(label);
-        sync();
         canvasRef?.focus();
       }}
       onFocusChange={(focused) => {
         engine.setFocused(focused);
-        sync();
       }}
       onAddGridRow={() => {
         engine.addGridRow();
-        sync();
         canvasRef?.focus();
       }}
       onRemoveGridRow={() => {
         engine.removeGridRow();
-        sync();
         canvasRef?.focus();
       }}
       onAddGridCol={() => {
         engine.addGridCol();
-        sync();
         canvasRef?.focus();
       }}
       onRemoveGridCol={() => {
         engine.removeGridCol();
-        sync();
         canvasRef?.focus();
       }}
       onToggleGridBar={() => {
         engine.toggleGridColBar();
-        sync();
         canvasRef?.focus();
       }}
     />

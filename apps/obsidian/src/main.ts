@@ -5,10 +5,12 @@ import { Plugin, type Editor } from 'obsidian';
 import type { PersistedStore } from '@mathslot/ui';
 import {
   canonicalBlockquotePrefix,
-  detectFormulaInLines,
+  detectFormulaInWindow,
+  detectWrapperFromRaw,
   extractBlockquotePrefix,
   stripBlockquoteSelection,
   type DelimiterStyle,
+  type MathWrapperKind,
 } from '@mathslot/core';
 import { MathSlotModal } from './MathSlotModal';
 
@@ -105,10 +107,17 @@ export default class MathSlotPlugin extends Plugin {
     let linePrefix = '';
     let includeFirstLinePrefix = false;
     let detectedDelimiter: DelimiterStyle | undefined;
+    let detectedWrapper: MathWrapperKind | undefined;
 
     if (trimmedSelected) {
       const stripped = stripBlockquoteSelection(rawSelected);
       initialFormula = stripped.clean.trim() || undefined;
+      detectedWrapper = initialFormula ? detectWrapperFromRaw(initialFormula) : undefined;
+      if (detectedWrapper === 'paren_inline' || detectedWrapper === 'dollar_inline') {
+        detectedDelimiter = 'inline';
+      } else if (detectedWrapper === 'bracket_block' || detectedWrapper === 'dollar_block') {
+        detectedDelimiter = 'block';
+      }
       if (editor) {
         const from = editor.getCursor('from');
         const to = editor.getCursor('to');
@@ -129,13 +138,26 @@ export default class MathSlotPlugin extends Plugin {
       }
     } else if (editor) {
       const cursor = editor.getCursor();
-      // Only read up to cursor.line + 400 lines instead of scanning an entire 10,000-line note!
-      const limit = Math.min(editor.lineCount(), cursor.line + 401);
-      const lines: string[] = [];
-      for (let i = 0; i < limit; i += 1) {
-        lines.push(editor.getLine(i));
+      // Bounded local window [cursor.line - 400, cursor.line + 400] avoids O(N) line reads on 10,000+ line notes!
+      const windowStart = Math.max(0, cursor.line - 400);
+      const windowEnd = Math.min(editor.lineCount(), cursor.line + 401);
+      const windowLines: string[] = [];
+      for (let i = windowStart; i < windowEnd; i += 1) {
+        windowLines.push(editor.getLine(i));
       }
-      const detected = detectFormulaInLines(lines, cursor);
+      // Best-effort check via Obsidian's CM6 DOM line class when scanning beyond line 400
+      let cursorInsideCodeBlock = false;
+      if (windowStart > 0) {
+        try {
+          const activeLineEl = document.querySelector('.cm-active.cm-line');
+          if (activeLineEl?.classList.contains('HyperMD-codeblock')) {
+            cursorInsideCodeBlock = true;
+          }
+        } catch {
+          // Ignore outside DOM
+        }
+      }
+      const detected = detectFormulaInWindow(windowLines, windowStart, cursor, cursorInsideCodeBlock);
       if (detected) {
         initialFormula = detected.raw;
         replaceRange = { from: detected.from, to: detected.to };
@@ -143,6 +165,7 @@ export default class MathSlotPlugin extends Plugin {
         linePrefix = detected.linePrefix;
         includeFirstLinePrefix = detected.includeFirstLinePrefix;
         detectedDelimiter = detected.delimiter;
+        detectedWrapper = detected.wrapper;
       } else {
         // Inserting a brand-new formula on a blockquote / callout line
         const split = extractBlockquotePrefix(editor.getLine(cursor.line));
@@ -162,6 +185,7 @@ export default class MathSlotPlugin extends Plugin {
       linePrefix,
       includeFirstLinePrefix,
       forceDelimiter: forceDelimiter ?? detectedDelimiter,
+      initialWrapper: forceDelimiter ? undefined : detectedWrapper,
       loadStore: async () => {
         const data = (await this.loadData()) as Partial<PersistedStore> | null;
         const normalized: PersistedStore = {
@@ -174,6 +198,7 @@ export default class MathSlotPlugin extends Plugin {
           favoriteIds: Array.isArray(data?.favoriteIds) ? data.favoriteIds : [],
           recentIds: Array.isArray(data?.recentIds) ? data.recentIds : [],
           lastDraftLatex: typeof data?.lastDraftLatex === 'string' ? data.lastDraftLatex : '',
+          lastDraftV1: data?.lastDraftV1 ?? null,
         };
         loadedBase = normalized;
         return normalized;

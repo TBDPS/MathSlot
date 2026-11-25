@@ -1,7 +1,7 @@
 import { Modal, Notice, type App, type Editor, type EditorPosition } from 'obsidian';
 import { mount, unmount } from 'svelte';
 import { MathSlotStudio, type HostAdapter, type PersistedStore } from '@mathslot/ui';
-import { formatFormulaForEditorInsertion, type DelimiterStyle } from '@mathslot/core';
+import { formatFormulaForEditorInsertion, type DelimiterStyle, type MathWrapperKind } from '@mathslot/core';
 
 export interface MathSlotModalOptions {
   editor?: Editor;
@@ -12,6 +12,7 @@ export interface MathSlotModalOptions {
   linePrefix?: string;
   includeFirstLinePrefix?: boolean;
   forceDelimiter?: DelimiterStyle;
+  initialWrapper?: MathWrapperKind;
   loadStore: () => Promise<PersistedStore>;
   saveStore: (store: PersistedStore) => Promise<void>;
 }
@@ -61,6 +62,7 @@ export class MathSlotModal extends Modal {
       compactToolbar: true,
       initialFormula: this.opts.initialFormula,
       initialDelimiter: this.opts.forceDelimiter,
+      initialWrapper: this.opts.initialWrapper,
       hostDarkMode: () => document.body.classList.contains('theme-dark'),
       copyText: copyTextWithFallback,
       readText: async () => {

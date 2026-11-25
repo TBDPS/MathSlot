@@ -16,7 +16,9 @@ import {
   isSlotVisibleInteractive,
   isStructEmpty,
   slotHasRawNodes,
+  syncIdCounterFromTree,
   textToCharNodes,
+  validatePersistedDraftV1,
 } from './ast';
 import {
   COMMANDS,
@@ -31,7 +33,9 @@ import {
   BINARY_RELATION_SYMBOLS,
   DELIMITER_STRUCT_IDS,
   INLINE_STRUCT_MAP,
+  NEXT_BRACE_SLOT_MAP,
   PREFIX_BIGOPS,
+  formatGridEnvironment,
   hasColRightBar,
   insertColIntoSpec,
   isCasesEnv,
@@ -41,9 +45,8 @@ import {
   sanitizeLatexTemplate,
   toggleColRightBar,
 } from './commandSpecs';
+import { MATH_FUNCTIONS, OPERATORNAME_FUNCTIONS } from './emitIr';
 import {
-  MATH_FUNCTIONS,
-  OPERATORNAME_FUNCTIONS,
   emitNodesCanonical,
   isLineBreakRaw,
   toInteractiveLatex,
@@ -61,19 +64,25 @@ import type {
   Document,
   EditorMode,
   EditorSnapshot,
+  GridRectSelection,
   ImportResult,
   InputContextKind,
   MathNode,
+  MathWrapperKind,
+  PersistedDraftV1,
   Selection,
   SlotNode,
   Snippet,
   StructNode,
+  TreePoint,
 } from './types';
 
 interface HistoryEntry {
   doc: Document;
   cursor: Cursor;
   selection: Selection | null;
+  latexArgCloseBySlot?: [string, '}' | ']'][];
+  expectLatexOpenBraceSlotId?: string | null;
 }
 
 const MAX_HISTORY = 200;
@@ -83,6 +92,11 @@ export class MathSlotEngine {
   private doc: Document;
   private cursor: Cursor;
   private selection: Selection | null = null;
+  private gridSelection: GridRectSelection | null = null;
+  private docRevision = 0;
+  private cachedLatexRev = -1;
+  private cachedLatexAuto = true;
+  private cachedLatex = '';
   private mode: EditorMode = { kind: 'edit' };
   private settings: AppSettings;
   private effectiveCommands: readonly CommandDef[] = COMMANDS;
@@ -121,7 +135,22 @@ export class MathSlotEngine {
     };
   }
 
+  private pruneLatexArgStateForCursor(): void {
+    if (this.latexArgCloseBySlot.size === 0 && this.expectLatexOpenBraceSlotId === null) return;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    const activeSlotIds = new Set(path ? path.map((entry) => entry.slot.id) : [this.doc.root.id]);
+    for (const slotId of this.latexArgCloseBySlot.keys()) {
+      if (!activeSlotIds.has(slotId)) {
+        this.latexArgCloseBySlot.delete(slotId);
+      }
+    }
+    if (this.expectLatexOpenBraceSlotId && this.expectLatexOpenBraceSlotId !== this.cursor.slotId) {
+      this.expectLatexOpenBraceSlotId = null;
+    }
+  }
+
   private notify(): void {
+    this.pruneLatexArgStateForCursor();
     for (const fn of this.listeners) {
       fn();
     }
@@ -169,6 +198,7 @@ export class MathSlotEngine {
 
   public updateSettings(patch: Partial<AppSettings>): void {
     this.settings = normalizeSettings({ ...this.settings, ...patch });
+    this.docRevision += 1;
     this.notify();
   }
 
@@ -212,7 +242,7 @@ export class MathSlotEngine {
       if (meta) {
         const sIdx = entry.slotIndexInStruct;
         const col = sIdx % meta.cols;
-        const canEditCols = !isCasesEnv(meta.env);
+        const canEditCols = !isCasesEnv(meta.env) && meta.env !== 'substack';
         return {
           structId: entry.parentStruct.id,
           env: meta.env,
@@ -230,7 +260,15 @@ export class MathSlotEngine {
   }
 
   public getSnapshot(): EditorSnapshot {
-    const latex = toLatex(this.doc, { autoShorthands: this.settings.autoShorthands });
+    if (
+      this.cachedLatexRev !== this.docRevision ||
+      this.cachedLatexAuto !== this.settings.autoShorthands
+    ) {
+      this.cachedLatex = toLatex(this.doc, { autoShorthands: this.settings.autoShorthands });
+      this.cachedLatexRev = this.docRevision;
+      this.cachedLatexAuto = this.settings.autoShorthands;
+    }
+    const latex = this.cachedLatex;
     const interactiveLatex = toInteractiveLatex(this.doc, this.cursor, this.selection, {
       focused: this.focused,
       showJumpTargets: this.mode.kind === 'jump',
@@ -240,6 +278,8 @@ export class MathSlotEngine {
       doc: this.doc,
       cursor: { ...this.cursor },
       selection: this.selection ? { ...this.selection } : null,
+      gridSelection: this.gridSelection ? { ...this.gridSelection } : null,
+      docRevision: this.docRevision,
       mode: this.mode,
       latex,
       interactiveLatex,
@@ -263,10 +303,13 @@ export class MathSlotEngine {
 
   private pushHistory(): void {
     this.lastTypingMeta = null;
+    this.docRevision += 1;
     this.undoStack.push({
       doc: cloneDocument(this.doc),
       cursor: { ...this.cursor },
       selection: this.selection ? { ...this.selection } : null,
+      latexArgCloseBySlot: Array.from(this.latexArgCloseBySlot.entries()),
+      expectLatexOpenBraceSlotId: this.expectLatexOpenBraceSlotId,
     });
     if (this.undoStack.length > MAX_HISTORY) {
       this.undoStack.shift();
@@ -276,6 +319,7 @@ export class MathSlotEngine {
 
   private pushTypingHistory(slotId: string, startOffset: number): void {
     const now = Date.now();
+    this.docRevision += 1;
     if (
       !this.selection &&
       this.lastTypingMeta &&
@@ -321,6 +365,8 @@ export class MathSlotEngine {
       doc: cloneDocument(this.doc),
       cursor: { ...this.cursor },
       selection: this.selection ? { ...this.selection } : null,
+      latexArgCloseBySlot: Array.from(this.latexArgCloseBySlot.entries()),
+      expectLatexOpenBraceSlotId: this.expectLatexOpenBraceSlotId,
     });
     if (this.redoStack.length > MAX_HISTORY) {
       this.redoStack.shift();
@@ -328,6 +374,10 @@ export class MathSlotEngine {
     this.doc = prev.doc;
     this.cursor = prev.cursor;
     this.selection = prev.selection ? { ...prev.selection } : null;
+    this.gridSelection = null;
+    this.docRevision += 1;
+    this.latexArgCloseBySlot = new Map(prev.latexArgCloseBySlot ?? []);
+    this.expectLatexOpenBraceSlotId = prev.expectLatexOpenBraceSlotId ?? null;
     this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     this.notify();
@@ -342,6 +392,8 @@ export class MathSlotEngine {
       doc: cloneDocument(this.doc),
       cursor: { ...this.cursor },
       selection: this.selection ? { ...this.selection } : null,
+      latexArgCloseBySlot: Array.from(this.latexArgCloseBySlot.entries()),
+      expectLatexOpenBraceSlotId: this.expectLatexOpenBraceSlotId,
     });
     if (this.undoStack.length > MAX_HISTORY) {
       this.undoStack.shift();
@@ -349,6 +401,10 @@ export class MathSlotEngine {
     this.doc = next.doc;
     this.cursor = next.cursor;
     this.selection = next.selection ? { ...next.selection } : null;
+    this.gridSelection = null;
+    this.docRevision += 1;
+    this.latexArgCloseBySlot = new Map(next.latexArgCloseBySlot ?? []);
+    this.expectLatexOpenBraceSlotId = next.expectLatexOpenBraceSlotId ?? null;
     this.leaderMorphBackup = null;
     this.mode = { kind: 'edit' };
     this.notify();
@@ -361,6 +417,7 @@ export class MathSlotEngine {
     this.doc = createEmptyDocument();
     this.cursor = { slotId: this.doc.root.id, offset: 0 };
     this.selection = null;
+    this.gridSelection = null;
     this.jumpHistory = [];
     this.jumpHistoryIdx = -1;
     this.leaderMorphBackup = null;
@@ -380,6 +437,7 @@ export class MathSlotEngine {
     this.doc = result.doc;
     this.cursor = { slotId: this.doc.root.id, offset: this.doc.root.children.length };
     this.selection = null;
+    this.gridSelection = null;
     this.jumpHistory = [];
     this.jumpHistoryIdx = -1;
     this.leaderMorphBackup = null;
@@ -459,9 +517,211 @@ export class MathSlotEngine {
     this.notify();
   }
 
+  /** Exports a structured `PersistedDraftV1` snapshot preserving exact AST, empty optional slots, and cursor position. */
+  public exportDraftV1(wrapper?: MathWrapperKind): PersistedDraftV1 {
+    return {
+      schemaVersion: 1,
+      updatedAt: Date.now(),
+      root: cloneDocument(this.doc).root,
+      cursor: { ...this.cursor },
+      ...(wrapper ? { wrapper } : {}),
+    };
+  }
+
+  /** Safely restores a validated `PersistedDraftV1` snapshot, syncing AST IDs and clamping cursor bounds. */
+  public restoreDraftV1(raw: unknown): boolean {
+    const valid = validatePersistedDraftV1(raw);
+    if (!valid) return false;
+    syncIdCounterFromTree(valid.root);
+    this.pushHistory();
+    this.doc = { root: valid.root };
+    const targetSlot = findSlot(this.doc.root, valid.cursor.slotId) ?? this.doc.root;
+    this.cursor = {
+      slotId: targetSlot.id,
+      offset: Math.max(0, Math.min(valid.cursor.offset, targetSlot.children.length)),
+    };
+    this.selection = null;
+    this.gridSelection = null;
+    this.jumpHistory = [];
+    this.jumpHistoryIdx = -1;
+    this.leaderMorphBackup = null;
+    this.latexArgCloseBySlot.clear();
+    this.expectLatexOpenBraceSlotId = null;
+    this.mode = { kind: 'edit' };
+    this.docRevision += 1;
+    this.notify();
+    return true;
+  }
+
+  /**
+   * Cross-slot tree-path selection (Phase 3 P1-4):
+   * - Same slot: selects contiguous range `[min, max]`.
+   * - Two cells inside the same matrix/grid: creates a rectangular `GridRectSelection`.
+   * - Different slots elsewhere: promotes selection to the minimal enclosing range in their Lowest Common Ancestor (LCA) slot.
+   */
+  public selectBetweenPoints(anchor: TreePoint, focus: TreePoint): void {
+    if (anchor.slotId === focus.slotId) {
+      this.gridSelection = null;
+      this.setSelectionRange(anchor.slotId, anchor.offset, focus.offset);
+      this.notify();
+      return;
+    }
+
+    const pathA = findSlotPath(this.doc.root, anchor.slotId);
+    const pathF = findSlotPath(this.doc.root, focus.slotId);
+    if (!pathA || !pathF) return;
+
+    // 1. Check whether both endpoints lie inside cells of the exact same grid/matrix struct
+    const gridA = pathA[pathA.length - 1];
+    const gridF = pathF[pathF.length - 1];
+    if (
+      gridA.parentStruct &&
+      gridF.parentStruct &&
+      gridA.parentStruct.id === gridF.parentStruct.id
+    ) {
+      const meta = getGridMeta(gridA.parentStruct);
+      if (meta) {
+        const ar = Math.floor(gridA.slotIndexInStruct / meta.cols);
+        const ac = gridA.slotIndexInStruct % meta.cols;
+        const fr = Math.floor(gridF.slotIndexInStruct / meta.cols);
+        const fc = gridF.slotIndexInStruct % meta.cols;
+        this.selection = null;
+        this.gridSelection = {
+          structId: gridA.parentStruct.id,
+          r1: Math.min(ar, fr),
+          c1: Math.min(ac, fc),
+          r2: Math.max(ar, fr),
+          c2: Math.max(ac, fc),
+        };
+        this.cursor = {
+          slotId: gridF.slot.id,
+          offset: Math.max(0, Math.min(focus.offset, gridF.slot.children.length)),
+        };
+        this.notify();
+        return;
+      }
+    }
+
+    // 2. Lowest Common Ancestor (LCA) promotion across arbitrary nested structures
+    this.gridSelection = null;
+    let lcaIdx = 0;
+    const minLen = Math.min(pathA.length, pathF.length);
+    while (lcaIdx + 1 < minLen && pathA[lcaIdx + 1].slot.id === pathF[lcaIdx + 1].slot.id) {
+      lcaIdx += 1;
+    }
+    const lcaSlot = pathA[lcaIdx].slot;
+    const aChild = pathA[lcaIdx + 1];
+    const fChild = pathF[lcaIdx + 1];
+
+    // If one point is inside a child struct of the LCA and the other is directly in the LCA slot
+    const aStart = aChild ? aChild.nodeIndexInParent : anchor.offset;
+    const aEnd = aChild ? aChild.nodeIndexInParent + 1 : anchor.offset;
+    const fStart = fChild ? fChild.nodeIndexInParent : focus.offset;
+    const fEnd = fChild ? fChild.nodeIndexInParent + 1 : focus.offset;
+
+    const start = Math.max(0, Math.min(aStart, fStart));
+    const end = Math.min(lcaSlot.children.length, Math.max(aEnd, fEnd));
+    if (end > start) {
+      this.selection = { slotId: lcaSlot.id, start, end };
+      this.cursor = { slotId: lcaSlot.id, offset: end };
+      this.notify();
+    }
+  }
+
+  private findStructById(slot: SlotNode, structId: string): StructNode | null {
+    for (const child of slot.children) {
+      if (child.type === 'struct') {
+        if (child.id === structId) return child;
+        for (const s of child.slots) {
+          const hit = this.findStructById(s, structId);
+          if (hit) return hit;
+        }
+      }
+    }
+    return null;
+  }
+
+  private tryPasteTsvIntoGrid(rawText: string): boolean {
+    if (!rawText.includes('\t')) return false;
+    const ctx = this.findActiveGridContext();
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack') return false;
+    const rowsData = rawText
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => line.split('\t').map((cell) => cell.trim()));
+    if (rowsData.length === 0) return false;
+    const pasteRows = rowsData.length;
+    const pasteCols = Math.max(...rowsData.map((r) => r.length));
+    if (pasteCols < 2 && pasteRows < 2) return false;
+
+    const targetRows = Math.min(12, Math.max(ctx.rows, ctx.row + pasteRows));
+    const targetCols = Math.min(10, Math.max(ctx.cols, ctx.col + pasteCols));
+    this.pushHistory();
+
+    const { struct, env } = ctx;
+    let curRows = ctx.rows;
+    let curCols = ctx.cols;
+    let curSpec = getGridMeta(struct)?.colSpec;
+
+    // Expand rows if needed
+    while (curRows < targetRows) {
+      for (let c = 0; c < curCols; c += 1) {
+        struct.slots.push(createSlot(`(${curRows + 1},${c + 1})`));
+      }
+      curRows += 1;
+    }
+    // Expand cols if needed
+    while (curCols < targetCols) {
+      for (let r = curRows - 1; r >= 0; r -= 1) {
+        struct.slots.splice(r * curCols + curCols, 0, createSlot(`(${r + 1},${curCols + 1})`));
+      }
+      curSpec = insertColIntoSpec(curSpec, curCols, curCols, env);
+      curCols += 1;
+    }
+
+    struct.grid = {
+      env,
+      rows: curRows,
+      cols: curCols,
+      ...(curSpec ? { colSpec: curSpec } : {}),
+    };
+    this.relabelGridSlots(struct, env, curRows, curCols);
+
+    for (let dr = 0; dr < pasteRows && ctx.row + dr < curRows; dr += 1) {
+      for (let dc = 0; dc < rowsData[dr].length && ctx.col + dc < curCols; dc += 1) {
+        const cellText = rowsData[dr][dc];
+        const slotIdx = (ctx.row + dr) * curCols + (ctx.col + dc);
+        const targetSlot = struct.slots[slotIdx];
+        if (!targetSlot) continue;
+        if (!cellText) {
+          targetSlot.children = [];
+        } else {
+          const parsed = importFormula(cellText);
+          targetSlot.children =
+            !parsed.diagnostics.some((d) => d.severity === 'error') &&
+            parsed.doc.root.children.length > 0
+              ? this.sanitizeNodesForTargetSlot(parsed.doc.root.children, targetSlot.id)
+              : textToCharNodes(cellText, true);
+        }
+      }
+    }
+
+    const endRow = Math.min(curRows - 1, ctx.row + pasteRows - 1);
+    const endCol = Math.min(curCols - 1, ctx.col + pasteCols - 1);
+    const endSlot = struct.slots[endRow * curCols + endCol] ?? struct.slots[0];
+    this.cursor = { slotId: endSlot.id, offset: endSlot.children.length };
+    this.selection = null;
+    this.gridSelection = null;
+    this.mode = { kind: 'edit' };
+    this.notify();
+    return true;
+  }
+
   public pasteText(text: string): void {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (this.tryPasteTsvIntoGrid(text)) return;
     if (this.getInputContext() === 'text' || this.isInsideOperatorName()) {
       this.pasteLiteralText(trimmed);
       return;
@@ -519,6 +779,27 @@ export class MathSlotEngine {
   }
 
   public getSelectedLatex(): string {
+    if (this.gridSelection) {
+      const { structId, r1, c1, r2, c2 } = this.gridSelection;
+      const struct = this.findStructById(this.doc.root, structId);
+      const meta = struct ? getGridMeta(struct) : null;
+      if (struct && meta) {
+        const rowLatex: string[] = [];
+        for (let r = r1; r <= r2; r += 1) {
+          const cols: string[] = [];
+          for (let c = c1; c <= c2; c += 1) {
+            const slot = struct.slots[r * meta.cols + c];
+            cols.push(
+              slot
+                ? emitNodesCanonical(slot.children, { autoShorthands: this.settings.autoShorthands })
+                : '',
+            );
+          }
+          rowLatex.push(cols.join(' & '));
+        }
+        return formatGridEnvironment(meta.env, undefined, c2 - c1 + 1, rowLatex.join(' \\\\ '));
+      }
+    }
     if (!this.selection) return toLatex(this.doc, { autoShorthands: this.settings.autoShorthands });
     const slot = findSlot(this.doc.root, this.selection.slotId);
     if (!slot) return '';
@@ -668,6 +949,7 @@ export class MathSlotEngine {
     if (!this.leaderMorphBackup) return false;
     const b = this.leaderMorphBackup;
     this.doc = b.doc;
+    this.docRevision += 1;
     this.cursor = b.cursor;
     this.selection = b.selection;
     this.undoStack.length = Math.min(this.undoStack.length, b.undoLen);
@@ -1790,20 +2072,14 @@ export class MathSlotEngine {
       this.selection = null;
       this.lastTypingMeta = null;
 
-      // Multi-arg commands awaiting a second `{...}` argument: `\frac{1}{2}`, `\binom{n}{k}`, `\overset{a}{b}`, `\underset{a}{b}`, `\sqrt[3]{8}`
-      const braceNextSlotMap: Record<string, number> = {
-        frac: 1,
-        binom: 1,
-        overset: 1,
-        underset: 1,
-        sqrt: 1,
-      };
+      // Multi-arg commands awaiting a second `{...}` argument (declaratively specified in COMMAND_CAPABILITIES)
+      const nextBraceIdx = NEXT_BRACE_SLOT_MAP[struct.commandId];
       if (
         entry.slotIndexInStruct === 0 &&
-        braceNextSlotMap[struct.commandId] === 1 &&
-        struct.slots.length >= 2
+        nextBraceIdx !== undefined &&
+        struct.slots.length > nextBraceIdx
       ) {
-        const nextSlot = struct.slots[1];
+        const nextSlot = struct.slots[nextBraceIdx];
         this.cursor = { slotId: nextSlot.id, offset: nextSlot.children.length };
         this.expectLatexOpenBraceSlotId = nextSlot.id;
         return true;
@@ -1903,40 +2179,6 @@ export class MathSlotEngine {
         }
       }
       return ok;
-    }
-
-    // 1b. Native 1-arg LaTeX font/style macros (`\mathrm{d}`, `\mathfrak{g}`, `\mathsf{T}`, `\mathtt{x}`, `\boldsymbol{x}`, `\bm{x}`)
-    if (
-      trigger === '{' &&
-      (name === 'mathrm' ||
-        name === 'mathfrak' ||
-        name === 'mathsf' ||
-        name === 'mathtt' ||
-        name === 'boldsymbol' ||
-        name === 'bm')
-    ) {
-      this.pushHistory();
-      slot.children.splice(start, this.cursor.offset - start);
-      this.cursor.offset = start;
-      const customDef: CommandDef = {
-        id: `inline_${name}`,
-        keys: [],
-        label: name,
-        category: 'accent',
-        glyph: name,
-        slots: [name],
-        latex: `\\${name}{$1}`,
-        doc: `\\${name}{...}`,
-        examples: [],
-        wrapSlot: 0,
-      };
-      const struct = createStructNode(customDef, [[]]);
-      struct.customLatex = `\\${name}{$1}`;
-      slot.children.splice(start, 0, struct);
-      this.cursor = { slotId: struct.slots[0].id, offset: 0 };
-      this.latexArgCloseBySlot.set(struct.slots[0].id, '}');
-      this.notify();
-      return true;
     }
 
     // 2. Explicit spacing macros (`\quad`, `\qquad`)
@@ -2469,6 +2711,27 @@ export class MathSlotEngine {
       return;
     }
 
+    if (this.gridSelection) {
+      const { structId, r1, c1, r2, c2 } = this.gridSelection;
+      const struct = this.findStructById(this.doc.root, structId);
+      const meta = struct ? getGridMeta(struct) : null;
+      if (struct && meta) {
+        this.pushHistory();
+        for (let r = r1; r <= r2; r += 1) {
+          for (let c = c1; c <= c2; c += 1) {
+            const s = struct.slots[r * meta.cols + c];
+            if (s) s.children = [];
+          }
+        }
+        const first = struct.slots[r1 * meta.cols + c1];
+        if (first) this.cursor = { slotId: first.id, offset: 0 };
+        this.gridSelection = null;
+        this.notify();
+        return;
+      }
+      this.gridSelection = null;
+    }
+
     if (this.selection) {
       this.pushHistory();
       this.deleteSelectionInternal();
@@ -2547,6 +2810,27 @@ export class MathSlotEngine {
   public deleteForward(): void {
     this.lastTypingMeta = null;
     this.mode = { kind: 'edit' };
+    if (this.gridSelection) {
+      const { structId, r1, c1, r2, c2 } = this.gridSelection;
+      const struct = this.findStructById(this.doc.root, structId);
+      const meta = struct ? getGridMeta(struct) : null;
+      if (struct && meta) {
+        this.pushHistory();
+        for (let r = r1; r <= r2; r += 1) {
+          for (let c = c1; c <= c2; c += 1) {
+            const s = struct.slots[r * meta.cols + c];
+            if (s) s.children = [];
+          }
+        }
+        const first = struct.slots[r1 * meta.cols + c1];
+        if (first) this.cursor = { slotId: first.id, offset: 0 };
+        this.gridSelection = null;
+        this.notify();
+        return;
+      }
+      this.gridSelection = null;
+    }
+
     if (this.selection) {
       this.pushHistory();
       this.deleteSelectionInternal();
@@ -2576,6 +2860,7 @@ export class MathSlotEngine {
     const slot = this.currentSlot();
 
     if (extendSelection) {
+      this.gridSelection = null;
       const anchor = this.selection
         ? this.cursor.offset === this.selection.start
           ? this.selection.end
@@ -2584,10 +2869,26 @@ export class MathSlotEngine {
       if (this.cursor.offset > 0) {
         this.cursor.offset -= 1;
         this.setSelectionRange(slot.id, anchor, this.cursor.offset);
+      } else {
+        // Cross-slot keyboard expansion: promote selection to enclosing StructNode in parent slot!
+        const path = findSlotPath(this.doc.root, slot.id);
+        if (path && path.length > 1) {
+          const cur = path[path.length - 1];
+          if (cur.parentSlot) {
+            this.selection = {
+              slotId: cur.parentSlot.id,
+              start: cur.nodeIndexInParent,
+              end: cur.nodeIndexInParent + 1,
+            };
+            this.cursor = { slotId: cur.parentSlot.id, offset: cur.nodeIndexInParent };
+          }
+        }
       }
       this.notify();
       return;
     }
+
+    this.gridSelection = null;
 
     if (this.selection) {
       this.cursor = { slotId: this.selection.slotId, offset: this.selection.start };
@@ -2640,6 +2941,7 @@ export class MathSlotEngine {
     const slot = this.currentSlot();
 
     if (extendSelection) {
+      this.gridSelection = null;
       const anchor = this.selection
         ? this.cursor.offset === this.selection.end
           ? this.selection.start
@@ -2648,10 +2950,26 @@ export class MathSlotEngine {
       if (this.cursor.offset < slot.children.length) {
         this.cursor.offset += 1;
         this.setSelectionRange(slot.id, anchor, this.cursor.offset);
+      } else {
+        // Cross-slot keyboard expansion: promote selection to enclosing StructNode in parent slot!
+        const path = findSlotPath(this.doc.root, slot.id);
+        if (path && path.length > 1) {
+          const cur = path[path.length - 1];
+          if (cur.parentSlot) {
+            this.selection = {
+              slotId: cur.parentSlot.id,
+              start: cur.nodeIndexInParent,
+              end: cur.nodeIndexInParent + 1,
+            };
+            this.cursor = { slotId: cur.parentSlot.id, offset: cur.nodeIndexInParent + 1 };
+          }
+        }
       }
       this.notify();
       return;
     }
+
+    this.gridSelection = null;
 
     if (this.selection) {
       this.cursor = { slotId: this.selection.slotId, offset: this.selection.end };
@@ -2743,11 +3061,18 @@ export class MathSlotEngine {
 
   private relabelGridSlots(struct: StructNode, env: string, rows: number, cols: number): void {
     const casesLike = isCasesEnv(env);
+    const substackLike = env === 'substack';
     for (let r = 0; r < rows; r += 1) {
       for (let c = 0; c < cols; c += 1) {
         const s = struct.slots[r * cols + c];
         if (!s) continue;
-        s.label = casesLike ? (c === 0 ? `表达式${r + 1}` : `条件${r + 1}`) : `(${r + 1},${c + 1})`;
+        s.label = substackLike
+          ? `第 ${r + 1} 行`
+          : casesLike
+            ? c === 0
+              ? `表达式${r + 1}`
+              : `条件${r + 1}`
+            : `(${r + 1},${c + 1})`;
       }
     }
   }
@@ -2828,7 +3153,7 @@ export class MathSlotEngine {
 
   public addGridCol(where: 'right' | 'left' = 'right'): boolean {
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.cols >= 10) return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.cols >= 10) return false;
     this.pushHistory();
     const { struct, env, rows, cols, row, col } = ctx;
     const prevSpec = getGridMeta(struct)?.colSpec;
@@ -2862,7 +3187,7 @@ export class MathSlotEngine {
 
   public removeGridCol(): boolean {
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.cols <= 1) return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.cols <= 1) return false;
     this.pushHistory();
     const { struct, env, rows, cols, row, col } = ctx;
     const prevSpec = getGridMeta(struct)?.colSpec;
@@ -2895,7 +3220,7 @@ export class MathSlotEngine {
    */
   public toggleGridColBar(): boolean {
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.cols < 2 || ctx.col >= ctx.cols - 1) return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.cols < 2 || ctx.col >= ctx.cols - 1) return false;
     this.pushHistory();
     const { struct, env, rows, cols, col } = ctx;
     const prevSpec = getGridMeta(struct)?.colSpec;

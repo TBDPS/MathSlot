@@ -193,8 +193,11 @@ describe('MathSlot v2.3 architecture contracts & new capabilities', () => {
     const rSet = importFormula('\\mathbb{R}');
     expect(rSet.doc.root.children[0].type).toBe('symbol');
     const expSet = importFormula('\\mathbb{E}');
-    expect(expSet.doc.root.children[0].type).toBe('struct');
+    expect(expSet.doc.root.children[0].type).toBe('symbol');
     expect(toLatex(expSet.doc)).toBe('\\mathbb{E}');
+    const fieldSet = importFormula('\\mathbb{F}');
+    expect(fieldSet.doc.root.children[0].type).toBe('struct');
+    expect(toLatex(fieldSet.doc)).toBe('\\mathbb{F}');
 
     // `\mathbf`, `\mathcal`, `\operatorname`, `\bigcup`, `\bigcap`, `\mid`, `\widehat`, `\widetilde`, `\overrightarrow`
     const rich =

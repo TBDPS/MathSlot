@@ -1,0 +1,10 @@
+{
+  "name": "MathSlot Studio",
+  "short_name": "MathSlot",
+  "description": "视觉直觉优先、键盘流全控的 2D 数学公式工作台",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b1325",
+  "theme_color": "#1e3a7a",
+  "icons": []
+}

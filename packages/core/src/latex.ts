@@ -14,73 +14,25 @@ import {
   sanitizeLatexTemplate,
 } from './commandSpecs';
 import {
+  MATH_FUNCTIONS,
+  OPERATORNAME_FUNCTIONS,
+  analyzeSlotSemantics,
+  isGenericDiffWord,
+} from './emitIr';
+import {
   BARE_WORD_ATOMS,
   BARE_WORD_BINOPS,
-  DIFFERENTIAL_WORDS,
 } from './shorthands';
 import type {
   Cursor,
   DelimiterStyle,
   Document,
   MathNode,
+  MathWrapperKind,
   Selection,
   SlotNode,
   StructNode,
 } from './types';
-
-export const MATH_FUNCTIONS = new Set([
-  'sin',
-  'cos',
-  'tan',
-  'cot',
-  'sec',
-  'csc',
-  'arcsin',
-  'arccos',
-  'arctan',
-  'sinh',
-  'cosh',
-  'tanh',
-  'coth',
-  'sech',
-  'csch',
-  'log',
-  'ln',
-  'lg',
-  'exp',
-  'lim',
-  'limsup',
-  'liminf',
-  'max',
-  'min',
-  'sup',
-  'inf',
-  'det',
-  'gcd',
-  'lcm',
-  'dim',
-  'ker',
-  'deg',
-  'arg',
-  'Pr',
-  'hom',
-  'Re',
-  'Im',
-]);
-
-export const OPERATORNAME_FUNCTIONS: Readonly<Record<string, string>> = {
-  rank: '\\operatorname{rank}',
-  tr: '\\operatorname{tr}',
-  span: '\\operatorname{span}',
-  diag: '\\operatorname{diag}',
-  proj: '\\operatorname{proj}',
-  Res: '\\operatorname{Res}',
-  Cov: '\\operatorname{Cov}',
-  Var: '\\operatorname{Var}',
-  corr: '\\operatorname{corr}',
-  argmin: '\\operatorname*{arg\\,min}',
-  argmax: '\\operatorname*{arg\\,max}',
-};
 
 export const EXPLICIT_SPACE_MACROS = new Set([
   '\\,',
@@ -199,10 +151,40 @@ function tokenizeSlotForCanonical(
 ): EmitToken[] {
   const tokens: EmitToken[] = [];
   const children = slot.children;
+  const ir = analyzeSlotSemantics(children, autoShorthands);
   let i = 0;
 
   while (i < children.length) {
     const node = children[i];
+    const irSpan = ir.spansByStart.get(i);
+
+    if (irSpan) {
+      if (irSpan.kind === 'macro_draft') {
+        if (irSpan.rawText.length > 0) {
+          tokens.push({ text: irSpan.latex, kind: 'raw' });
+          i = irSpan.end;
+          continue;
+        }
+      } else if (irSpan.kind === 'func') {
+        tokens.push({ text: irSpan.latex, kind: 'func' });
+        i = irSpan.end;
+        continue;
+      } else if (irSpan.kind === 'diff') {
+        tokens.push({ text: irSpan.latex, kind: 'diff' });
+        i = irSpan.end;
+        continue;
+      } else if (irSpan.kind === 'binop') {
+        const lastNonSpace = findLastNonSpace(tokens);
+        const unary = isUnaryContext(lastNonSpace);
+        tokens.push({ text: irSpan.latex, kind: unary ? 'atom' : 'binop' });
+        i = irSpan.end;
+        continue;
+      } else if (irSpan.kind === 'symbol_word') {
+        tokens.push({ text: irSpan.latex, kind: 'atom' });
+        i = irSpan.end;
+        continue;
+      }
+    }
 
     if (node.type === 'char') {
       if (node.value === ' ') {
@@ -211,28 +193,6 @@ function tokenizeSlotForCanonical(
         }
         i += 1;
         continue;
-      }
-
-      // Native LaTeX macro draft (`\alpha`, `\frac`, `\mathrm`, ...) typed on canvas:
-      // NEVER turn `\` + `alpha` into `\backslash \alpha`! Emit the macro verbatim while
-      // keeping a standalone stray `\` safely escaped as `\backslash `.
-      if (node.value === '\\' && !node.verbatim) {
-        let j = i + 1;
-        let macroLetters = '';
-        while (
-          j < children.length &&
-          children[j].type === 'char' &&
-          !(children[j] as { verbatim?: boolean }).verbatim &&
-          /^[A-Za-z]$/.test((children[j] as { value: string }).value)
-        ) {
-          macroLetters += (children[j] as { value: string }).value;
-          j += 1;
-        }
-        if (macroLetters.length > 0) {
-          tokens.push({ text: `\\${macroLetters}`, kind: 'raw' });
-          i = j;
-          continue;
-        }
       }
 
       if (/^[A-Za-z]$/.test(node.value)) {
@@ -247,29 +207,7 @@ function tokenizeSlotForCanonical(
           word += (children[i] as { value: string }).value;
           i += 1;
         }
-        if (isVerbatim) {
-          tokens.push({ text: word, kind: 'atom' });
-        } else if (MATH_FUNCTIONS.has(word)) {
-          tokens.push({ text: `\\${word}`, kind: 'func' });
-        } else if (OPERATORNAME_FUNCTIONS[word]) {
-          tokens.push({ text: OPERATORNAME_FUNCTIONS[word], kind: 'func' });
-        } else if (autoShorthands && (DIFFERENTIAL_WORDS[word] || isGenericDiffWord(word))) {
-          tokens.push({
-            text: DIFFERENTIAL_WORDS[word] ?? `\\mathrm{d}${word.slice(1)}`,
-            kind: 'diff',
-          });
-        } else if (autoShorthands && BARE_WORD_BINOPS[word]) {
-          const lastNonSpace = findLastNonSpace(tokens);
-          const unary = isUnaryContext(lastNonSpace);
-          tokens.push({
-            text: BARE_WORD_BINOPS[word],
-            kind: unary ? 'atom' : 'binop',
-          });
-        } else if (autoShorthands && BARE_WORD_ATOMS[word]) {
-          tokens.push({ text: BARE_WORD_ATOMS[word], kind: 'atom' });
-        } else {
-          tokens.push({ text: word, kind: 'atom' });
-        }
+        tokens.push({ text: word, kind: 'atom' });
         continue;
       }
 
@@ -396,10 +334,6 @@ function endsWithMacroName(s: string): boolean {
 
 function startsWithAsciiLetter(s: string): boolean {
   return /^[a-zA-Z]/.test(s);
-}
-
-function isGenericDiffWord(text: string): boolean {
-  return /^d[a-zA-Z]$/.test(text);
 }
 
 function isSimpleFuncArgParen(node: StructNode): boolean {
@@ -622,6 +556,10 @@ function emitSlotCanonical(
       }
     }
 
+    if (t.structCmdId === 'tag_eq' && out.length > 0 && !out.endsWith(' ')) {
+      out += ' ';
+    }
+
     if (out.length > 0 && !out.endsWith(' ') && endsWithMacroName(out) && startsWithAsciiLetter(t.text)) {
       out += ' ';
     }
@@ -682,18 +620,22 @@ function resolveAdaptiveStructTemplate(
     case 'sum':
     case 'product':
     case 'bigcup':
-    case 'bigcap': {
+    case 'bigcap':
+    case 'coprod':
+    case 'bigoplus':
+    case 'bigotimes': {
       if (node.slots.length !== 3) return null;
-      const baseMacro =
-        node.commandId === 'integral'
-          ? '\\int'
-          : node.commandId === 'sum'
-            ? '\\sum'
-            : node.commandId === 'product'
-              ? '\\prod'
-              : node.commandId === 'bigcup'
-                ? '\\bigcup'
-                : '\\bigcap';
+      const macroTable: Record<string, string> = {
+        integral: '\\int',
+        sum: '\\sum',
+        product: '\\prod',
+        bigcup: '\\bigcup',
+        bigcap: '\\bigcap',
+        coprod: '\\coprod',
+        bigoplus: '\\bigoplus',
+        bigotimes: '\\bigotimes',
+      };
+      const baseMacro = macroTable[node.commandId] ?? '\\sum';
       const macro = node.limitsMode ? `${baseMacro}\\${node.limitsMode}` : baseMacro;
       const hasLo = hasSlot(0);
       const hasHi = hasSlot(1);
@@ -701,6 +643,14 @@ function resolveAdaptiveStructTemplate(
       if (hasLo) return `${macro}_{$1} $3`;
       if (hasHi) return `${macro}^{$2} $3`;
       return `${macro} $3`;
+    }
+    case 'nth_partial':
+    case 'nth_deriv': {
+      if (node.slots.length !== 4) return null;
+      const d = node.commandId === 'nth_partial' ? '\\partial' : '\\mathrm{d}';
+      const numOrder = hasSlot(0) ? `${d}^{$1}` : d;
+      const denOrder = hasSlot(3) ? '$3^{$4}' : '$3';
+      return `\\frac{${numOrder} $2}{${d} ${denOrder}}`;
     }
     case 'double_integral':
     case 'contour_integral':
@@ -843,7 +793,9 @@ function emitStructCanonical(
         const colStrings: string[] = [];
         for (let c = 0; c < cols; c += 1) {
           const slot = node.slots[r * cols + c];
-          colStrings.push(slot ? emitSlotCanonical(slot, 'display', autoShorthands) : '');
+          colStrings.push(
+            slot ? emitSlotCanonical(slot, env === 'substack' ? 'tight' : 'display', autoShorthands) : '',
+          );
         }
         rowStrings.push(colStrings.join(' & '));
       }
@@ -996,161 +948,62 @@ export function toLatex(doc: Document, options: LatexEmitOptions = {}): string {
   return `\\begin{gathered} ${inner} \\end{gathered}`;
 }
 
-export function formatExport(latex: string, style: DelimiterStyle): string {
-  const clean = latex.trim();
-  if (!clean) return '';
+export function delimiterToWrapper(style: DelimiterStyle): MathWrapperKind {
   switch (style) {
     case 'none':
-      return clean;
+      return 'none';
     case 'inline':
-      return `$${clean}$`;
+      return 'dollar_inline';
     case 'block':
+      return 'dollar_block';
+    case 'codeblock':
+      return 'codeblock';
+  }
+}
+
+export function formatFormulaWithWrapper(latex: string, wrapper: MathWrapperKind): string {
+  const clean = latex.trim();
+  if (!clean) return '';
+  switch (wrapper) {
+    case 'none':
+      return clean;
+    case 'dollar_inline':
+      return `$${clean}$`;
+    case 'paren_inline':
+      return `\\(${clean}\\)`;
+    case 'dollar_block':
       return `$$\n${clean}\n$$`;
+    case 'bracket_block':
+      return `\\[\n${clean}\n\\]`;
     case 'codeblock':
       return `\`\`\`latex\n${clean}\n\`\`\``;
   }
+}
+
+/**
+ * Normalizes display-only TeX constructs (`\tag{...}`, `\begin{align}`) so inline KaTeX
+ * preview cards (`displayMode: false`, e.g. preset library & history lists) render crisply
+ * with zero KaTeX errors.
+ */
+export function normalizePreviewLatex(latex: string, displayMode: boolean): string {
+  if (displayMode) return latex;
+  return latex
+    .replace(/\\begin\{align\*?\}/g, '\\begin{aligned}')
+    .replace(/\\end\{align\*?\}/g, '\\end{aligned}')
+    .replace(/\\begin\{gather\*?\}/g, '\\begin{gathered}')
+    .replace(/\\end\{gather\*?\}/g, '\\end{gathered}')
+    .replace(/\\tag\*\{([^}]*)\}/g, '\\quad\\text{$1}')
+    .replace(/\\tag\{([^}]*)\}/g, '\\quad\\text{($1)}');
+}
+
+export function formatExport(latex: string, style: DelimiterStyle): string {
+  return formatFormulaWithWrapper(latex, delimiterToWrapper(style));
 }
 
 export interface InteractiveRenderOptions {
   focused?: boolean;
   showJumpTargets?: boolean;
   autoShorthands?: boolean;
-}
-
-interface WordTokenSpan {
-  start: number;
-  end: number;
-  kind: 'func' | 'symbol' | 'binop' | 'diff';
-  latex: string;
-}
-
-interface MacroDraftSpan {
-  start: number;
-  end: number;
-  name: string;
-}
-
-interface InteractiveHints {
-  upright: Set<number>;
-  funcStarts: Set<number>;
-  funcEnds: Set<number>;
-  diffStarts: Set<number>;
-  wordSpans: Map<number, WordTokenSpan>;
-  macroDraftSpans: Map<number, MacroDraftSpan>;
-}
-
-function analyzeInteractiveHints(
-  children: MathNode[],
-  autoShorthands: boolean,
-): InteractiveHints {
-  const upright = new Set<number>();
-  const funcStarts = new Set<number>();
-  const funcEnds = new Set<number>();
-  const diffStarts = new Set<number>();
-  const wordSpans = new Map<number, WordTokenSpan>();
-  const macroDraftSpans = new Map<number, MacroDraftSpan>();
-
-  let hasIntegral = false;
-  let i = 0;
-
-  while (i < children.length) {
-    const node = children[i];
-    if (
-      (node.type === 'struct' && INTEGRAL_OPS.has(node.commandId)) ||
-      (node.type === 'symbol' && INTEGRAL_OPS.has(node.commandId))
-    ) {
-      hasIntegral = true;
-      i += 1;
-      continue;
-    }
-    if (node.type === 'char' && (node.value === '=' || node.value === '+' || node.value === ',' || node.value === '~')) {
-      hasIntegral = false;
-      i += 1;
-      continue;
-    }
-    // Capture `\` + contiguous ASCII letters as an in-progress native LaTeX macro draft so
-    // `\` never renders as `\backslash` and `\alpha` never morphs into `\backslash \alpha`!
-    if (node.type === 'char' && node.value === '\\' && !node.verbatim) {
-      const start = i;
-      let j = i + 1;
-      let name = '';
-      while (
-        j < children.length &&
-        children[j].type === 'char' &&
-        !(children[j] as { verbatim?: boolean }).verbatim &&
-        /^[A-Za-z]$/.test((children[j] as { value: string }).value)
-      ) {
-        name += (children[j] as { value: string }).value;
-        j += 1;
-      }
-      macroDraftSpans.set(start, { start, end: j, name });
-      i = j;
-      continue;
-    }
-    if (node.type === 'char' && /^[A-Za-z]$/.test(node.value)) {
-      const isVerbatim = Boolean(node.verbatim);
-      const start = i;
-      let word = '';
-      while (
-        i < children.length &&
-        children[i].type === 'char' &&
-        Boolean((children[i] as { verbatim?: boolean }).verbatim) === isVerbatim &&
-        /^[A-Za-z]$/.test((children[i] as { value: string }).value)
-      ) {
-        word += (children[i] as { value: string }).value;
-        i += 1;
-      }
-      const end = i;
-      const nextAfterWord = end < children.length ? children[end] : undefined;
-      const nextIsNonSpaceMath =
-        nextAfterWord !== undefined &&
-        !(nextAfterWord.type === 'char' && nextAfterWord.value === ' ');
-
-      if (isVerbatim) {
-        if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && nextIsNonSpaceMath))) {
-          upright.add(start);
-          diffStarts.add(start);
-          hasIntegral = false;
-        }
-      } else if (MATH_FUNCTIONS.has(word) || OPERATORNAME_FUNCTIONS[word]) {
-        funcStarts.add(start);
-        funcEnds.add(end - 1);
-        for (let k = start; k < end; k += 1) {
-          upright.add(k);
-        }
-      } else if (autoShorthands && (DIFFERENTIAL_WORDS[word] || isGenericDiffWord(word))) {
-        diffStarts.add(start);
-        wordSpans.set(start, {
-          start,
-          end,
-          kind: 'diff',
-          latex: DIFFERENTIAL_WORDS[word] ?? `\\mathrm{d}${word.slice(1)}`,
-        });
-        hasIntegral = false;
-      } else if (autoShorthands && BARE_WORD_BINOPS[word]) {
-        wordSpans.set(start, {
-          start,
-          end,
-          kind: 'binop',
-          latex: BARE_WORD_BINOPS[word],
-        });
-      } else if (autoShorthands && BARE_WORD_ATOMS[word]) {
-        wordSpans.set(start, {
-          start,
-          end,
-          kind: 'symbol',
-          latex: BARE_WORD_ATOMS[word],
-        });
-      } else if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && nextIsNonSpaceMath))) {
-        upright.add(start);
-        diffStarts.add(start);
-        hasIntegral = false;
-      }
-    } else {
-      i += 1;
-    }
-  }
-  return { upright, funcStarts, funcEnds, diffStarts, wordSpans, macroDraftSpans };
 }
 
 function isPrevExprForDiff(children: MathNode[], idx: number): boolean {
@@ -1229,7 +1082,7 @@ function emitSlotInteractive(
     return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${emptyBox}}}`;
   }
 
-  const hints = analyzeInteractiveHints(slot.children, autoShorthands);
+  const hints = analyzeSlotSemantics(slot.children, autoShorthands);
   const parts: string[] = [];
 
   for (let idx = 0; idx < slot.children.length; idx += 1) {
@@ -1255,41 +1108,42 @@ function emitSlotInteractive(
       return undefined;
     })();
 
+    const irSpan = hints.spansByStart.get(idx);
+
     // Native LaTeX macro draft (`\`, `\al`, `\alpha`, `\frac`, ...):
     // Render as a crisp monospace inline TeX draft while typing (never `\backslash \alpha`),
     // and render known symbol/function macros cleanly once the caret leaves the span.
-    const macroSpan = hints.macroDraftSpans.get(idx);
-    if (macroSpan) {
+    if (irSpan && irSpan.kind === 'macro_draft') {
       const caretTouching =
-        isActive && focused && cursor.offset > macroSpan.start && cursor.offset <= macroSpan.end;
+        isActive && focused && cursor.offset > irSpan.start && cursor.offset <= irSpan.end;
       const selSlicesMacro =
         selForSlot !== null &&
-        ((selForSlot.start > macroSpan.start && selForSlot.start < macroSpan.end) ||
-          (selForSlot.end > macroSpan.start && selForSlot.end < macroSpan.end));
+        ((selForSlot.start > irSpan.start && selForSlot.start < irSpan.end) ||
+          (selForSlot.end > irSpan.start && selForSlot.end < irSpan.end));
       const knownMacroLatex =
-        macroSpan.name.length > 0
-          ? (BARE_WORD_ATOMS[macroSpan.name] ??
-              BARE_WORD_BINOPS[macroSpan.name] ??
-              OPERATORNAME_FUNCTIONS[macroSpan.name] ??
-              (MATH_FUNCTIONS.has(macroSpan.name) ? `\\${macroSpan.name}` : undefined))
+        irSpan.rawText.length > 0
+          ? (BARE_WORD_ATOMS[irSpan.rawText] ??
+              BARE_WORD_BINOPS[irSpan.rawText] ??
+              OPERATORNAME_FUNCTIONS[irSpan.rawText] ??
+              (MATH_FUNCTIONS.has(irSpan.rawText) ? `\\${irSpan.rawText}` : undefined))
           : undefined;
 
       if (!caretTouching && !selSlicesMacro && knownMacroLatex) {
         const isSelected =
           selForSlot !== null &&
-          selForSlot.start <= macroSpan.start &&
-          selForSlot.end >= macroSpan.end;
+          selForSlot.start <= irSpan.start &&
+          selForSlot.end >= irSpan.end;
         const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
-        const spanLen = macroSpan.end - macroSpan.start;
+        const spanLen = irSpan.end - irSpan.start;
         parts.push(
-          `\\htmlData{atom-slot=${slot.id},offset=${macroSpan.start},span=${spanLen}}{\\htmlClass{${atomClasses}}{${knownMacroLatex}}}`,
+          `\\htmlData{atom-slot=${slot.id},offset=${irSpan.start},span=${spanLen}}{\\htmlClass{${atomClasses}}{${knownMacroLatex}}}`,
         );
-        idx = macroSpan.end - 1;
+        idx = irSpan.end - 1;
         continue;
       }
 
-      for (let k = macroSpan.start; k < macroSpan.end; k += 1) {
-        if (k > macroSpan.start && isActive && focused && cursor.offset === k && !selForSlot) {
+      for (let k = irSpan.start; k < irSpan.end; k += 1) {
+        if (k > irSpan.start && isActive && focused && cursor.offset === k && !selForSlot) {
           parts.push(wrapCaret());
         }
         const mChar = slot.children[k] as { value: string };
@@ -1298,34 +1152,33 @@ function emitSlotInteractive(
         const glyph = mChar.value === '\\' ? '\\text{\\texttt{\\textbackslash}}' : `\\text{\\texttt{${mChar.value}}}`;
         parts.push(`\\htmlData{atom-slot=${slot.id},offset=${k}}{\\htmlClass{${cls}}{${glyph}}}`);
       }
-      idx = macroSpan.end - 1;
+      idx = irSpan.end - 1;
       continue;
     }
 
     // Collapsible bare-word symbol/differential token (e.g. `pi` -> `\pi`, `oo` -> `\infty`, `dx` -> `\mathrm{d}x`)
     // Stays as calm plain letters while the caret is inside OR at the right edge of the word (`n pi|`),
     // and morphs into the math symbol once a boundary/space/operator/slot-jump moves the caret past it!
-    const wordSpan = hints.wordSpans.get(idx);
-    if (wordSpan) {
+    if (irSpan && (irSpan.kind === 'diff' || irSpan.kind === 'binop' || irSpan.kind === 'symbol_word')) {
       const caretTouching =
-        isActive && focused && cursor.offset > wordSpan.start && cursor.offset <= wordSpan.end;
+        isActive && focused && cursor.offset > irSpan.start && cursor.offset <= irSpan.end;
       const selSlicesWord =
         selForSlot !== null &&
-        ((selForSlot.start > wordSpan.start && selForSlot.start < wordSpan.end) ||
-          (selForSlot.end > wordSpan.start && selForSlot.end < wordSpan.end));
+        ((selForSlot.start > irSpan.start && selForSlot.start < irSpan.end) ||
+          (selForSlot.end > irSpan.start && selForSlot.end < irSpan.end));
 
       if (!caretTouching && !selSlicesWord) {
-        if (wordSpan.kind === 'diff' && isPrevExprForDiff(slot.children, idx)) {
+        if (irSpan.kind === 'diff' && isPrevExprForDiff(slot.children, idx)) {
           parts.push('\\,');
         }
         const isSelected =
-          selForSlot !== null && selForSlot.start <= wordSpan.start && selForSlot.end >= wordSpan.end;
+          selForSlot !== null && selForSlot.start <= irSpan.start && selForSlot.end >= irSpan.end;
         const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
-        const spanLen = wordSpan.end - wordSpan.start;
+        const spanLen = irSpan.end - irSpan.start;
         parts.push(
-          `\\htmlData{atom-slot=${slot.id},offset=${wordSpan.start},span=${spanLen}}{\\htmlClass{${atomClasses}}{${wordSpan.latex}}}`,
+          `\\htmlData{atom-slot=${slot.id},offset=${irSpan.start},span=${spanLen}}{\\htmlClass{${atomClasses}}{${irSpan.latex}}}`,
         );
-        idx = wordSpan.end - 1;
+        idx = irSpan.end - 1;
         continue;
       }
     }
@@ -1451,6 +1304,10 @@ function emitNodeInteractive(
       );
       let template =
         safeCustomLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
+      if (!safeCustomLatex && node.commandId === 'tag_eq' && node.slots.length === 1) {
+        // Render editable `\tag{...}` safely inside KaTeX interactive canvas (display & multiline safe!)
+        template = '\\qquad\\text{(}$1\\text{)}';
+      }
       if (!safeCustomLatex && node.autoSized && node.slots.length === 1) {
         const tall = slotHasTallContent(node.slots[0]);
         if (node.commandId === 'paren') {
@@ -1614,8 +1471,9 @@ export function toInteractiveLatex(
     );
   }
 
-  // Render interactive multi-line equations cleanly inside `\begin{gathered}` (with top-level `\\` line breaks!)
-  // Keep `\\` outside `\htmlData` so KaTeX lays out real visual rows while every atom stays clickable!
+  // Render interactive multi-line equations with EXACT same alignment rule as `toLatex`:
+  // when lines contain top-level relations (`=`, `\le`, `\sim`, ...), align them inside `\begin{aligned}`
+  // so canvas layout matches exported LaTeX 1:1 while keeping every atom clickable and selectable!
   const lineRanges: { start: number; end: number; breakToken?: string }[] = [];
   let lineStart = 0;
   for (let i = 0; i < doc.root.children.length; i += 1) {
@@ -1631,26 +1489,34 @@ export function toInteractiveLatex(
   }
   lineRanges.push({ start: lineStart, end: doc.root.children.length });
 
-  const lineLatexList = lineRanges.map((range) => {
+  const relIndices = lineRanges.map((range) =>
+    findFirstRelationIndex(doc.root.children.slice(range.start, range.end)),
+  );
+  const useAligned = relIndices.some((idx) => idx >= 0);
+
+  const emitRootSlice = (sliceStart: number, sliceEnd: number, includeEndCaret: boolean): string => {
     const subSlot: SlotNode = {
       id: doc.root.id,
       label: doc.root.label,
-      children: doc.root.children.slice(range.start, range.end),
+      children: doc.root.children.slice(sliceStart, sliceEnd),
     };
-    const localCursor: Cursor =
-      cursor.slotId === doc.root.id && cursor.offset >= range.start && cursor.offset <= range.end
-        ? { slotId: doc.root.id, offset: cursor.offset - range.start }
-        : { slotId: '__none__', offset: 0 };
+    const cursorInSlice =
+      cursor.slotId === doc.root.id &&
+      cursor.offset >= sliceStart &&
+      (includeEndCaret ? cursor.offset <= sliceEnd : cursor.offset < sliceEnd);
+    const localCursor: Cursor = cursorInSlice
+      ? { slotId: doc.root.id, offset: cursor.offset - sliceStart }
+      : { slotId: '__none__', offset: 0 };
     const localSel: Selection | null =
       selection && selection.slotId === doc.root.id
         ? {
             slotId: doc.root.id,
-            start: Math.max(0, selection.start - range.start),
-            end: Math.min(subSlot.children.length, selection.end - range.start),
+            start: Math.max(0, selection.start - sliceStart),
+            end: Math.min(subSlot.children.length, selection.end - sliceStart),
           }
         : null;
     const validSel = localSel && localSel.end > localSel.start ? localSel : null;
-    const rawLine = emitSlotInteractive(
+    const rawSlice = emitSlotInteractive(
       subSlot,
       localCursor,
       validSel,
@@ -1660,12 +1526,25 @@ export function toInteractiveLatex(
       autoShorthands,
       0,
     );
-    // Offset atom indices back to real root offsets so clicking/selecting on line 2+ lands accurately!
-    if (range.start === 0) return rawLine;
-    return rawLine.replace(
+    if (sliceStart === 0) return rawSlice;
+    return rawSlice.replace(
       new RegExp(`atom-slot=${doc.root.id},offset=(\\d+)`, 'g'),
-      (_, offStr: string) => `atom-slot=${doc.root.id},offset=${Number(offStr) + range.start}`,
+      (_, offStr: string) => `atom-slot=${doc.root.id},offset=${Number(offStr) + sliceStart}`,
     );
+  };
+
+  const lineLatexList = lineRanges.map((range, lineIdx) => {
+    if (!useAligned) {
+      return emitRootSlice(range.start, range.end, true);
+    }
+    const rIdx = relIndices[lineIdx];
+    if (rIdx < 0) {
+      return `& ${emitRootSlice(range.start, range.end, true)}`;
+    }
+    const splitAt = range.start + rIdx;
+    const lhsRaw = splitAt > range.start ? emitRootSlice(range.start, splitAt, false) : '';
+    const rhsRaw = emitRootSlice(splitAt, range.end, true);
+    return lhsRaw ? `${lhsRaw} & ${rhsRaw}` : `& ${rhsRaw}`;
   });
 
   let joinedInteractive = '';
@@ -1675,13 +1554,36 @@ export function toInteractiveLatex(
       joinedInteractive += ` ${lineRanges[i].breakToken ?? '\\\\'} `;
     }
   }
-  return `\\begin{gathered} ${joinedInteractive} \\end{gathered}`;
+  return useAligned
+    ? `\\begin{aligned} ${joinedInteractive} \\end{aligned}`
+    : `\\begin{gathered} ${joinedInteractive} \\end{gathered}`;
 }
 
 export function commandPreviewLatex(template: string): string {
   const safe = sanitizeLatexTemplate(template);
   if (safe === '\\text{$1}') {
     return '\\text{abc}';
+  }
+  if (safe === '\\tag{$1}') {
+    return '\\text{(1)}';
+  }
+  if (safe === '\\mathrm{$1}') {
+    return '\\mathrm{d}';
+  }
+  if (safe === '\\mathfrak{$1}') {
+    return '\\mathfrak{g}';
+  }
+  if (safe === '\\mathsf{$1}') {
+    return '\\mathsf{T}';
+  }
+  if (safe === '\\mathtt{$1}') {
+    return '\\mathtt{x}';
+  }
+  if (safe === '\\boldsymbol{$1}') {
+    return '\\boldsymbol{\\theta}';
+  }
+  if (safe === '\\mathscr{$1}') {
+    return '\\mathscr{F}';
   }
   if (safe === '\\mathbf{$1}') {
     return '\\mathbf{x}';

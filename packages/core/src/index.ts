@@ -6,6 +6,7 @@ export * from './userLibraries';
 export * from './slotOrder';
 export * from './shorthands';
 export * from './ast';
+export * from './emitIr';
 export * from './latex';
 export * from './parser';
 export * from './editor';

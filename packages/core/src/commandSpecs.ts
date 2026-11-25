@@ -31,15 +31,19 @@ export interface CommandCapabilities {
   readonly inlineMacros?: readonly string[];
   /** LaTeX accent/font 1-arg macro (with leading `\`) that parses directly into this 1-slot command */
   readonly accentMacro?: string;
+  /** Declarative next slot index when closing native LaTeX `{...}` / `[...]` on slot 0 (e.g. `\frac{1}{2}`) */
+  readonly nextBraceSlot?: number;
 }
 
 const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optionalSlots'>>> = {
-  frac: { bottomSlots: [1], isTall: true, inlineMacros: ['frac', 'dfrac', 'tfrac'] },
+  frac: { bottomSlots: [1], isTall: true, inlineMacros: ['frac', 'dfrac', 'tfrac'], nextBraceSlot: 1 },
   partial_frac: { bottomSlots: [1], isTall: true },
   total_frac: { bottomSlots: [1], isTall: true },
+  nth_partial: { tightSlots: [0, 3], bottomSlots: [2, 3], isTall: true },
+  nth_deriv: { tightSlots: [0, 3], bottomSlots: [2, 3], isTall: true },
   diff: { tightSlots: [0], isSelfDelimited: true, inlineMacros: ['diff'] },
-  binom: { bottomSlots: [1], isTall: true, inlineMacros: ['binom'] },
-  sqrt: { tightSlots: [0], isTall: true, inlineMacros: ['sqrt'] },
+  binom: { bottomSlots: [1], isTall: true, inlineMacros: ['binom'], nextBraceSlot: 1 },
+  sqrt: { tightSlots: [0], isTall: true, inlineMacros: ['sqrt'], nextBraceSlot: 1 },
   nth_root: { tightSlots: [0], isTall: true },
   sup: { tightSlots: [1], backwardWrap: true },
   sub: { tightSlots: [1], bottomSlots: [1], backwardWrap: true },
@@ -57,8 +61,28 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   interval_co: { isSelfDelimited: true, isDelimiter: true },
   set_builder: { isSelfDelimited: true, isDelimiter: true },
   boxed: { isSelfDelimited: true, inlineMacros: ['boxed'] },
-  cancel: { isSelfDelimited: true, inlineMacros: ['cancel'] },
-  substack_2: { tightSlots: [0, 1], isSelfDelimited: true },
+  cancel: { isSelfDelimited: true, inlineMacros: ['cancel'], accentMacro: '\\cancel' },
+  bcancel: { isSelfDelimited: true, inlineMacros: ['bcancel'], accentMacro: '\\bcancel' },
+  xcancel: { isSelfDelimited: true, inlineMacros: ['xcancel'], accentMacro: '\\xcancel' },
+  tag_eq: { isSelfDelimited: true, inlineMacros: ['tag'] },
+  mathrm: { isSelfDelimited: true, inlineMacros: ['mathrm'] },
+  mathfrak: { isSelfDelimited: true, inlineMacros: ['mathfrak'], accentMacro: '\\mathfrak' },
+  mathsf: { isSelfDelimited: true, inlineMacros: ['mathsf'], accentMacro: '\\mathsf' },
+  mathtt: { isSelfDelimited: true, inlineMacros: ['mathtt'], accentMacro: '\\mathtt' },
+  boldsymbol: { isSelfDelimited: true, inlineMacros: ['boldsymbol', 'bm'], accentMacro: '\\boldsymbol' },
+  mathscr: { isSelfDelimited: true, inlineMacros: ['mathscr'], accentMacro: '\\mathscr' },
+  overleftarrow: { isSelfDelimited: true, inlineMacros: ['overleftarrow'], accentMacro: '\\overleftarrow' },
+  overleftrightarrow: {
+    isSelfDelimited: true,
+    inlineMacros: ['overleftrightarrow'],
+    accentMacro: '\\overleftrightarrow',
+  },
+  substack_2: {
+    tightSlots: [0, 1],
+    isSelfDelimited: true,
+    gridMeta: { env: 'substack', rows: 2, cols: 1 },
+    inlineMacros: ['substack'],
+  },
 
   integral: {
     tightSlots: [0, 1],
@@ -128,6 +152,27 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['bigcap'],
+  },
+  coprod: {
+    tightSlots: [0, 1],
+    bottomSlots: [0],
+    isTall: true,
+    isPrefixBigOp: true,
+    inlineMacros: ['coprod'],
+  },
+  bigoplus: {
+    tightSlots: [0, 1],
+    bottomSlots: [0],
+    isTall: true,
+    isPrefixBigOp: true,
+    inlineMacros: ['bigoplus'],
+  },
+  bigotimes: {
+    tightSlots: [0, 1],
+    bottomSlots: [0],
+    isTall: true,
+    isPrefixBigOp: true,
+    inlineMacros: ['bigotimes'],
   },
   limit: {
     tightSlots: [0, 1],
@@ -199,6 +244,21 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     gridMeta: { env: 'rcases', rows: 2, cols: 2 },
     inlineMacros: ['rcases'],
   },
+  aligned_2: {
+    isTall: true,
+    gridMeta: { env: 'aligned', rows: 2, cols: 2 },
+    inlineMacros: ['aligned', 'align'],
+  },
+  Bmatrix_2x2: {
+    isTall: true,
+    gridMeta: { env: 'Bmatrix', rows: 2, cols: 2 },
+    inlineMacros: ['Bmatrix'],
+  },
+  Vmatrix_2x2: {
+    isTall: true,
+    gridMeta: { env: 'Vmatrix', rows: 2, cols: 2 },
+    inlineMacros: ['Vmatrix'],
+  },
 
   hat: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['hat'], accentMacro: '\\hat' },
   bar: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['bar'], accentMacro: '\\bar' },
@@ -220,6 +280,8 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   eval_bar: { tightSlots: [1, 2], isTall: true },
   overbrace: { isTall: true, inlineMacros: ['overbrace'] },
   underbrace: { isTall: true, inlineMacros: ['underbrace'] },
+  overset: { nextBraceSlot: 1, inlineMacros: ['overset'] },
+  underset: { nextBraceSlot: 1, inlineMacros: ['underset'] },
 
   // Binary relation / operator 0-slot symbols
   to: { isBinaryRelation: true },
@@ -258,6 +320,34 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   downarrow: { isBinaryRelation: true },
   hookrightarrow: { isBinaryRelation: true },
   mid_rel: { isBinaryRelation: true },
+  oplus: { isBinaryRelation: true },
+  otimes: { isBinaryRelation: true },
+  wedge: { isBinaryRelation: true },
+  star_op: { isBinaryRelation: true },
+  div_op: { isBinaryRelation: true },
+  coloneqq: { isBinaryRelation: true },
+  models: { isBinaryRelation: true },
+  vdash: { isBinaryRelation: true },
+  lesssim: { isBinaryRelation: true },
+  gtrsim: { isBinaryRelation: true },
+  supset: { isBinaryRelation: true },
+  supseteq: { isBinaryRelation: true },
+  nsubseteq: { isBinaryRelation: true },
+  nparallel: { isBinaryRelation: true },
+  nRightarrow: { isBinaryRelation: true },
+  nLeftrightarrow: { isBinaryRelation: true },
+  nrightarrow: { isBinaryRelation: true },
+  nless: { isBinaryRelation: true },
+  ngtr: { isBinaryRelation: true },
+  nleq: { isBinaryRelation: true },
+  ngeq: { isBinaryRelation: true },
+  nsim: { isBinaryRelation: true },
+  ncong: { isBinaryRelation: true },
+  not_equiv: { isBinaryRelation: true },
+  nvdash: { isBinaryRelation: true },
+  nvDash: { isBinaryRelation: true },
+  nmid: { isBinaryRelation: true },
+  nsupseteq: { isBinaryRelation: true },
 };
 
 const LEGACY_OPTIONAL_SLOTS: Readonly<Record<string, readonly number[]>> = {
@@ -370,6 +460,16 @@ export const ACCENT_MACRO_MAP: Readonly<Record<string, string>> = (() => {
   for (const [id, caps] of COMMAND_CAPABILITIES.entries()) {
     if (caps.accentMacro && COMMANDS_BY_ID.has(id)) {
       rec[caps.accentMacro] = id;
+    }
+  }
+  return rec;
+})();
+
+export const NEXT_BRACE_SLOT_MAP: Readonly<Record<string, number>> = (() => {
+  const rec: Record<string, number> = {};
+  for (const [id, caps] of COMMAND_CAPABILITIES.entries()) {
+    if (typeof caps.nextBraceSlot === 'number') {
+      rec[id] = caps.nextBraceSlot;
     }
   }
   return rec;
@@ -532,6 +632,9 @@ export function formatGridEnvironment(
   cols: number,
   body: string,
 ): string {
+  if (env === 'substack') {
+    return `\\substack{${body}}`;
+  }
   if (env === 'array') {
     const spec = colSpec && isSupportedColSpec(colSpec) ? colSpec.replace(/\s+/g, '') : 'c'.repeat(Math.max(1, cols));
     return `\\begin{array}{${spec}} ${body} \\end{array}`;

@@ -3,12 +3,14 @@
   import {
     CATEGORY_LABELS,
     commandPreviewLatex,
+    detectShorthandConflicts,
     type CommandCategory,
     type CommandDef,
     type LeaderKey,
     type UserCommandEntry,
   } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
 
   interface Props {
     leaderKey: LeaderKey;
@@ -23,8 +25,27 @@
   let category = $state<CommandCategory>('symbol');
   let latex = $state('');
   let keysText = $state('');
+  let shorthandText = $state('');
   let slotNamesText = $state('');
   let labelInputEl: HTMLInputElement | null = $state(null);
+
+  const shorthandConflict = $derived.by(() => {
+    const clean = shorthandText.trim();
+    if (!clean) return null;
+    const probeId = editing?.id ?? '__draft_cmd__';
+    const list = detectShorthandConflicts([], [
+      {
+        id: probeId,
+        label: label.trim() || '当前命令',
+        category,
+        latex: latex.trim(),
+        keys: [],
+        slots: [],
+        shorthand: clean,
+      },
+    ]);
+    return list.find((c) => c.sourceId === probeId) ?? null;
+  });
 
   const detectedSlotCount = $derived.by(() => {
     let maxIdx = 0;
@@ -50,6 +71,7 @@
       category = editing.category;
       latex = editing.latex;
       keysText = editing.keys.join('');
+      shorthandText = editing.shorthand ?? '';
       slotNamesText = editing.slots.join(', ');
     }
     labelInputEl?.focus();
@@ -65,6 +87,7 @@
       .split('')
       .filter(Boolean);
 
+    const cleanShort = shorthandText.trim();
     onSave({
       id: editing?.id ?? `user-cmd-${Date.now()}`,
       label: cleanLabel,
@@ -73,6 +96,7 @@
       keys,
       slots: resolvedSlots,
       glyph: editing?.glyph ?? cleanLabel.slice(0, 4),
+      ...(cleanShort ? { shorthand: cleanShort } : {}),
     });
     onClose();
   }
@@ -84,7 +108,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label={editing ? '编辑命令' : '添加命令'}>
+  <div class="modal" role="dialog" aria-modal="true" aria-label={editing ? '编辑命令' : '添加命令'} use:focusTrap>
     <div class="modal-head">
       <span>{editing ? '编辑命令库条目' : '添加到命令库'}</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
@@ -137,6 +161,19 @@
           maxlength="3"
           placeholder="例如 gw（表示 Tab g w）"
         />
+      </label>
+
+      <label class="field">
+        <span>自动简写（可选）</span>
+        <input
+          bind:value={shorthandText}
+          class="mono"
+          type="text"
+          placeholder="例如 lap"
+        />
+        {#if shorthandConflict}
+          <span class="warn-text">与 {shorthandConflict.conflictsWith} 冲突</span>
+        {/if}
       </label>
 
       {#if detectedSlotCount > 0}

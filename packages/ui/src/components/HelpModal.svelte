@@ -25,7 +25,7 @@
     <div class="modal-head">
       <div class="head-title">
         <span>MathSlot 使用手册</span>
-        <span class="ver-badge">v2.3.0 · 165 命令</span>
+        <span class="ver-badge">v3.0.0 · 217 命令 · 114 预置</span>
       </div>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
     </div>

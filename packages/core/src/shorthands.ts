@@ -1,5 +1,7 @@
 import { COMMANDS_BY_ID } from './catalog';
-import type { CommandDef, MathNode } from './types';
+import { MATH_FUNCTIONS, OPERATORNAME_FUNCTIONS } from './emitIr';
+import type { CommandDef, CustomCommandDef, MathNode } from './types';
+import type { UserCommandEntry } from './userLibraries';
 
 export interface ShorthandSpec {
   readonly trigger: string;
@@ -41,10 +43,20 @@ export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
   { trigger: '[', kind: 'direct', commandId: 'bracket' },
   { trigger: '{', kind: 'direct', commandId: 'brace' },
 
-  // 2. Multi-char punctuation / arrow / relation shorthands (longest first; prefix upgrades auto-derived!)
+  // 2. Multi-char punctuation / arrow / relation / negation / causality shorthands (longest first; prefix upgrades auto-derived!)
+  { trigger: '!<=>', kind: 'punct', commandId: 'nLeftrightarrow' },
   { trigger: '<=>', kind: 'punct', commandId: 'iff' },
   { trigger: '<->', kind: 'punct', commandId: 'leftrightarrow' },
   { trigger: '|->', kind: 'punct', commandId: 'mapsto' },
+  { trigger: '!=>', kind: 'punct', commandId: 'nRightarrow' },
+  { trigger: '!->', kind: 'punct', commandId: 'nrightarrow' },
+  { trigger: '!==', kind: 'punct', commandId: 'not_equiv' },
+  { trigger: '!<=', kind: 'punct', commandId: 'nleq' },
+  { trigger: '!>=', kind: 'punct', commandId: 'ngeq' },
+  { trigger: '!~=', kind: 'punct', commandId: 'ncong' },
+  { trigger: '!||', kind: 'punct', commandId: 'nparallel' },
+  { trigger: '.:.', kind: 'punct', commandId: 'therefore' },
+  { trigger: ':.:', kind: 'punct', commandId: 'because' },
   { trigger: '...', kind: 'punct', commandId: 'cdots' },
   { trigger: ':::', kind: 'punct', commandId: 'vdots' },
   { trigger: '->', kind: 'punct', commandId: 'to' },
@@ -55,10 +67,17 @@ export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
   { trigger: '<<', kind: 'punct', commandId: 'll' },
   { trigger: '>>', kind: 'punct', commandId: 'gg' },
   { trigger: '||', kind: 'punct', commandId: 'parallel' },
+  { trigger: '|-', kind: 'punct', commandId: 'vdash' },
+  { trigger: '|=', kind: 'punct', commandId: 'models' },
   { trigger: '!=', kind: 'punct', commandId: 'neq' },
+  { trigger: '!<', kind: 'punct', commandId: 'nless' },
+  { trigger: '!>', kind: 'punct', commandId: 'ngtr' },
+  { trigger: '!~', kind: 'punct', commandId: 'nsim' },
+  { trigger: '!|', kind: 'punct', commandId: 'nmid' },
   { trigger: '~=', kind: 'punct', commandId: 'cong' },
   { trigger: '~~', kind: 'punct', commandId: 'approx' },
   { trigger: '==', kind: 'punct', commandId: 'equiv' },
+  { trigger: ':=', kind: 'punct', commandId: 'coloneqq' },
   { trigger: '+-', kind: 'punct', commandId: 'pm' },
   { trigger: '-+', kind: 'punct', commandId: 'mp' },
   { trigger: '**', kind: 'punct', commandId: 'cdot' },
@@ -113,6 +132,11 @@ export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
   { trigger: 'partial', kind: 'word', role: 'atom', commandId: 'partial', latex: '\\partial' },
   { trigger: 'forall', kind: 'word', role: 'atom', commandId: 'forall', latex: '\\forall' },
   { trigger: 'exists', kind: 'word', role: 'atom', commandId: 'exists', latex: '\\exists' },
+  { trigger: 'nexists', kind: 'word', role: 'atom', commandId: 'nexists', latex: '\\nexists' },
+  { trigger: 'therefore', kind: 'word', role: 'atom', commandId: 'therefore', latex: '\\therefore' },
+  { trigger: 'because', kind: 'word', role: 'atom', commandId: 'because', latex: '\\because' },
+  { trigger: 'neg', kind: 'word', role: 'atom', commandId: 'neg', latex: '\\neg' },
+  { trigger: 'lnot', kind: 'word', role: 'atom', commandId: 'neg', latex: '\\neg' },
   { trigger: 'emptyset', kind: 'word', role: 'atom', commandId: 'emptyset', latex: '\\varnothing' },
   { trigger: 'hbar', kind: 'word', role: 'atom', commandId: 'hbar', latex: '\\hbar' },
   { trigger: 'ell', kind: 'word', role: 'atom', commandId: 'ell', latex: '\\ell' },
@@ -131,15 +155,25 @@ export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
   { trigger: 'xx', kind: 'word', role: 'binop', commandId: 'times', latex: '\\times' },
   { trigger: 'times', kind: 'word', role: 'binop', commandId: 'times', latex: '\\times' },
   { trigger: 'cdot', kind: 'word', role: 'binop', commandId: 'cdot', latex: '\\cdot' },
-  { trigger: 'div', kind: 'word', role: 'binop', latex: '\\div' },
+  { trigger: 'div', kind: 'word', role: 'binop', commandId: 'div_op', latex: '\\div' },
+  { trigger: 'oplus', kind: 'word', role: 'binop', commandId: 'oplus', latex: '\\oplus' },
+  { trigger: 'otimes', kind: 'word', role: 'binop', commandId: 'otimes', latex: '\\otimes' },
+  { trigger: 'wedge', kind: 'word', role: 'binop', commandId: 'wedge', latex: '\\wedge' },
+  { trigger: 'star', kind: 'word', role: 'binop', commandId: 'star_op', latex: '\\star' },
+  { trigger: 'dagger', kind: 'word', role: 'atom', commandId: 'dagger', latex: '\\dagger' },
   { trigger: 'pm', kind: 'word', role: 'binop', commandId: 'pm', latex: '\\pm' },
   { trigger: 'mp', kind: 'word', role: 'binop', commandId: 'mp', latex: '\\mp' },
   { trigger: 'in', kind: 'word', role: 'binop', commandId: 'in', latex: '\\in' },
   { trigger: 'notin', kind: 'word', role: 'binop', commandId: 'notin', latex: '\\notin' },
   { trigger: 'subset', kind: 'word', role: 'binop', commandId: 'subset', latex: '\\subset' },
   { trigger: 'subseteq', kind: 'word', role: 'binop', commandId: 'subseteq', latex: '\\subseteq' },
-  { trigger: 'supset', kind: 'word', role: 'binop', latex: '\\supset' },
-  { trigger: 'supseteq', kind: 'word', role: 'binop', latex: '\\supseteq' },
+  { trigger: 'supset', kind: 'word', role: 'binop', commandId: 'supset', latex: '\\supset' },
+  { trigger: 'supseteq', kind: 'word', role: 'binop', commandId: 'supseteq', latex: '\\supseteq' },
+  { trigger: 'nsubseteq', kind: 'word', role: 'binop', commandId: 'nsubseteq', latex: '\\nsubseteq' },
+  { trigger: 'models', kind: 'word', role: 'binop', commandId: 'models', latex: '\\models' },
+  { trigger: 'vdash', kind: 'word', role: 'binop', commandId: 'vdash', latex: '\\vdash' },
+  { trigger: 'lesssim', kind: 'word', role: 'binop', commandId: 'lesssim', latex: '\\lesssim' },
+  { trigger: 'gtrsim', kind: 'word', role: 'binop', commandId: 'gtrsim', latex: '\\gtrsim' },
   { trigger: 'cup', kind: 'word', role: 'binop', commandId: 'cup', latex: '\\cup' },
   { trigger: 'cap', kind: 'word', role: 'binop', commandId: 'cap', latex: '\\cap' },
   { trigger: 'to', kind: 'word', role: 'binop', commandId: 'to', latex: '\\to' },
@@ -164,6 +198,36 @@ export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
   { trigger: 'neq', kind: 'word', role: 'binop', commandId: 'neq', latex: '\\neq' },
   { trigger: 'ne', kind: 'word', role: 'binop', commandId: 'neq', latex: '\\neq' },
   { trigger: 'mid', kind: 'word', role: 'binop', commandId: 'mid_rel', latex: '\\mid' },
+  { trigger: 'nmid', kind: 'word', role: 'binop', commandId: 'nmid', latex: '\\nmid' },
+  { trigger: 'parallel', kind: 'word', role: 'binop', commandId: 'parallel', latex: '\\parallel' },
+  { trigger: 'nparallel', kind: 'word', role: 'binop', commandId: 'nparallel', latex: '\\nparallel' },
+  { trigger: 'perp', kind: 'word', role: 'binop', commandId: 'perp', latex: '\\perp' },
+  { trigger: 'circ', kind: 'word', role: 'binop', commandId: 'circ', latex: '\\circ' },
+  { trigger: 'land', kind: 'word', role: 'binop', commandId: 'land', latex: '\\land' },
+  { trigger: 'lor', kind: 'word', role: 'binop', commandId: 'lor', latex: '\\lor' },
+  { trigger: 'setminus', kind: 'word', role: 'binop', commandId: 'setminus', latex: '\\setminus' },
+  { trigger: 'simeq', kind: 'word', role: 'binop', commandId: 'simeq', latex: '\\simeq' },
+  { trigger: 'nimplies', kind: 'word', role: 'binop', commandId: 'nRightarrow', latex: '\\nRightarrow' },
+  { trigger: 'notimplies', kind: 'word', role: 'binop', commandId: 'nRightarrow', latex: '\\nRightarrow' },
+  { trigger: 'nRightarrow', kind: 'word', role: 'binop', commandId: 'nRightarrow', latex: '\\nRightarrow' },
+  { trigger: 'niff', kind: 'word', role: 'binop', commandId: 'nLeftrightarrow', latex: '\\nLeftrightarrow' },
+  { trigger: 'notiff', kind: 'word', role: 'binop', commandId: 'nLeftrightarrow', latex: '\\nLeftrightarrow' },
+  { trigger: 'nLeftrightarrow', kind: 'word', role: 'binop', commandId: 'nLeftrightarrow', latex: '\\nLeftrightarrow' },
+  { trigger: 'nto', kind: 'word', role: 'binop', commandId: 'nrightarrow', latex: '\\nrightarrow' },
+  { trigger: 'nrightarrow', kind: 'word', role: 'binop', commandId: 'nrightarrow', latex: '\\nrightarrow' },
+  { trigger: 'nless', kind: 'word', role: 'binop', commandId: 'nless', latex: '\\nless' },
+  { trigger: 'ngtr', kind: 'word', role: 'binop', commandId: 'ngtr', latex: '\\ngtr' },
+  { trigger: 'nleq', kind: 'word', role: 'binop', commandId: 'nleq', latex: '\\nleq' },
+  { trigger: 'nle', kind: 'word', role: 'binop', commandId: 'nleq', latex: '\\nleq' },
+  { trigger: 'ngeq', kind: 'word', role: 'binop', commandId: 'ngeq', latex: '\\ngeq' },
+  { trigger: 'nge', kind: 'word', role: 'binop', commandId: 'ngeq', latex: '\\ngeq' },
+  { trigger: 'nsim', kind: 'word', role: 'binop', commandId: 'nsim', latex: '\\nsim' },
+  { trigger: 'ncong', kind: 'word', role: 'binop', commandId: 'ncong', latex: '\\ncong' },
+  { trigger: 'nequiv', kind: 'word', role: 'binop', commandId: 'not_equiv', latex: '\\not\\equiv' },
+  { trigger: 'nvdash', kind: 'word', role: 'binop', commandId: 'nvdash', latex: '\\nvdash' },
+  { trigger: 'nmodels', kind: 'word', role: 'binop', commandId: 'nvDash', latex: '\\nvDash' },
+  { trigger: 'nvDash', kind: 'word', role: 'binop', commandId: 'nvDash', latex: '\\nvDash' },
+  { trigger: 'nsupseteq', kind: 'word', role: 'binop', commandId: 'nsupseteq', latex: '\\nsupseteq' },
 
   // 5. Differential word shorthands (note: generic `d` + single ASCII letter is also supported;
   //    explicit multi-letter Greek differentials live here alongside `dx` -> `diff` UI hint!)
@@ -304,4 +368,75 @@ export function matchShorthandUpgrade(
   const cmd = COMMANDS_BY_ID.get(upgradedId);
   if (!cmd) return null;
   return { start: offset - 2, command: cmd };
+}
+
+export interface ShorthandConflict {
+  readonly trigger: string;
+  readonly sourceId: string;
+  readonly sourceLabel: string;
+  readonly conflictsWith: string;
+  readonly kind: 'builtin_shorthand' | 'math_function' | 'duplicate_user';
+}
+
+const BUILTIN_TRIGGER_MAP = new Map<string, string>(
+  SHORTHAND_SPECS.map((s) => [s.trigger, s.commandId ?? s.latex ?? s.trigger]),
+);
+
+/**
+ * Checks custom structures and external `commands.json` entries for shorthand collisions
+ * against built-in `SHORTHAND_SPECS`, standard math functions (`sin`, `lim`, ...), and each other.
+ */
+export function detectShorthandConflicts(
+  customCommands: readonly CustomCommandDef[] = [],
+  userCommands: readonly UserCommandEntry[] = [],
+): ShorthandConflict[] {
+  const conflicts: ShorthandConflict[] = [];
+  const seenUser = new Map<string, { id: string; label: string }>();
+
+  const checkOne = (id: string, label: string, rawTrigger: string | undefined): void => {
+    const trigger = rawTrigger?.trim();
+    if (!trigger) return;
+
+    const builtinHit = BUILTIN_TRIGGER_MAP.get(trigger);
+    if (builtinHit) {
+      conflicts.push({
+        trigger,
+        sourceId: id,
+        sourceLabel: label,
+        conflictsWith: `内置简写 (${builtinHit})`,
+        kind: 'builtin_shorthand',
+      });
+    } else if (MATH_FUNCTIONS.has(trigger) || Boolean(OPERATORNAME_FUNCTIONS[trigger])) {
+      conflicts.push({
+        trigger,
+        sourceId: id,
+        sourceLabel: label,
+        conflictsWith: `内置数学函数 (\\${trigger})`,
+        kind: 'math_function',
+      });
+    }
+
+    const prev = seenUser.get(trigger);
+    if (prev && prev.id !== id) {
+      conflicts.push({
+        trigger,
+        sourceId: id,
+        sourceLabel: label,
+        conflictsWith: `用户命令「${prev.label}」`,
+        kind: 'duplicate_user',
+      });
+    } else {
+      seenUser.set(trigger, { id, label });
+    }
+  };
+
+  for (const c of customCommands) {
+    checkOne(c.id, c.label, c.shorthand);
+  }
+  for (const u of userCommands) {
+    if (!u.disabled) {
+      checkOne(u.id, u.label || u.id, u.shorthand);
+    }
+  }
+  return conflicts;
 }

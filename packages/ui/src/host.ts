@@ -3,6 +3,8 @@ import type {
   CustomCommandDef,
   DelimiterStyle,
   HistoryFormula,
+  MathWrapperKind,
+  PersistedDraftV1,
   Snippet,
   UserCommandEntry,
   UserPresetEntry,
@@ -18,6 +20,7 @@ export interface PersistedStore {
   favoriteIds?: string[];
   recentIds?: string[];
   lastDraftLatex?: string;
+  lastDraftV1?: PersistedDraftV1 | null;
 }
 
 export interface ExternalUserLibraries {
@@ -45,6 +48,8 @@ export interface HostAdapter {
   openDownloadsDir?(): Promise<void>;
   /** Optional desktop window always-on-top pin toggle */
   setAlwaysOnTop?(pinned: boolean): Promise<void>;
+  /** Optional quick-summon workflow: hide desktop window back to background after copy */
+  hideWindow?(): Promise<void>;
   /** Optional load external editable presets.json & commands.json from config folder */
   loadUserLibraries?(): Promise<ExternalUserLibraries>;
   /** Optional save external editable presets.json & commands.json to config folder */
@@ -61,6 +66,8 @@ export interface HostAdapter {
   initialFormula?: string;
   /** Optional session-scoped delimiter override (does NOT overwrite persisted user settings!) */
   initialDelimiter?: DelimiterStyle;
+  /** Optional exact source wrapper dialect (e.g. `paren_inline` for `\(...\)`) preserved on primary submit */
+  initialWrapper?: MathWrapperKind;
   /** Optional external dark-mode override (e.g. Obsidian host theme) */
   hostDarkMode?: () => boolean;
 }

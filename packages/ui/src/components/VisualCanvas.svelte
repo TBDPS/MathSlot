@@ -1,6 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { findSlotPath, type EditorSnapshot, type JumpTarget } from '@mathslot/core';
+  import {
+    findSlotPath,
+    getGridMeta,
+    type EditorSnapshot,
+    type JumpTarget,
+    type TreePoint,
+  } from '@mathslot/core';
   import { renderLatexInteractive } from '../katexRenderer';
 
   interface Props {
@@ -12,6 +18,7 @@
     onPaste: (text: string) => void;
     onClickSlot: (slotId: string, offset: number) => void;
     onDragSelect?: (slotId: string, anchorOffset: number, focusOffset: number) => void;
+    onCrossSlotDragSelect?: (anchor: TreePoint, focus: TreePoint) => void;
     onDoubleClickAtom?: (slotId: string, offset: number) => void;
     onJumpTarget: (label: string) => void;
     onFocusChange: (focused: boolean) => void;
@@ -31,6 +38,7 @@
     onPaste,
     onClickSlot,
     onDragSelect,
+    onCrossSlotDragSelect,
     onDoubleClickAtom,
     onJumpTarget,
     onFocusChange,
@@ -78,13 +86,27 @@
   }
 
   let hierarchyBoxes = $state<HierarchyBox[]>([]);
+  let gridSelectionBoxes = $state<{ id: string; left: number; top: number; width: number; height: number }[]>([]);
   let activeSlotBox = $state<ActiveSlotBox | null>(null);
   let activeGridPos = $state<{ left: number; top: number } | null>(null);
   let jumpScopeBox = $state<{ left: number; top: number; width: number; height: number } | null>(null);
   let jumpPositions = $state<PositionedJump[]>([]);
   let dragAnchor = $state<{ slotId: string; offset: number } | null>(null);
+  let activePointerId = -1;
 
   const rendered = $derived(renderLatexInteractive(snapshot.interactiveLatex));
+
+  const srAnnouncement = $derived.by(() => {
+    if (snapshot.isEmpty) return '空公式画布';
+    if (snapshot.mode.kind === 'leader') return `命令引导模式 ${snapshot.mode.prefix || ''}`.trim();
+    if (snapshot.mode.kind === 'jump') return `分层跳转模式，共 ${snapshot.mode.targets.length} 个目标`;
+    if (snapshot.gridSelection) {
+      const g = snapshot.gridSelection;
+      return `已选中矩阵 ${g.r2 - g.r1 + 1} 行 ${g.c2 - g.c1 + 1} 列区域`;
+    }
+    const lastCrumb = snapshot.breadcrumbs[snapshot.breadcrumbs.length - 1];
+    return lastCrumb ? `位于 ${lastCrumb.commandLabel} ${lastCrumb.slotLabel}` : '公式主编辑区';
+  });
 
   export function focus(): void {
     inputEl?.focus({ preventScroll: true });
@@ -163,6 +185,7 @@
   function measureOverlays(): void {
     if (!stageEl || !innerEl || !formulaEl || snapshot.isEmpty) {
       hierarchyBoxes = [];
+      gridSelectionBoxes = [];
       activeSlotBox = null;
       activeGridPos = null;
       jumpScopeBox = null;
@@ -222,6 +245,50 @@
       hierarchyBoxes = boxes;
     } else {
       hierarchyBoxes = [];
+    }
+
+    // 1b. Rectangular matrix/grid cell selection highlight overlay (Phase 3 P1-4)
+    if (snapshot.gridSelection) {
+      const gs = snapshot.gridSelection;
+      const boxes: { id: string; left: number; top: number; width: number; height: number }[] = [];
+      const findStruct = (slot: typeof snapshot.doc.root): typeof snapshot.doc.root.children[number] | null => {
+        for (const ch of slot.children) {
+          if (ch.type === 'struct') {
+            if (ch.id === gs.structId) return ch;
+            for (const sub of ch.slots) {
+              const found = findStruct(sub);
+              if (found) return found;
+            }
+          }
+        }
+        return null;
+      };
+      const gridStruct = findStruct(snapshot.doc.root);
+      if (gridStruct && gridStruct.type === 'struct') {
+        const meta = getGridMeta(gridStruct);
+        if (meta) {
+          for (let r = gs.r1; r <= gs.r2; r += 1) {
+            for (let c = gs.c1; c <= gs.c2; c += 1) {
+              const cellSlot = gridStruct.slots[r * meta.cols + c];
+              if (!cellSlot) continue;
+              const cellEl = formulaEl.querySelector(`[data-slot-id="${cellSlot.id}"]`) as HTMLElement | null;
+              if (!cellEl) continue;
+              const cr = getTrueVisualRect(cellEl, rectMap);
+              if (!cr) continue;
+              boxes.push({
+                id: cellSlot.id,
+                left: cr.left - stageRect.left - 3,
+                top: cr.top - stageRect.top - 2,
+                width: cr.width + 6,
+                height: cr.height + 4,
+              });
+            }
+          }
+        }
+      }
+      gridSelectionBoxes = boxes;
+    } else {
+      gridSelectionBoxes = [];
     }
 
     // 2. Full-height pixel-accurate highlight for the currently active nested slot
@@ -449,30 +516,41 @@
     return { slotId: snapshot.doc.root.id, offset: snapshot.doc.root.children.length };
   }
 
-  function handleStageMouseDown(e: MouseEvent): void {
+  function handleStagePointerDown(e: PointerEvent): void {
     const target = e.target as HTMLElement | null;
     if (target?.closest('button')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
 
     e.preventDefault();
     focus();
 
     const hit = hitTestPoint(e.clientX, target);
     if (!hit) return;
+    activePointerId = e.pointerId;
     dragAnchor = { slotId: hit.slotId, offset: hit.offset };
     onClickSlot(hit.slotId, hit.offset);
   }
 
-  function handleStageMouseMove(e: MouseEvent): void {
-    if (!dragAnchor || !(e.buttons & 1) || !onDragSelect) return;
+  function handleStagePointerMove(e: PointerEvent): void {
+    if (!dragAnchor || e.pointerId !== activePointerId) return;
+    if (e.pointerType === 'mouse' && !(e.buttons & 1)) return;
     const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
     const hit = hitTestPoint(e.clientX, el);
-    if (hit && hit.slotId === dragAnchor.slotId && hit.offset !== dragAnchor.offset) {
-      onDragSelect(dragAnchor.slotId, dragAnchor.offset, hit.offset);
+    if (!hit) return;
+    if (hit.slotId === dragAnchor.slotId) {
+      if (hit.offset !== dragAnchor.offset && onDragSelect) {
+        onDragSelect(dragAnchor.slotId, dragAnchor.offset, hit.offset);
+      }
+    } else if (onCrossSlotDragSelect) {
+      onCrossSlotDragSelect(dragAnchor, { slotId: hit.slotId, offset: hit.offset });
     }
   }
 
-  function handleStageMouseUp(): void {
-    dragAnchor = null;
+  function handleStagePointerUp(e: PointerEvent): void {
+    if (e.pointerId === activePointerId) {
+      activePointerId = -1;
+      dragAnchor = null;
+    }
   }
 
   function handleStageDblClick(e: MouseEvent): void {
@@ -520,14 +598,14 @@
   }
 </script>
 
-<svelte:window onmouseup={handleStageMouseUp} />
+<svelte:window onpointerup={handleStagePointerUp} onpointercancel={handleStagePointerUp} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="canvas-stage"
   bind:this={stageEl}
-  onmousedown={handleStageMouseDown}
-  onmousemove={handleStageMouseMove}
+  onpointerdown={handleStagePointerDown}
+  onpointermove={handleStagePointerMove}
   ondblclick={handleStageDblClick}
   onwheel={handleStageWheel}
 >
@@ -575,6 +653,16 @@
           ></div>
         {/if}
 
+        {#each gridSelectionBoxes as gbox (gbox.id)}
+          <div
+            class="grid-sel-box"
+            style:left={`${gbox.left}px`}
+            style:top={`${gbox.top}px`}
+            style:width={`${gbox.width}px`}
+            style:height={`${gbox.height}px`}
+          ></div>
+        {/each}
+
         {#if activeSlotBox && snapshot.mode.kind !== 'jump'}
           <div
             class="active-slot-box"
@@ -591,7 +679,8 @@
       </div>
 
       <div class="formula-center" class:shifted={shiftedUp}>
-        <span class="sr-only" aria-live="polite">{snapshot.isEmpty ? '空公式画布' : snapshot.latex}</span>
+        <span class="sr-only" aria-live="polite" aria-atomic="true">{srAnnouncement}</span>
+        <span class="sr-only" role="math" aria-label={snapshot.isEmpty ? '空公式' : snapshot.latex}></span>
         <div
           class="formula-render"
           class:is-empty={snapshot.isEmpty}
@@ -708,9 +797,19 @@
     contain: layout style;
     cursor: text;
     user-select: none;
+    touch-action: pan-x pan-y;
     background-image: radial-gradient(circle, var(--ms-canvas-dot) 1px, transparent 1px);
     background-size: 22px 22px;
     background-position: center center;
+  }
+
+  .grid-sel-box {
+    position: absolute;
+    border-radius: 5px;
+    background: var(--ms-accent-soft, rgba(37, 99, 235, 0.14));
+    border: 1.5px solid var(--ms-accent, #2563eb);
+    pointer-events: none;
+    z-index: 2;
   }
 
   .canvas-scroll {

@@ -1,8 +1,11 @@
 {
   "name": "@mathslot/ui",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "check": "svelte-check --tsconfig ../../apps/desktop/tsconfig.json"
+  },
   "exports": {
     ".": {
       "types": "./src/index.ts",

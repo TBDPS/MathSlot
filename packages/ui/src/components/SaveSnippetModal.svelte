@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
 
   import type { LeaderKey } from '@mathslot/core';
 
@@ -44,7 +45,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label="保存为片段">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="保存为片段" use:focusTrap>
     <div class="modal-head">
       <span>保存为片段</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>

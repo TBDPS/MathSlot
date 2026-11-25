@@ -153,10 +153,10 @@ describe('Audit fixes & new math structures regression suite', () => {
     expect(reimported.lossless).toBe(true);
     expect(toLatex(reimported.doc)).toBe('\\begin{pmatrix} 1 & 9 \\\\ 3 & 4 \\end{pmatrix} = M');
 
-    // Multi-column aligned emits explicit warning (`lossless: false`) instead of silently merging
+    // Multi-column aligned is now parsed losslessly into a first-class editable `aligned` grid (Phase 2 P1-3)
     const multiCol = importFormula('\\begin{aligned}a &= b & c &= d\\end{aligned}');
-    expect(multiCol.lossless).toBe(false);
-    expect(multiCol.diagnostics.some((d) => d.severity === 'warning')).toBe(true);
+    expect(multiCol.lossless).toBe(true);
+    expect(toLatex(multiCol.doc)).toContain('\\begin{aligned}');
   });
 
   it('preserves \\lim_{x\\to0^+}, \\iint_0^1 upper bound, and \\int\\limits_0^1 without silent meaning drift', () => {
@@ -395,10 +395,11 @@ describe('Audit fixes & new math structures regression suite', () => {
     expect(gapRes.lossless).toBe(true);
     expect(toLatex(gapRes.doc)).toBe('\\begin{pmatrix} a & b \\\\[4pt] c & d \\end{pmatrix}');
 
-    // 3. Multi-column `align` is preserved intact as `aligned` with warning (never flattened to `a = b c = d`)
+    // 3. Multi-column `align` is parsed into an editable `aligned` grid preserving all column separators
     const alignRes = importFormula('\\begin{align}a&=b & c&=d\\end{align}');
-    expect(alignRes.lossless).toBe(false);
-    expect(toLatex(alignRes.doc)).toContain('a&=b & c&=d');
+    expect(alignRes.lossless).toBe(true);
+    expect(toLatex(alignRes.doc)).toContain('\\begin{aligned}');
+    expect(toLatex(alignRes.doc)).toContain('&');
 
     // 4. Unescaped TeX `%` comment stripped to end-of-line with warning, while `\%` stays literal
     const commentRes = importFormula('x %行尾注释\n+ 50\\%');
@@ -460,9 +461,9 @@ describe('Audit fixes & new math structures regression suite', () => {
     engine.pasteLiteralText('c\nd');
     expect(engine.getSnapshot().latex).toBe('\\frac{c d}{}');
 
-    // P1-6: Non-relation single-line `aligned` (`a & b`) and `\tag{1}` preserve environment with warning
+    // P1-6: Non-relation single-line `aligned` (`a & b`) is now editable losslessly, while `\begin{align}...\tag{1}` preserves `align` env
     const cellAlign = importFormula('\\begin{aligned} a & b \\end{aligned}');
-    expect(cellAlign.lossless).toBe(false);
+    expect(cellAlign.lossless).toBe(true);
     expect(toLatex(cellAlign.doc)).toContain('a & b');
     const tagAlign = importFormula('\\begin{align} a &= b \\tag{1} \\end{align}');
     expect(tagAlign.lossless).toBe(false);

@@ -5,6 +5,7 @@ import {
   MathSlotEngine,
   PRESETS,
   commandPreviewLatex,
+  normalizePreviewLatex,
 } from '../src';
 
 const INTERACTIVE_TRUST_COMMANDS = new Set(['\\htmlData', '\\htmlClass', '\\htmlId']);
@@ -56,6 +57,19 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
             trust: strictInteractiveTrust,
           }),
         `preset ${preset.id} failed interactive KaTeX render: ${snap.interactiveLatex}`,
+      ).not.toThrow();
+
+      // Also verify inline menu preview card rendering (displayMode: false) so `\tag{...}` / `align` presets NEVER fail in CommandDrawer!
+      const inlinePreview = normalizePreviewLatex(preset.source, false);
+      expect(
+        () =>
+          katex.renderToString(inlinePreview, {
+            displayMode: false,
+            throwOnError: true,
+            strict: false,
+            trust: false,
+          }),
+        `preset ${preset.id} failed inline menu preview KaTeX render: ${inlinePreview}`,
       ).not.toThrow();
     }
   });

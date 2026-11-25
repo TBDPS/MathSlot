@@ -16,6 +16,7 @@ import type {
   GridMeta,
   JumpTarget,
   MathNode,
+  PersistedDraftV1,
   RawNode,
   SlotNode,
   StructNode,
@@ -124,6 +125,73 @@ export function cloneSlot(slot: SlotNode): SlotNode {
 
 export function cloneDocument(doc: Document): Document {
   return { root: cloneSlot(doc.root) };
+}
+
+/** Advances the global AST ID sequence past any numeric suffix present in a restored draft tree. */
+export function syncIdCounterFromTree(slot: SlotNode): void {
+  const bump = (id: string) => {
+    const m = id.match(/(\d+)$/);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= idCounter) {
+        idCounter = n + 1;
+      }
+    }
+  };
+  bump(slot.id);
+  for (const child of slot.children) {
+    bump(child.id);
+    if (child.type === 'struct') {
+      for (const s of child.slots) {
+        syncIdCounterFromTree(s);
+      }
+    }
+  }
+}
+
+function isValidMathNode(raw: unknown, depth: number): raw is MathNode {
+  if (depth > 64 || !raw || typeof raw !== 'object') return false;
+  const n = raw as Record<string, unknown>;
+  if (typeof n.id !== 'string' || !n.id) return false;
+  if (n.type === 'char') return typeof n.value === 'string';
+  if (n.type === 'raw') return typeof n.latex === 'string';
+  if (n.type === 'symbol') {
+    return typeof n.commandId === 'string' && typeof n.latex === 'string' && typeof n.glyph === 'string';
+  }
+  if (n.type === 'struct') {
+    if (typeof n.commandId !== 'string' || !Array.isArray(n.slots)) return false;
+    return n.slots.every((s) => isValidSlotNode(s, depth + 1));
+  }
+  return false;
+}
+
+function isValidSlotNode(raw: unknown, depth: number): raw is SlotNode {
+  if (depth > 64 || !raw || typeof raw !== 'object') return false;
+  const s = raw as Record<string, unknown>;
+  if (typeof s.id !== 'string' || !s.id || typeof s.label !== 'string' || !Array.isArray(s.children)) {
+    return false;
+  }
+  return s.children.every((c) => isValidMathNode(c, depth + 1));
+}
+
+/** Validates an untrusted persisted `PersistedDraftV1` payload before hydrating the editor AST. */
+export function validatePersistedDraftV1(raw: unknown): PersistedDraftV1 | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const d = raw as Record<string, unknown>;
+  if (d.schemaVersion !== 1) return null;
+  if (!isValidSlotNode(d.root, 0)) return null;
+  if (!d.cursor || typeof d.cursor !== 'object') return null;
+  const cur = d.cursor as Record<string, unknown>;
+  if (typeof cur.slotId !== 'string' || typeof cur.offset !== 'number' || !Number.isFinite(cur.offset)) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    updatedAt: typeof d.updatedAt === 'number' ? d.updatedAt : Date.now(),
+    root: cloneSlot(d.root),
+    cursor: { slotId: cur.slotId, offset: Math.max(0, Math.floor(cur.offset)) },
+    ...(typeof d.wrapper === 'string' ? { wrapper: d.wrapper as PersistedDraftV1['wrapper'] } : {}),
+  };
 }
 
 /** Deep-clones a node with brand-new unique IDs for safely inserting a duplicate into the same document. */

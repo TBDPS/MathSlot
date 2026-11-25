@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import type { PresetFormula, UserPresetEntry } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
 
   interface Props {
     editing?: PresetFormula | null;
@@ -62,7 +63,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label={editing ? '编辑公式' : '添加公式'}>
+  <div class="modal" role="dialog" aria-modal="true" aria-label={editing ? '编辑公式' : '添加公式'} use:focusTrap>
     <div class="modal-head">
       <span>{editing ? '编辑公式库条目' : '添加到公式库'}</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>

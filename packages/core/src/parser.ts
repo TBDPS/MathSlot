@@ -21,7 +21,7 @@ import {
   isCasesEnv,
   isSupportedColSpec,
 } from './commandSpecs';
-import { MATH_FUNCTIONS } from './latex';
+import { MATH_FUNCTIONS } from './emitIr';
 import { DIFFERENTIAL_WORDS } from './shorthands';
 import type { CommandDef, Diagnostic, Document, ImportResult, MathNode } from './types';
 
@@ -40,12 +40,37 @@ const SYMBOL_ALIASES: Record<string, string> = {
   '\\rightarrow': 'to',
   '\\Rightarrow': 'implies',
   '\\Leftrightarrow': 'iff',
+  '\\iff': 'iff',
+  '\\implies': 'implies',
   '\\lor': 'lor',
   '\\vee': 'lor',
   '\\land': 'land',
-  '\\wedge': 'land',
   '\\lnot': 'neg',
 };
+
+/**
+ * Splits a braced group `raw` on a top-level classic TeX infix macro (`\over` or `\choose`),
+ * ignoring occurrences inside nested `{...}` or `\begin...\end`.
+ */
+function splitTopLevelInfixMacro(raw: string, macro: string): [string, string] | null {
+  let depth = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === '\\') {
+      if (depth === 0 && raw.startsWith(macro, i)) {
+        const after = raw[i + macro.length];
+        if (!after || !/[A-Za-z]/.test(after)) {
+          return [raw.slice(0, i).trim(), raw.slice(i + macro.length).trim()];
+        }
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth = Math.max(0, depth - 1);
+  }
+  return null;
+}
 
 const LOSSLESS_RAW_SYMBOLS = new Set([
   '\\epsilon',
@@ -56,7 +81,6 @@ const LOSSLESS_RAW_SYMBOLS = new Set([
   '\\varrho',
   '\\varsigma',
   '\\varkappa',
-  '\\nmid',
   '\\bmod',
   '\\vdash',
   '\\models',
@@ -1082,6 +1106,30 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       // Strip ONLY top-level relation-alignment `&` markers so nested matrices/cases retain every column separator!
       const { cleaned, hasMultiColumn } = stripTopLevelAmpersands(body);
       if (hasMultiColumn) {
+        const { rows, rowGaps, hasGaps } = splitMatrixRows(body);
+        const cells = rows.map((r) => splitTopLevel(r, '&').map((c) => c.trim()));
+        const colCount = Math.max(...cells.map((r) => r.length), 2);
+        if (rows.length >= 1 && colCount >= 2 && colCount <= 8) {
+          const slotLabels: string[] = [];
+          const slotContents: MathNode[][] = [];
+          for (let r = 0; r < rows.length; r += 1) {
+            for (let c = 0; c < colCount; c += 1) {
+              slotLabels.push(`(${r + 1},${c + 1})`);
+              slotContents.push(parseLatexNodes(cells[r][c] ?? '', diagnostics, depth + 1));
+            }
+          }
+          const struct = createStructNode(
+            { id: 'aligned_2', slots: slotLabels, latex: '' },
+            slotContents,
+          );
+          struct.grid = {
+            env: 'aligned',
+            rows: rows.length,
+            cols: colCount,
+            ...(hasGaps ? { rowGaps } : {}),
+          };
+          return [struct];
+        }
         diagnostics.push({
           severity: 'warning',
           message: `检测到 ${envName} 多列或非关系对齐，已按原生 LaTeX 整体保留以保证对齐语义`,
@@ -1323,6 +1371,25 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
 
     if (ch === '{') {
       const raw = readBracedRaw();
+      // Support classic TeX infix primitives `{a \over b}` -> `frac` and `{n \choose k}` -> `binom`!
+      const infixOver = splitTopLevelInfixMacro(raw, '\\over');
+      if (infixOver) {
+        return [
+          createStructNode(COMMANDS_BY_ID.get('frac')!, [
+            parseLatexNodes(infixOver[0], diagnostics, depth + 1),
+            parseLatexNodes(infixOver[1], diagnostics, depth + 1),
+          ]),
+        ];
+      }
+      const infixChoose = splitTopLevelInfixMacro(raw, '\\choose');
+      if (infixChoose) {
+        return [
+          createStructNode(COMMANDS_BY_ID.get('binom')!, [
+            parseLatexNodes(infixChoose[0], diagnostics, depth + 1),
+            parseLatexNodes(infixChoose[1], diagnostics, depth + 1),
+          ]),
+        ];
+      }
       return parseLatexNodes(raw, diagnostics, depth + 1);
     }
 
@@ -1460,9 +1527,23 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         if (limitsMode) struct.limitsMode = limitsMode;
         return [struct];
       }
-      if (macro === '\\prod' || macro === '\\bigcup' || macro === '\\bigcap') {
-        const cmdId =
-          macro === '\\prod' ? 'product' : macro === '\\bigcup' ? 'bigcup' : 'bigcap';
+      if (
+        macro === '\\prod' ||
+        macro === '\\bigcup' ||
+        macro === '\\bigcap' ||
+        macro === '\\coprod' ||
+        macro === '\\bigoplus' ||
+        macro === '\\bigotimes'
+      ) {
+        const idMap: Record<string, string> = {
+          '\\prod': 'product',
+          '\\bigcup': 'bigcup',
+          '\\bigcap': 'bigcap',
+          '\\coprod': 'coprod',
+          '\\bigoplus': 'bigoplus',
+          '\\bigotimes': 'bigotimes',
+        };
+        const cmdId = idMap[macro];
         const limitsMode = readOptionalLimitsMode();
         const { sub, sup } = readSubSup();
         const body = readBigOpBody(false);
@@ -1563,13 +1644,18 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       if (macro === '\\substack') {
         const rawArg = readBracedRaw();
         const { rows, hasGaps } = splitMatrixRows(rawArg);
-        if (!hasGaps && rows.length === 2) {
-          return [
-            createStructNode(COMMANDS_BY_ID.get('substack_2')!, [
-              parseLatexNodes(rows[0], diagnostics, depth + 1),
-              parseLatexNodes(rows[1], diagnostics, depth + 1),
-            ]),
-          ];
+        if (!hasGaps && rows.length >= 2) {
+          const parsedRows = rows.map((r) => parseLatexNodes(r, diagnostics, depth + 1));
+          const struct = createStructNode(
+            {
+              id: 'substack_2',
+              latex: '\\substack{$1 \\\\ $2}',
+              slots: parsedRows.map((_, i) => `第 ${i + 1} 行`),
+            },
+            parsedRows,
+          );
+          struct.grid = { env: 'substack', rows: parsedRows.length, cols: 1 };
+          return [struct];
         }
         diagnostics.push({
           severity: 'warning',
@@ -1638,7 +1724,10 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         macro === '\\mathrm' ||
         macro === '\\mathfrak' ||
         macro === '\\mathsf' ||
-        macro === '\\mathtt'
+        macro === '\\mathtt' ||
+        macro === '\\boldsymbol' ||
+        macro === '\\bm' ||
+        macro === '\\mathscr'
       ) {
         const arg = readBracedRaw();
         // Parse structured upright differentials `\mathrm{d}x`, `\mathrm{d}\theta`, `\mathrm{d}\vec{r}`, `\mathrm{d}^{2}x`
@@ -1652,8 +1741,8 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           const beforeVarPos = pos;
           if (orderNodes.length > 0) skipSpaces();
           const nextCh = peek();
-          if (nextCh && /[A-Za-z\\]/.test(nextCh)) {
-            const varUnits = parseSingleUnit();
+          if (nextCh && (/[A-Za-z\\]/.test(nextCh) || nextCh === '{')) {
+            const varUnits = nextCh === '{' ? readGroupNodes() : parseSingleUnit();
             const diffCmd = COMMANDS_BY_ID.get('diff');
             if (diffCmd && varUnits.length > 0) {
               return [createStructNode(diffCmd, [orderNodes, varUnits])];
@@ -1661,7 +1750,63 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           }
           pos = beforeVarPos === pos ? saveDiffPos : saveDiffPos;
         }
+        const fontId = macro === '\\bm' ? 'boldsymbol' : macro.slice(1);
+        const fontCmd = COMMANDS_BY_ID.get(fontId);
+        if (fontCmd) {
+          const innerNodes =
+            fontId === 'mathrm' && /^[A-Za-z0-9\s-]+$/.test(arg)
+              ? textToCharNodes(arg, true)
+              : parseLatexNodes(arg, diagnostics, depth + 1);
+          return [createStructNode(fontCmd, [innerNodes])];
+        }
         return [createRawNode(`${macro}{${arg}}`)];
+      }
+
+      if (macro === '\\not') {
+        skipSpaces();
+        if (peek() === '=') {
+          pos += 1;
+          return [createSymbolNode(COMMANDS_BY_ID.get('neq')!)];
+        }
+        if (peek() === '<') {
+          pos += 1;
+          return [createSymbolNode(COMMANDS_BY_ID.get('nless')!)];
+        }
+        if (peek() === '>') {
+          pos += 1;
+          return [createSymbolNode(COMMANDS_BY_ID.get('ngtr')!)];
+        }
+        if (peek() === '\\') {
+          const saved = pos;
+          const nextM = readMacroName();
+          const notMap: Record<string, string> = {
+            '\\in': 'notin',
+            '\\subseteq': 'nsubseteq',
+            '\\supseteq': 'nsupseteq',
+            '\\equiv': 'not_equiv',
+            '\\le': 'nleq',
+            '\\leq': 'nleq',
+            '\\ge': 'ngeq',
+            '\\geq': 'ngeq',
+            '\\sim': 'nsim',
+            '\\cong': 'ncong',
+            '\\mid': 'nmid',
+            '\\parallel': 'nparallel',
+            '\\Rightarrow': 'nRightarrow',
+            '\\Leftrightarrow': 'nLeftrightarrow',
+            '\\to': 'nrightarrow',
+            '\\rightarrow': 'nrightarrow',
+            '\\vdash': 'nvdash',
+            '\\models': 'nvDash',
+          };
+          const mappedId = notMap[nextM];
+          if (mappedId && COMMANDS_BY_ID.has(mappedId)) {
+            return [createSymbolNode(COMMANDS_BY_ID.get(mappedId)!)];
+          }
+          if (nextM === '\\subset') return [createRawNode('\\not\\subset')];
+          pos = saved;
+        }
+        return [createRawNode('\\not')];
       }
 
       const fnName = macro.slice(1);
@@ -1701,9 +1846,15 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           pos += 1;
         }
         const tagArg = readBracedRaw();
+        if (!star) {
+          const tagCmd = COMMANDS_BY_ID.get('tag_eq');
+          if (tagCmd) {
+            return [createStructNode(tagCmd, [parseLatexNodes(tagArg, diagnostics, depth + 1)])];
+          }
+        }
         diagnostics.push({
           severity: 'warning',
-          message: '公式包含 \\tag 编号，仅在 $$...$$ 块级模式下可渲染',
+          message: '公式包含 \\tag* 编号，仅在 $$...$$ 块级模式下可渲染',
         });
         return [createRawNode(`\\tag${star}{${tagArg}}`)];
       }

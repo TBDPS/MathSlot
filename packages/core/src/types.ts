@@ -111,10 +111,30 @@ export interface Cursor {
   offset: number;
 }
 
+export type TreePoint = Cursor;
+
 export interface Selection {
   slotId: string;
   start: number;
   end: number;
+}
+
+/** Rectangular sub-block selection inside a matrix / aligned / cases grid */
+export interface GridRectSelection {
+  structId: string;
+  r1: number;
+  c1: number;
+  r2: number;
+  c2: number;
+}
+
+/** Structured AST + cursor draft snapshot for lossless session persistence (Phase 3 P2-5) */
+export interface PersistedDraftV1 {
+  schemaVersion: 1;
+  updatedAt: number;
+  root: SlotNode;
+  cursor: TreePoint;
+  wrapper?: MathWrapperKind;
 }
 
 export interface JumpTarget {
@@ -151,6 +171,14 @@ export type EditorMode =
 
 export type LeaderKey = 'Tab' | '/' | '\\';
 export type DelimiterStyle = 'none' | 'inline' | 'block' | 'codeblock';
+/** Exact LaTeX/Markdown wrapper dialect preserved during Obsidian in-place round-trip editing */
+export type MathWrapperKind =
+  | 'none'
+  | 'dollar_inline'
+  | 'paren_inline'
+  | 'dollar_block'
+  | 'bracket_block'
+  | 'codeblock';
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type SlotOrderPreset = 'standard' | 'writing_cn';
 export type SlotOrderOverrides = Record<string, number[]>;
@@ -237,6 +265,8 @@ export interface EditorSnapshot {
   doc: Document;
   cursor: Cursor;
   selection: Selection | null;
+  gridSelection?: GridRectSelection | null;
+  docRevision?: number;
   mode: EditorMode;
   latex: string;
   interactiveLatex: string;

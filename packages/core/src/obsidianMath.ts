@@ -1,4 +1,4 @@
-import type { DelimiterStyle } from './types';
+import type { DelimiterStyle, MathWrapperKind } from './types';
 
 export interface EditorPos {
   line: number;
@@ -6,15 +6,28 @@ export interface EditorPos {
 }
 
 export interface DetectedEditorFormula {
-  /** Pure formula text (with `$` / `$$` delimiters, stripped of any leading blockquote `>` prefixes) */
+  /** Pure formula text (with `$` / `$$` / `\(...\)` / `\[...\]` delimiters, stripped of any leading blockquote `>` prefixes) */
   raw: string;
   delimiter: DelimiterStyle;
+  /** Exact source delimiter dialect so in-place Obsidian edits write back `\(...\)` or `\[...\]` faithfully */
+  wrapper: MathWrapperKind;
   from: EditorPos;
   to: EditorPos;
   /** Canonical blockquote line prefix to re-prepend when writing multi-line replacements (e.g. `"> "`, `"> > "`, or `""`) */
   linePrefix: string;
   /** Whether the replacement range starts at column 0 (meaning line 0 also needs `linePrefix`) */
   includeFirstLinePrefix: boolean;
+}
+
+/** Infers the exact source wrapper dialect from a user-selected raw formula string. */
+export function detectWrapperFromRaw(raw: string): MathWrapperKind | undefined {
+  const s = raw.trim();
+  if (s.startsWith('\\(') && s.endsWith('\\)') && s.length >= 4) return 'paren_inline';
+  if (s.startsWith('\\[') && s.endsWith('\\]') && s.length >= 4) return 'bracket_block';
+  if (s.startsWith('$$') && s.endsWith('$$') && s.length >= 4) return 'dollar_block';
+  if (s.startsWith('$') && s.endsWith('$') && s.length >= 2 && !s.startsWith('$$')) return 'dollar_inline';
+  if (s.startsWith('```') && s.endsWith('```')) return 'codeblock';
+  return undefined;
 }
 
 const BLOCKQUOTE_PREFIX_RE = /^([ \t]*(?:>[ \t]?)+)/;
@@ -146,7 +159,7 @@ function isEscapedAt(text: string, idx: number): boolean {
 function findInlineFormulaOnLine(
   content: string,
   cursorOffset: number,
-): { start: number; end: number; raw: string; delimiter: DelimiterStyle } | null {
+): { start: number; end: number; raw: string; delimiter: DelimiterStyle; wrapper: MathWrapperKind } | null {
   let i = 0;
   const n = content.length;
 
@@ -215,6 +228,7 @@ function findInlineFormulaOnLine(
               end,
               raw: content.slice(i, end),
               delimiter: 'block',
+              wrapper: 'dollar_block',
             };
           }
           i = end;
@@ -252,6 +266,7 @@ function findInlineFormulaOnLine(
             end,
             raw: content.slice(i, end),
             delimiter: 'inline',
+            wrapper: 'dollar_inline',
           };
         }
         i = end;
@@ -267,6 +282,7 @@ function findInlineFormulaOnLine(
       if (nextCh === '(' || nextCh === '[') {
         const closeToken = nextCh === '(' ? '\\)' : '\\]';
         const delimiter: DelimiterStyle = nextCh === '(' ? 'inline' : 'block';
+        const wrapper: MathWrapperKind = nextCh === '(' ? 'paren_inline' : 'bracket_block';
         let scan = i + 2;
         let closeIdx = -1;
         while (scan < n) {
@@ -291,6 +307,7 @@ function findInlineFormulaOnLine(
               end,
               raw: content.slice(i, end),
               delimiter,
+              wrapper,
             };
           }
           i = end;
@@ -419,6 +436,7 @@ export function detectFormulaInLines(
         return {
           raw: stripped.join('\n'),
           delimiter: 'block',
+          wrapper: 'bracket_block',
           from: { line: openLine, ch: 0 },
           to: { line: l, ch: lines[l].length },
           linePrefix: openPrefix,
@@ -448,6 +466,7 @@ export function detectFormulaInLines(
           return {
             raw: stripped.join('\n'),
             delimiter: 'block',
+            wrapper: 'dollar_block',
             from: { line: openLine, ch: 0 },
             to: { line: l, ch: lines[l].length },
             linePrefix: openPrefix,
@@ -493,6 +512,7 @@ export function detectFormulaInLines(
       return {
         raw: stripped.join('\n'),
         delimiter: 'block',
+        wrapper: blockKind === '\\[' ? 'bracket_block' : 'dollar_block',
         from: { line: openLine, ch: 0 },
         to: { line: closeLine, ch: lines[closeLine].length },
         linePrefix: openPrefix,
@@ -509,6 +529,7 @@ export function detectFormulaInLines(
       return {
         raw: inlineHit.raw,
         delimiter: inlineHit.delimiter,
+        wrapper: inlineHit.wrapper,
         from: { line: cursor.line, ch: cursorPrefixLen + inlineHit.start },
         to: { line: cursor.line, ch: cursorPrefixLen + inlineHit.end },
         linePrefix: cursorCanonicalPrefix,
@@ -518,4 +539,26 @@ export function detectFormulaInLines(
   }
 
   return null;
+}
+
+/**
+ * Bounded-window variant of `detectFormulaInLines` for very long notes (e.g. 10,000+ lines).
+ * Accepts a slice starting at `windowStartLine` and returns absolute document line coordinates.
+ */
+export function detectFormulaInWindow(
+  windowLines: string[],
+  windowStartLine: number,
+  cursor: EditorPos,
+  cursorInsideCodeBlock = false,
+): DetectedEditorFormula | null {
+  if (cursorInsideCodeBlock) return null;
+  const relLine = cursor.line - windowStartLine;
+  if (relLine < 0 || relLine >= windowLines.length) return null;
+  const hit = detectFormulaInLines(windowLines, { line: relLine, ch: cursor.ch });
+  if (!hit) return null;
+  return {
+    ...hit,
+    from: { line: hit.from.line + windowStartLine, ch: hit.from.ch },
+    to: { line: hit.to.line + windowStartLine, ch: hit.to.ch },
+  };
 }

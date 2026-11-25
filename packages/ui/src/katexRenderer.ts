@@ -1,4 +1,5 @@
 import katex from 'katex';
+import { normalizePreviewLatex } from '@mathslot/core';
 
 export interface RenderResult {
   html: string;
@@ -88,7 +89,8 @@ export function renderLatexPreview(latex: string, displayMode = false): string {
   const cached = previewCache.get(key);
   if (cached !== undefined) return cached;
   try {
-    const html = katex.renderToString(latex, {
+    const normalized = normalizePreviewLatex(latex, displayMode);
+    const html = katex.renderToString(normalized, {
       displayMode,
       throwOnError: false,
       strict: false,

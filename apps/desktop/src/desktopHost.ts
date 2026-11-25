@@ -6,9 +6,13 @@ function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function tauriInvoke<T>(
+  cmd: string,
+  args?: Record<string, unknown> | Uint8Array | ArrayBuffer,
+  options?: { headers?: Record<string, string> },
+): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<T>(cmd, args);
+  return invoke<T>(cmd, args as never, options as never);
 }
 
 export function createDesktopHost(): HostAdapter {
@@ -43,10 +47,11 @@ export function createDesktopHost(): HostAdapter {
     async copyImagePng(rgba: Uint8Array, width: number, height: number, blob: Blob): Promise<void> {
       if (isTauriRuntime()) {
         try {
-          await tauriInvoke('copy_image_to_clipboard', {
-            rgba: Array.from(rgba),
-            width,
-            height,
+          await tauriInvoke('copy_image_to_clipboard', rgba, {
+            headers: {
+              'x-width': String(width),
+              'x-height': String(height),
+            },
           });
           return;
         } catch {
@@ -62,9 +67,10 @@ export function createDesktopHost(): HostAdapter {
 
     async saveExportFile(filename: string, bytes: Uint8Array): Promise<string> {
       if (isTauriRuntime()) {
-        return tauriInvoke<string>('save_export_file', {
-          filename,
-          bytes: Array.from(bytes),
+        return tauriInvoke<string>('save_export_file', bytes, {
+          headers: {
+            'x-filename': encodeURIComponent(filename),
+          },
         });
       }
       const copy = new Uint8Array(bytes.byteLength);
@@ -90,6 +96,12 @@ export function createDesktopHost(): HostAdapter {
     async setAlwaysOnTop(pinned: boolean): Promise<void> {
       if (isTauriRuntime()) {
         await tauriInvoke('set_always_on_top', { pinned });
+      }
+    },
+
+    async hideWindow(): Promise<void> {
+      if (isTauriRuntime()) {
+        await tauriInvoke('hide_window');
       }
     },
 
@@ -153,6 +165,7 @@ export function createDesktopHost(): HostAdapter {
               favoriteIds: Array.isArray(parsed.favoriteIds) ? parsed.favoriteIds : [],
               recentIds: Array.isArray(parsed.recentIds) ? parsed.recentIds : [],
               lastDraftLatex: typeof parsed.lastDraftLatex === 'string' ? parsed.lastDraftLatex : '',
+              lastDraftV1: parsed.lastDraftV1 ?? null,
             };
           }
         } catch {
@@ -173,6 +186,7 @@ export function createDesktopHost(): HostAdapter {
             favoriteIds: Array.isArray(parsed.favoriteIds) ? parsed.favoriteIds : [],
             recentIds: Array.isArray(parsed.recentIds) ? parsed.recentIds : [],
             lastDraftLatex: typeof parsed.lastDraftLatex === 'string' ? parsed.lastDraftLatex : '',
+            lastDraftV1: parsed.lastDraftV1 ?? null,
           };
         }
       } catch {

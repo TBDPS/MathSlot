@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { commandPreviewLatex, type CustomCommandDef, type LeaderKey } from '@mathslot/core';
+  import {
+    commandPreviewLatex,
+    detectShorthandConflicts,
+    type CustomCommandDef,
+    type LeaderKey,
+  } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
+  import { focusTrap } from '../focusTrap';
 
   interface Props {
     leaderKey: LeaderKey;
@@ -46,6 +52,18 @@
     );
   });
 
+  const shorthandConflict = $derived.by(() => {
+    const cleanShort = shorthand.trim();
+    if (!cleanShort) return null;
+    const probeId = editing?.id ?? '__draft__';
+    const others = existingCommands.filter((c) => c.id !== editing?.id);
+    const list = detectShorthandConflicts(
+      [...others, { id: probeId, label: label.trim() || '当前结构', latex: latex.trim(), slots: [], shorthand: cleanShort }],
+      [],
+    );
+    return list.find((c) => c.sourceId === probeId) ?? null;
+  });
+
   onMount(() => {
     if (editing) {
       label = editing.label;
@@ -81,7 +99,7 @@
   onmousedown={(e) => { if (e.target === e.currentTarget) onClose(); }}
   onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
 >
-  <div class="modal" role="dialog" aria-modal="true" aria-label="自定义结构">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="自定义结构" use:focusTrap>
     <div class="modal-head">
       <span>{editing ? '编辑自定义结构' : '新建自定义结构'}</span>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
@@ -147,6 +165,9 @@
           type="text"
           placeholder="可选，如 EE"
         />
+        {#if shorthandConflict}
+          <span class="warn-text">与 {shorthandConflict.conflictsWith} 冲突，可能遮蔽内置输入</span>
+        {/if}
       </label>
     </div>
 

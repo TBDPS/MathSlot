@@ -37,12 +37,15 @@ export interface RenderedSvg {
   height: number;
 }
 
+type Linear2D = [number, number, number, number];
+
 interface SceneRect {
   x: number;
   y: number;
   width: number;
   height: number;
   fill: string;
+  matrix?: Linear2D;
 }
 
 interface SceneText {
@@ -56,6 +59,7 @@ interface SceneText {
   fontWeight: string;
   fontStyle: string;
   fill: string;
+  matrix?: Linear2D;
 }
 
 interface SceneSvgShape {
@@ -85,6 +89,62 @@ interface SceneSvg {
   vbH: number;
   preserveAspectRatio: string;
   shapes: SceneSvgShape[];
+  matrix?: Linear2D;
+}
+
+function parseLinearTransform2D(transform: string): Linear2D | null {
+  if (!transform || transform === 'none') return null;
+  const m2d = transform.match(/^matrix\(([^)]+)\)$/);
+  if (m2d) {
+    const nums = m2d[1].split(',').map((v) => parseFloat(v.trim()));
+    if (nums.length === 6 && nums.every(Number.isFinite)) {
+      return [nums[0], nums[1], nums[2], nums[3]];
+    }
+  }
+  const m3d = transform.match(/^matrix3d\(([^)]+)\)$/);
+  if (m3d) {
+    const nums = m3d[1].split(',').map((v) => parseFloat(v.trim()));
+    if (nums.length === 16 && nums.every(Number.isFinite)) {
+      return [nums[0], nums[1], nums[4], nums[5]];
+    }
+  }
+  return null;
+}
+
+function composeLinear2D(parent: Linear2D, child: Linear2D): Linear2D {
+  const [a1, b1, c1, d1] = parent;
+  const [a2, b2, c2, d2] = child;
+  return [
+    a1 * a2 + c1 * b2,
+    b1 * a2 + d1 * b2,
+    a1 * c2 + c1 * d2,
+    b1 * c2 + d1 * d2,
+  ];
+}
+
+function isNonIdentityLinear2D(m: Linear2D): boolean {
+  return (
+    Math.abs(m[0] - 1) > 1e-4 ||
+    Math.abs(m[1]) > 1e-4 ||
+    Math.abs(m[2]) > 1e-4 ||
+    Math.abs(m[3] - 1) > 1e-4
+  );
+}
+
+function getCumulativeLinear2D(el: Element | null, stopAt: Element): Linear2D | undefined {
+  const chain: Linear2D[] = [];
+  let cur: Element | null = el;
+  while (cur && cur !== stopAt) {
+    const m = parseLinearTransform2D(getComputedStyle(cur).transform);
+    if (m) chain.push(m);
+    cur = cur.parentElement;
+  }
+  if (chain.length === 0) return undefined;
+  let acc: Linear2D = [1, 0, 0, 1];
+  for (let i = chain.length - 1; i >= 0; i -= 1) {
+    acc = composeLinear2D(acc, chain[i]);
+  }
+  return isNonIdentityLinear2D(acc) ? acc : undefined;
 }
 
 interface VectorScene {
@@ -196,7 +256,21 @@ async function extractVectorScene(
       if (r.width <= 0.1 && r.height <= 0.1) continue;
 
       if (!isTransparent(cs.backgroundColor) && r.width > 0.2 && r.height > 0.2) {
-        rawRects.push({ x: r.left, y: r.top, width: r.width, height: r.height, fill: cs.backgroundColor });
+        const matrix = getCumulativeLinear2D(node, katexHtml);
+        if (matrix && node.offsetWidth > 0 && node.offsetHeight > 0) {
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          rawRects.push({
+            x: cx - node.offsetWidth / 2,
+            y: cy - node.offsetHeight / 2,
+            width: node.offsetWidth,
+            height: node.offsetHeight,
+            fill: cs.backgroundColor,
+            matrix,
+          });
+        } else {
+          rawRects.push({ x: r.left, y: r.top, width: r.width, height: r.height, fill: cs.backgroundColor, matrix });
+        }
         expand(r.left, r.top, r.width, r.height);
       }
 
@@ -277,6 +351,7 @@ async function extractVectorScene(
       }
 
       if (shapes.length > 0) {
+        const matrix = getCumulativeLinear2D(svg, katexHtml);
         rawSvgs.push({
           x: r.left,
           y: r.top,
@@ -288,6 +363,7 @@ async function extractVectorScene(
           vbH,
           preserveAspectRatio,
           shapes,
+          matrix,
         });
         expand(r.left, r.top, r.width, r.height);
       }
@@ -310,6 +386,7 @@ async function extractVectorScene(
           if (r.width > 0.1 && r.height > 0.1) {
             const fam = primaryFontFamily(cs.fontFamily);
             if (fam) usedFamilies.add(fam);
+            const matrix = getCumulativeLinear2D(parent, katexHtml);
             rawTexts.push({
               text: cleaned,
               x: r.left,
@@ -321,6 +398,7 @@ async function extractVectorScene(
               fontWeight: cs.fontWeight,
               fontStyle: cs.fontStyle,
               fill: cs.color || fgColor,
+              matrix,
             });
             expand(r.left, r.top, r.width, r.height);
           }
@@ -448,15 +526,32 @@ export async function renderLatexToPng(
     ctx.fillRect(0, 0, scene.width, scene.height);
   }
 
-  // 1. Draw fraction bars, radical lines, rules
+  // 1. Draw fraction bars, radical lines, rules (with optional CSS affine transform)
   for (const r of scene.rects) {
     ctx.fillStyle = r.fill;
-    ctx.fillRect(r.x, r.y, r.width, r.height);
+    if (r.matrix) {
+      const cx = r.x + r.width / 2;
+      const cy = r.y + r.height / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.transform(r.matrix[0], r.matrix[1], r.matrix[2], r.matrix[3], 0, 0);
+      ctx.fillRect(-r.width / 2, -r.height / 2, r.width, r.height);
+      ctx.restore();
+    } else {
+      ctx.fillRect(r.x, r.y, r.width, r.height);
+    }
   }
 
   // 2. Draw KaTeX stretchy SVG paths with exact preserveAspectRatio + clip
   for (const svg of scene.svgs) {
     ctx.save();
+    if (svg.matrix) {
+      const cx = svg.x + svg.width / 2;
+      const cy = svg.y + svg.height / 2;
+      ctx.translate(cx, cy);
+      ctx.transform(svg.matrix[0], svg.matrix[1], svg.matrix[2], svg.matrix[3], 0, 0);
+      ctx.translate(-cx, -cy);
+    }
     ctx.beginPath();
     ctx.rect(svg.x, svg.y, svg.width, svg.height);
     ctx.clip();
@@ -502,7 +597,18 @@ export async function renderLatexToPng(
   for (const t of scene.texts) {
     const baselineY = computeBaselineY(ctx, t);
     ctx.fillStyle = t.fill;
-    ctx.fillText(t.text, t.x, baselineY);
+    if (t.matrix) {
+      const cx = t.x + t.width / 2;
+      const cy = t.y + t.height / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.transform(t.matrix[0], t.matrix[1], t.matrix[2], t.matrix[3], 0, 0);
+      ctx.translate(-cx, -cy);
+      ctx.fillText(t.text, t.x, baselineY);
+      ctx.restore();
+    } else {
+      ctx.fillText(t.text, t.x, baselineY);
+    }
   }
 
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -522,6 +628,14 @@ export async function renderLatexToPng(
 }
 
 const fontDataUrlCache = new Map<string, string>();
+const embeddedFontFaceByFamily = new Map<string, string[]>();
+let cachedStyleSheetCount = -1;
+
+function formatSvgMatrixAttr(matrix: Linear2D | undefined, cx: number, cy: number): string {
+  if (!matrix) return '';
+  const [a, b, c, d] = matrix.map((v) => Number(v.toFixed(5)));
+  return ` transform="translate(${cx.toFixed(2)} ${cy.toFixed(2)}) matrix(${a} ${b} ${c} ${d} 0 0) translate(${(-cx).toFixed(2)} ${(-cy).toFixed(2)})"`;
+}
 
 async function inlineFontUrl(rawUrl: string): Promise<string | null> {
   if (rawUrl.startsWith('data:')) return rawUrl;
@@ -547,37 +661,63 @@ async function inlineFontUrl(rawUrl: string): Promise<string | null> {
 
 async function collectEmbeddedFontCss(usedFamilies: Set<string>): Promise<string> {
   if (usedFamilies.size === 0) return '';
+  if (document.styleSheets.length !== cachedStyleSheetCount) {
+    embeddedFontFaceByFamily.clear();
+    cachedStyleSheetCount = document.styleSheets.length;
+  }
+
+  const missingFamilies = new Set<string>();
+  for (const fam of usedFamilies) {
+    if (!embeddedFontFaceByFamily.has(fam)) {
+      missingFamilies.add(fam);
+    }
+  }
+
+  if (missingFamilies.size > 0) {
+    const bucket = new Map<string, string[]>();
+    for (const fam of missingFamilies) bucket.set(fam, []);
+
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules: CSSRuleList;
+      try {
+        rules = sheet.cssRules;
+      } catch {
+        continue;
+      }
+      for (const rule of Array.from(rules)) {
+        if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
+        const text = rule.cssText;
+        const famMatch = text.match(/font-family:\s*["']?([^;"']+)["']?/i);
+        const fam = famMatch?.[1]?.trim();
+        if (!fam || !missingFamilies.has(fam)) continue;
+
+        // Prefer .woff2 source, inline external URLs as base64 so exported SVG works standalone offline
+        const woff2Match = text.match(/url\(["']?([^"')]+(?:\.woff2|font\/woff2[^"')]*))["']?\)/i);
+        const anyUrlMatch = woff2Match ?? text.match(/url\(["']?([^"')]+)["']?\)/i);
+        if (!anyUrlMatch) continue;
+        const inlined = await inlineFontUrl(anyUrlMatch[1]);
+        if (!inlined) continue;
+
+        const styleMatch = text.match(/font-style:\s*([^;]+)/i);
+        const weightMatch = text.match(/font-weight:\s*([^;]+)/i);
+        const fStyle = styleMatch?.[1]?.trim() ?? 'normal';
+        const fWeight = weightMatch?.[1]?.trim() ?? '400';
+        const fmt = inlined.includes('font/woff2') ? 'woff2' : 'woff';
+        bucket.get(fam)?.push(
+          `@font-face{font-family:"${fam}";font-style:${fStyle};font-weight:${fWeight};src:url("${inlined}") format("${fmt}");}`,
+        );
+      }
+    }
+
+    for (const [fam, list] of bucket) {
+      embeddedFontFaceByFamily.set(fam, list);
+    }
+  }
+
   const matchedRules: string[] = [];
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      continue;
-    }
-    for (const rule of Array.from(rules)) {
-      if (rule.type !== CSSRule.FONT_FACE_RULE) continue;
-      const text = rule.cssText;
-      const famMatch = text.match(/font-family:\s*["']?([^;"']+)["']?/i);
-      const fam = famMatch?.[1]?.trim();
-      if (!fam || !usedFamilies.has(fam)) continue;
-
-      // Prefer .woff2 source, inline external URLs as base64 so exported SVG works standalone offline
-      const woff2Match = text.match(/url\(["']?([^"')]+(?:\.woff2|font\/woff2[^"')]*))["']?\)/i);
-      const anyUrlMatch = woff2Match ?? text.match(/url\(["']?([^"')]+)["']?\)/i);
-      if (!anyUrlMatch) continue;
-      const inlined = await inlineFontUrl(anyUrlMatch[1]);
-      if (!inlined) continue;
-
-      const styleMatch = text.match(/font-style:\s*([^;]+)/i);
-      const weightMatch = text.match(/font-weight:\s*([^;]+)/i);
-      const fStyle = styleMatch?.[1]?.trim() ?? 'normal';
-      const fWeight = weightMatch?.[1]?.trim() ?? '400';
-      const fmt = inlined.includes('font/woff2') ? 'woff2' : 'woff';
-      matchedRules.push(
-        `@font-face{font-family:"${fam}";font-style:${fStyle};font-weight:${fWeight};src:url("${inlined}") format("${fmt}");}`,
-      );
-    }
+  for (const fam of usedFamilies) {
+    const rules = embeddedFontFaceByFamily.get(fam);
+    if (rules) matchedRules.push(...rules);
   }
   return matchedRules.join('\n');
 }
@@ -612,8 +752,9 @@ export async function renderLatexToSvg(
   }
 
   for (const r of scene.rects) {
+    const tf = formatSvgMatrixAttr(r.matrix, r.x + r.width / 2, r.y + r.height / 2);
     parts.push(
-      `  <rect x="${r.x.toFixed(2)}" y="${r.y.toFixed(2)}" width="${r.width.toFixed(2)}" height="${r.height.toFixed(2)}" fill="${escapeXml(r.fill)}"/>`,
+      `  <rect x="${r.x.toFixed(2)}" y="${r.y.toFixed(2)}" width="${r.width.toFixed(2)}" height="${r.height.toFixed(2)}" fill="${escapeXml(r.fill)}"${tf}/>`,
     );
   }
 
@@ -635,16 +776,21 @@ export async function renderLatexToSvg(
         return '';
       })
       .join('');
-    parts.push(
-      `  <svg x="${svg.x.toFixed(2)}" y="${svg.y.toFixed(2)}" width="${svg.width.toFixed(2)}" height="${svg.height.toFixed(2)}" viewBox="${svg.vbX} ${svg.vbY} ${svg.vbW} ${svg.vbH}" preserveAspectRatio="${escapeXml(svg.preserveAspectRatio)}">${inner}</svg>`,
-    );
+    const svgEl = `<svg x="${svg.x.toFixed(2)}" y="${svg.y.toFixed(2)}" width="${svg.width.toFixed(2)}" height="${svg.height.toFixed(2)}" viewBox="${svg.vbX} ${svg.vbY} ${svg.vbW} ${svg.vbH}" preserveAspectRatio="${escapeXml(svg.preserveAspectRatio)}">${inner}</svg>`;
+    if (svg.matrix) {
+      const tf = formatSvgMatrixAttr(svg.matrix, svg.x + svg.width / 2, svg.y + svg.height / 2);
+      parts.push(`  <g${tf}>${svgEl}</g>`);
+    } else {
+      parts.push(`  ${svgEl}`);
+    }
   }
 
   for (const t of scene.texts) {
     const baselineY = mCtx ? computeBaselineY(mCtx, t) : t.y + t.height * 0.78;
     const fam = primaryFontFamily(t.fontFamily) || t.fontFamily;
+    const tf = formatSvgMatrixAttr(t.matrix, t.x + t.width / 2, t.y + t.height / 2);
     parts.push(
-      `  <text x="${t.x.toFixed(2)}" y="${baselineY.toFixed(2)}" font-family="${escapeXml(fam)}" font-size="${t.fontSize.toFixed(2)}" font-weight="${escapeXml(t.fontWeight)}" font-style="${escapeXml(t.fontStyle)}" fill="${escapeXml(t.fill)}">${escapeXml(t.text)}</text>`,
+      `  <text x="${t.x.toFixed(2)}" y="${baselineY.toFixed(2)}" font-family="${escapeXml(fam)}" font-size="${t.fontSize.toFixed(2)}" font-weight="${escapeXml(t.fontWeight)}" font-style="${escapeXml(t.fontStyle)}" fill="${escapeXml(t.fill)}"${tf}>${escapeXml(t.text)}</text>`,
     );
   }
 

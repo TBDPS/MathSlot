@@ -22,10 +22,10 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 166 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
-    expect(COMMANDS.length).toBe(166);
-    expect(COMMANDS_BY_ID.size).toBe(166);
-    expect(COMMANDS_BY_KEYS.size).toBe(163);
+  it('contains 217 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
+    expect(COMMANDS.length).toBe(217);
+    expect(COMMANDS_BY_ID.size).toBe(217);
+    expect(COMMANDS_BY_KEYS.size).toBe(214);
     expect(DIRECT_COMMANDS.length).toBe(9);
     expect(COMMANDS_BY_KEYS.has('u')).toBe(false);
     expect(COMMANDS_BY_KEYS.has('d')).toBe(false);
@@ -69,8 +69,8 @@ describe('MathSlot catalog & presets integrity', () => {
     expect(searchCommands('pmatrix').some((c) => c.id === 'matrix_2x2')).toBe(true);
   });
 
-  it('imports all 89 presets cleanly into valid ASTs and clean canonical LaTeX', () => {
-    expect(PRESETS.length).toBe(89);
+  it('imports all 114 presets cleanly into valid ASTs and clean canonical LaTeX', () => {
+    expect(PRESETS.length).toBe(114);
     for (const preset of PRESETS) {
       const res = importFormula(preset.source);
       const errors = res.diagnostics.filter((d) => d.severity === 'error');
