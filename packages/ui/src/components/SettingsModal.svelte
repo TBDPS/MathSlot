@@ -232,6 +232,15 @@
       </label>
 
       <label class="toggle-row">
+        <span>运算符自动跳出上下标（输入 + = &lt; &gt; , 时自动跳出，默认关闭）</span>
+        <input
+          type="checkbox"
+          checked={Boolean(settings.operatorExitsScript)}
+          onchange={(e) => onUpdate({ operatorExitsScript: (e.currentTarget as HTMLInputElement).checked })}
+        />
+      </label>
+
+      <label class="toggle-row">
         <span>分号 `;` 跳转下一槽位</span>
         <input
           type="checkbox"

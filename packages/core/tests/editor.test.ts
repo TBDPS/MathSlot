@@ -263,10 +263,15 @@ describe('MathSlotEngine keyboard flow', () => {
     expect(engine.getSnapshot().latex).toBe('n \\pi x');
     expect(engine.getSnapshot().interactiveLatex).toContain('\\pi');
 
-    // Space inside exponents works cleanly (never hijacked by default!)
+    // Space inside explicit braced exponents (`e^{i pi}`) stays inside until `}`;
+    // and with `spaceExitsScript: false`, unbraced `e^i pi` also keeps Space inside!
     engine.clear();
-    type('e^i pi');
+    type('e^{i pi}');
     expect(engine.getSnapshot().latex).toBe('e^{i \\pi}');
+
+    const unbracedSpaceEngine = new MathSlotEngine({ spaceExitsScript: false });
+    for (const ch of 'e^i pi') unbracedSpaceEngine.insertText(ch);
+    expect(unbracedSpaceEngine.getSnapshot().latex).toBe('e^{i \\pi}');
 
     // Typing `pin`: `p` -> `pi` (\pi) -> `pin` (reverts cleanly to literal `pin`!) -> Backspace -> `\pi`!
     engine.clear();

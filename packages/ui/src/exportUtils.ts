@@ -505,11 +505,14 @@ export async function renderLatexToPng(
     fontSize: options.fontSize ?? 34,
   });
 
-  // Cap canvas dimensions strictly to 8192px (never exceed MAX_CANVAS_DIM even on ultra-wide formulas!)
+  // Cap canvas dimensions strictly to 8192px AND total pixel area to 24M px (~96MB RGBA)
+  // so ultra-wide/tall formulas never trigger WebKitGTK or browser canvas OOM.
   const MAX_CANVAS_DIM = 8192;
+  const MAX_CANVAS_AREA = 24_000_000;
   const maxScaleW = MAX_CANVAS_DIM / Math.max(1, scene.width);
   const maxScaleH = MAX_CANVAS_DIM / Math.max(1, scene.height);
-  const scale = Math.min(requestedScale, maxScaleW, maxScaleH);
+  const maxScaleArea = Math.sqrt(MAX_CANVAS_AREA / Math.max(1, scene.width * scene.height));
+  const scale = Math.min(requestedScale, maxScaleW, maxScaleH, maxScaleArea);
 
   const width = Math.max(1, Math.round(scene.width * scale));
   const height = Math.max(1, Math.round(scene.height * scale));

@@ -64,6 +64,14 @@ export class MathSlotModal extends Modal {
       initialDelimiter: this.opts.forceDelimiter,
       initialWrapper: this.opts.initialWrapper,
       hostDarkMode: () => document.body.classList.contains('theme-dark'),
+      subscribeDarkMode: (listener) => {
+        if (typeof MutationObserver === 'undefined') return () => {};
+        const obs = new MutationObserver(() => {
+          listener(document.body.classList.contains('theme-dark'));
+        });
+        obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        return () => obs.disconnect();
+      },
       copyText: copyTextWithFallback,
       readText: async () => {
         try {

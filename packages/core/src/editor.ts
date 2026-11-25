@@ -121,6 +121,8 @@ export class MathSlotEngine {
   private latexArgCloseBySlot = new Map<string, '}' | ']'>();
   /** When `}` / `]` jumps to a struct's next brace argument (e.g. `\frac{1}{2}`, `\sqrt[3]{8}`), consume that `{` cleanly */
   private expectLatexOpenBraceSlotId: string | null = null;
+  /** Wrapper dialect restored from the most recent `PersistedDraftV1` snapshot */
+  private lastRestoredDraftWrapper: MathWrapperKind | null = null;
 
   constructor(initialSettings: Partial<AppSettings> = {}) {
     this.doc = createEmptyDocument();
@@ -242,7 +244,7 @@ export class MathSlotEngine {
       if (meta) {
         const sIdx = entry.slotIndexInStruct;
         const col = sIdx % meta.cols;
-        const canEditCols = !isCasesEnv(meta.env) && meta.env !== 'substack';
+        const canEditCols = !isCasesEnv(meta.env) && meta.env !== 'substack' && meta.env !== 'gathered';
         return {
           structId: entry.parentStruct.id,
           env: meta.env,
@@ -423,6 +425,7 @@ export class MathSlotEngine {
     this.leaderMorphBackup = null;
     this.latexArgCloseBySlot.clear();
     this.expectLatexOpenBraceSlotId = null;
+    this.lastRestoredDraftWrapper = null;
     this.mode = { kind: 'edit' };
     this.notify();
   }
@@ -443,6 +446,7 @@ export class MathSlotEngine {
     this.leaderMorphBackup = null;
     this.latexArgCloseBySlot.clear();
     this.expectLatexOpenBraceSlotId = null;
+    this.lastRestoredDraftWrapper = null;
     this.mode = { kind: 'edit' };
     this.notify();
     return result;
@@ -547,10 +551,16 @@ export class MathSlotEngine {
     this.leaderMorphBackup = null;
     this.latexArgCloseBySlot.clear();
     this.expectLatexOpenBraceSlotId = null;
+    this.lastRestoredDraftWrapper = valid.wrapper ?? null;
     this.mode = { kind: 'edit' };
     this.docRevision += 1;
     this.notify();
     return true;
+  }
+
+  /** Returns the wrapper dialect restored from the most recent `restoreDraftV1` call (if any). */
+  public getRestoredDraftWrapper(): MathWrapperKind | null {
+    return this.lastRestoredDraftWrapper;
   }
 
   /**
@@ -644,7 +654,7 @@ export class MathSlotEngine {
   private tryPasteTsvIntoGrid(rawText: string): boolean {
     if (!rawText.includes('\t')) return false;
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack') return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.env === 'gathered') return false;
     const rowsData = rawText
       .replace(/\r\n/g, '\n')
       .split('\n')
@@ -731,12 +741,14 @@ export class MathSlotEngine {
       trimmed.includes('\\') ||
       trimmed.includes('▸') ||
       (trimmed.startsWith('$') && trimmed.endsWith('$'));
-    // Multi-letter snake_case identifiers like `foo_bar` or `user_id` stay literal,
-    // while standard math subscripts like `x_1`, `a_n`, `x_{i+1}` import as real subscript structs!
+    // Multi-letter snake_case identifiers like `foo_bar` or `user_id`, or CJK prose like `详见附录_A`,
+    // stay literal text unless accompanied by strong LaTeX markers (`\`, `$...$`, `▸`).
     const isLikelySnakeCaseIdentifier = /^[a-zA-Z]{2,}_[a-zA-Z0-9_]+$/.test(trimmed);
+    const hasCjk = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(trimmed);
     const hasPunctMathShorthand =
       !isUrlLike && /(?:<=>|<->|\|->|->|<-|=>|<=|>=|!=|~=|\+-|-\+)/.test(trimmed);
     const isCompactScript =
+      !hasCjk &&
       !trimmed.includes('\n') &&
       !/\s{2,}/.test(trimmed) &&
       trimmed.split(/\s+/).length <= 4 &&
@@ -1048,10 +1060,12 @@ export class MathSlotEngine {
         targets: buildJumpTargets(scopeSlot),
         activeIdx: 0,
       };
+      this.notify();
       return;
     }
     if (this.mode.scopePath.length === 0) {
       this.mode = { kind: 'edit' };
+      this.notify();
       return;
     }
     const nextPath = this.mode.scopePath.slice(0, -1);
@@ -1065,6 +1079,7 @@ export class MathSlotEngine {
       targets: buildJumpTargets(parentSlot),
       activeIdx: 0,
     };
+    this.notify();
   }
 
   public moveJumpSelection(delta: -1 | 1): void {
@@ -1072,13 +1087,16 @@ export class MathSlotEngine {
     const len = this.mode.targets.length;
     const nextIdx = (this.mode.activeIdx + delta + len) % len;
     this.mode = { ...this.mode, activeIdx: nextIdx };
+    this.notify();
   }
 
   public drillJumpSelection(): boolean {
     if (this.mode.kind !== 'jump') return false;
     const target = this.mode.targets[this.mode.activeIdx];
     if (!target || !target.isComposite) return false;
-    return this.drillIntoJumpScope(target.slotId, target.slotLabel);
+    const ok = this.drillIntoJumpScope(target.slotId, target.slotLabel);
+    if (ok) this.notify();
+    return ok;
   }
 
   public confirmJumpSelection(): boolean {
@@ -1088,18 +1106,23 @@ export class MathSlotEngine {
       const scopeSlot = findSlot(this.doc.root, this.mode.scopeSlotId);
       if (scopeSlot) {
         this.jumpToCursor({ slotId: scopeSlot.id, offset: scopeSlot.children.length });
+        this.notify();
         return true;
       }
     }
     const target = this.mode.targets[this.mode.activeIdx];
     if (!target) {
       this.mode = { kind: 'edit' };
+      this.notify();
       return false;
     }
     if (target.isComposite) {
-      return this.drillIntoJumpScope(target.slotId, target.slotLabel);
+      const ok = this.drillIntoJumpScope(target.slotId, target.slotLabel);
+      if (ok) this.notify();
+      return ok;
     }
     this.jumpToCursor({ slotId: target.slotId, offset: target.offset });
+    this.notify();
     return true;
   }
 
@@ -1107,14 +1130,33 @@ export class MathSlotEngine {
     if (this.mode.kind !== 'jump') return false;
     const scopeSlot = findSlot(this.doc.root, this.mode.scopeSlotId) ?? this.doc.root;
 
+    // Step back one prefix character on `-` when user already started typing a multi-char jump label
+    if (this.mode.typed.length > 0 && key === '-') {
+      const prevTyped = this.mode.typed.slice(0, -1);
+      const allTargets = buildJumpTargets(scopeSlot);
+      const remaining = prevTyped
+        ? allTargets.filter((t) => t.label.startsWith(prevTyped))
+        : allTargets;
+      this.mode = {
+        ...this.mode,
+        typed: prevTyped,
+        targets: remaining,
+        activeIdx: 0,
+      };
+      this.notify();
+      return true;
+    }
+
     // Quick navigation shortcuts inside Esc jump mode (v0.8.1 ergonomics)
     if (this.mode.typed === '') {
       if (key === '.' || key === ';' || key === '$') {
         this.jumpToCursor({ slotId: scopeSlot.id, offset: scopeSlot.children.length });
+        this.notify();
         return true;
       }
       if (key === '0' || key === '^') {
         this.jumpToCursor({ slotId: scopeSlot.id, offset: 0 });
+        this.notify();
         return true;
       }
       if (key === '-') {
@@ -1128,20 +1170,25 @@ export class MathSlotEngine {
     const ch = key.toLowerCase();
     if (!/^[a-z]$/.test(ch)) {
       this.mode = { kind: 'edit' };
+      this.notify();
       return false;
     }
     const nextTyped = this.mode.typed + ch;
     const exact = this.mode.targets.find((t) => t.label === nextTyped);
     if (exact) {
       if (exact.isComposite) {
-        return this.drillIntoJumpScope(exact.slotId, exact.slotLabel);
+        const ok = this.drillIntoJumpScope(exact.slotId, exact.slotLabel);
+        if (ok) this.notify();
+        return ok;
       }
       this.jumpToCursor({ slotId: exact.slotId, offset: exact.offset });
+      this.notify();
       return true;
     }
     const remaining = this.mode.targets.filter((t) => t.label.startsWith(nextTyped));
     if (remaining.length === 0) {
       this.mode = { kind: 'edit' };
+      this.notify();
       return false;
     }
     this.mode = {
@@ -1150,6 +1197,7 @@ export class MathSlotEngine {
       targets: remaining,
       activeIdx: 0,
     };
+    this.notify();
     return true;
   }
 
@@ -1588,6 +1636,7 @@ export class MathSlotEngine {
           this.cursor.offset = alphaCustom.start;
           this.insertCustomCommandInternal(alphaCustom.command);
           if (ch === ' ') {
+            this.notify();
             return;
           }
         }
@@ -1604,6 +1653,7 @@ export class MathSlotEngine {
 
       // Inline LaTeX command compatibility (`\frac{`, `\sqrt[`, `\mathrm{`, `\sin(`, `\int_`, `\sum^`, `\alpha+`, `\alpha\beta`, ...)
       if ((ch === '{' || ch === '[' || ch === '(') && this.tryExpandInlineMacro(ch)) {
+        this.notify();
         return;
       }
       if (
@@ -1616,6 +1666,7 @@ export class MathSlotEngine {
         ch !== ' '
       ) {
         if (this.tryExpandInlineMacro('other')) {
+          this.notify();
           return;
         }
       }
@@ -1643,11 +1694,13 @@ export class MathSlotEngine {
         const closeBracketCmd =
           ch === ')' ? 'paren' : ch === ']' ? 'bracket' : ch === '}' ? 'brace' : null;
         if (closeBracketCmd && this.trySkipClosingBracket(closeBracketCmd)) {
+          this.notify();
           return;
         }
       }
       if (this.settings.naturalScripts && (ch === '^' || ch === '_')) {
         if (this.tryExpandInlineMacro(ch)) {
+          this.notify();
           return;
         }
         // In `\int_{0}^{\infty}`, after `}` advances from lower limit (slot 0) into empty upper limit (slot 1),
@@ -1663,12 +1716,14 @@ export class MathSlotEngine {
         this.insertNaturalFraction();
         return;
       }
-      // Inline `\int `, `\frac `, `\sin `, `\quad `, `\alpha ` completion or optional Space-exits-script
+      // Inline `\int `, `\frac `, `\sin `, `\quad `, `\alpha ` completion or Space-exits-script
       if (ch === ' ') {
         if (this.tryExpandInlineMacro('space')) {
+          this.notify();
           return;
         }
         if (this.settings.spaceExitsScript && this.trySpaceExitScript()) {
+          this.notify();
           return;
         }
         // Outside `\text{...}`, avoid piling up duplicate invisible spaces or leading spaces in ANY empty slot
@@ -1687,6 +1742,16 @@ export class MathSlotEngine {
             }
           }
         }
+      }
+      // Optional Desmos-style binary-operator auto-exit from unbraced script slots (opt-in via `settings.operatorExitsScript`,
+      // never exiting on unary `-` at offset 0 so `e^{-x^2}` stays intact!).
+      if (
+        this.settings.operatorExitsScript &&
+        !this.selection &&
+        !this.latexArgCloseBySlot.has(this.cursor.slotId) &&
+        (/^[+=<>,]$/.test(ch) || (ch === '-' && this.cursor.offset > 0))
+      ) {
+        this.trySpaceExitScript();
       }
     }
 
@@ -1835,6 +1900,7 @@ export class MathSlotEngine {
     } else {
       this.cursor = { slotId: struct.slots[0].id, offset: 0 };
     }
+    this.notify();
   }
 
   private trySkipClosingBracket(commandId: 'paren' | 'bracket' | 'brace'): boolean {
@@ -1884,6 +1950,8 @@ export class MathSlotEngine {
     const parentStruct = cur.parentStruct;
     const parentSlot = cur.parentSlot;
     if (!parentStruct || !parentSlot) return false;
+    // Inside explicit native LaTeX `{...}` grouping (e.g. `e^{i pi}`), Space stays inside until `}`!
+    if (this.latexArgCloseBySlot.has(cur.slot.id)) return false;
     if (cur.slot.children.length === 0 || this.cursor.offset !== cur.slot.children.length) {
       return false;
     }
@@ -2231,6 +2299,75 @@ export class MathSlotEngine {
   private insertNaturalScript(kind: 'sup' | 'sub'): void {
     const cmd = COMMANDS_BY_ID.get(kind);
     if (!cmd) return;
+
+    // Context-aware script-on-script & big-operator limit transitions:
+    // - `\int_0^1`, `\sum_i^n`: `^` at end of lower limit jumps cleanly to empty upper limit (and `_` at end of upper jumps to empty lower)
+    // - `x_1^2`, `x^2_1`: opposite script at end of non-empty script slot upgrades enclosing `sub`/`sup` into `subsup`!
+    if (!this.selection) {
+      const path = findSlotPath(this.doc.root, this.cursor.slotId);
+      if (path && path.length > 1) {
+        const cur = path[path.length - 1];
+        const parentStruct = cur.parentStruct;
+        const parentSlot = cur.parentSlot;
+        if (parentStruct && parentSlot) {
+          const atSlotEnd = this.cursor.offset === cur.slot.children.length;
+          const hasContent = cur.slot.children.length > 0;
+          if (atSlotEnd && hasContent) {
+            if (PREFIX_BIGOPS.has(parentStruct.commandId) && parentStruct.slots.length === 3) {
+              if (kind === 'sup' && cur.slotIndexInStruct === 0 && parentStruct.slots[1].children.length === 0) {
+                this.cursor = { slotId: parentStruct.slots[1].id, offset: 0 };
+                this.notify();
+                return;
+              }
+              if (kind === 'sub' && cur.slotIndexInStruct === 1 && parentStruct.slots[0].children.length === 0) {
+                this.cursor = { slotId: parentStruct.slots[0].id, offset: 0 };
+                this.notify();
+                return;
+              }
+            }
+            if (parentStruct.commandId === 'subsup' && parentStruct.slots.length === 3) {
+              if (kind === 'sup' && cur.slotIndexInStruct === 1 && parentStruct.slots[2].children.length === 0) {
+                this.cursor = { slotId: parentStruct.slots[2].id, offset: 0 };
+                this.notify();
+                return;
+              }
+              if (kind === 'sub' && cur.slotIndexInStruct === 2 && parentStruct.slots[1].children.length === 0) {
+                this.cursor = { slotId: parentStruct.slots[1].id, offset: 0 };
+                this.notify();
+                return;
+              }
+            }
+            if (kind === 'sup' && parentStruct.commandId === 'sub' && cur.slotIndexInStruct === 1) {
+              this.pushHistory();
+              const subsup = COMMANDS_BY_ID.get('subsup')!;
+              const upgraded = createStructNode(subsup, [
+                parentStruct.slots[0].children,
+                parentStruct.slots[1].children,
+                [],
+              ]);
+              parentSlot.children.splice(cur.nodeIndexInParent, 1, upgraded);
+              this.cursor = { slotId: upgraded.slots[2].id, offset: 0 };
+              this.notify();
+              return;
+            }
+            if (kind === 'sub' && parentStruct.commandId === 'sup' && cur.slotIndexInStruct === 1) {
+              this.pushHistory();
+              const subsup = COMMANDS_BY_ID.get('subsup')!;
+              const upgraded = createStructNode(subsup, [
+                parentStruct.slots[0].children,
+                [],
+                parentStruct.slots[1].children,
+              ]);
+              parentSlot.children.splice(cur.nodeIndexInParent, 1, upgraded);
+              this.cursor = { slotId: upgraded.slots[1].id, offset: 0 };
+              this.notify();
+              return;
+            }
+          }
+        }
+      }
+    }
+
     this.pushHistory();
 
     const slot = this.currentSlot();
@@ -2250,6 +2387,7 @@ export class MathSlotEngine {
         ]);
         slot.children.splice(this.cursor.offset - 1, 1, upgraded);
         this.cursor = { slotId: upgraded.slots[2].id, offset: 0 };
+        this.notify();
         return;
       }
       if (kind === 'sub' && prev.type === 'struct' && prev.commandId === 'sup') {
@@ -2261,6 +2399,7 @@ export class MathSlotEngine {
         ]);
         slot.children.splice(this.cursor.offset - 1, 1, upgraded);
         this.cursor = { slotId: upgraded.slots[1].id, offset: 0 };
+        this.notify();
         return;
       }
 
@@ -2314,6 +2453,7 @@ export class MathSlotEngine {
       slotId: baseNodes.length > 0 ? struct.slots[1].id : struct.slots[0].id,
       offset: 0,
     };
+    this.notify();
   }
 
   private insertNaturalFraction(): void {
@@ -2430,6 +2570,7 @@ export class MathSlotEngine {
       const order = getSlotOrder(cmd.id, this.settings, struct.slots.length);
       this.cursor = { slotId: struct.slots[order[0]].id, offset: 0 };
     }
+    this.notify();
   }
 
   public insertCommand(commandId: string): boolean {
@@ -3061,7 +3202,7 @@ export class MathSlotEngine {
 
   private relabelGridSlots(struct: StructNode, env: string, rows: number, cols: number): void {
     const casesLike = isCasesEnv(env);
-    const substackLike = env === 'substack';
+    const substackLike = env === 'substack' || env === 'gathered';
     for (let r = 0; r < rows; r += 1) {
       for (let c = 0; c < cols; c += 1) {
         const s = struct.slots[r * cols + c];
@@ -3153,7 +3294,7 @@ export class MathSlotEngine {
 
   public addGridCol(where: 'right' | 'left' = 'right'): boolean {
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.cols >= 10) return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.env === 'gathered' || ctx.cols >= 10) return false;
     this.pushHistory();
     const { struct, env, rows, cols, row, col } = ctx;
     const prevSpec = getGridMeta(struct)?.colSpec;
@@ -3187,7 +3328,7 @@ export class MathSlotEngine {
 
   public removeGridCol(): boolean {
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.cols <= 1) return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.env === 'gathered' || ctx.cols <= 1) return false;
     this.pushHistory();
     const { struct, env, rows, cols, row, col } = ctx;
     const prevSpec = getGridMeta(struct)?.colSpec;
@@ -3220,7 +3361,7 @@ export class MathSlotEngine {
    */
   public toggleGridColBar(): boolean {
     const ctx = this.findActiveGridContext();
-    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.cols < 2 || ctx.col >= ctx.cols - 1) return false;
+    if (!ctx || isCasesEnv(ctx.env) || ctx.env === 'substack' || ctx.env === 'gathered' || ctx.cols < 2 || ctx.col >= ctx.cols - 1) return false;
     this.pushHistory();
     const { struct, env, rows, cols, col } = ctx;
     const prevSpec = getGridMeta(struct)?.colSpec;
@@ -3274,7 +3415,7 @@ export class MathSlotEngine {
     const path = findSlotPath(this.doc.root, this.cursor.slotId);
     if (!path) return;
     if (path.length <= 1) {
-      this.moveRootLineVertical(-1);
+      if (this.moveRootLineVertical(-1)) this.notify();
       return;
     }
 
@@ -3287,6 +3428,7 @@ export class MathSlotEngine {
     if ((cmdId === 'sqrt' || cmdId === 'nth_root') && sIdx === 1 && parentStruct.slots.length === 2) {
       const idxSlot = parentStruct.slots[0];
       this.cursor = { slotId: idxSlot.id, offset: idxSlot.children.length };
+      this.notify();
       return;
     }
     if (
@@ -3296,21 +3438,25 @@ export class MathSlotEngine {
     ) {
       const upper = parentStruct.slots[1];
       this.cursor = { slotId: upper.id, offset: upper.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'eval_bar' && (sIdx === 0 || sIdx === 1)) {
       const upper = parentStruct.slots[2];
       this.cursor = { slotId: upper.id, offset: upper.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'overbrace' && sIdx === 0) {
       const note = parentStruct.slots[1];
       this.cursor = { slotId: note.id, offset: note.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'underbrace' && sIdx === 1) {
       const body = parentStruct.slots[0];
       this.cursor = { slotId: body.id, offset: body.children.length };
+      this.notify();
       return;
     }
     if (
@@ -3319,6 +3465,7 @@ export class MathSlotEngine {
     ) {
       const num = parentStruct.slots[0];
       this.cursor = { slotId: num.id, offset: num.children.length };
+      this.notify();
       return;
     }
     if (
@@ -3326,31 +3473,39 @@ export class MathSlotEngine {
         cmdId === 'sum' ||
         cmdId === 'product' ||
         cmdId === 'bigcup' ||
-        cmdId === 'bigcap') &&
+        cmdId === 'bigcap' ||
+        cmdId === 'coprod' ||
+        cmdId === 'bigoplus' ||
+        cmdId === 'bigotimes') &&
       (sIdx === 0 || sIdx === 2)
     ) {
       const upper = parentStruct.slots[1];
       this.cursor = { slotId: upper.id, offset: upper.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'limit' && (sIdx === 0 || sIdx === 1)) {
       const body = parentStruct.slots[2];
       this.cursor = { slotId: body.id, offset: body.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'subsup' && (sIdx === 1 || sIdx === 0)) {
       const sup = parentStruct.slots[2];
       this.cursor = { slotId: sup.id, offset: sup.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'sup' && sIdx === 0) {
       const exp = parentStruct.slots[1];
       this.cursor = { slotId: exp.id, offset: exp.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'sub' && sIdx === 1) {
       const base = parentStruct.slots[0];
       this.cursor = { slotId: base.id, offset: base.children.length };
+      this.notify();
       return;
     }
 
@@ -3360,6 +3515,7 @@ export class MathSlotEngine {
       const above = parentStruct.slots[sIdx - grid.cols];
       if (above) {
         this.cursor = { slotId: above.id, offset: above.children.length };
+        this.notify();
         return;
       }
     }
@@ -3374,7 +3530,7 @@ export class MathSlotEngine {
     const path = findSlotPath(this.doc.root, this.cursor.slotId);
     if (!path) return;
     if (path.length <= 1) {
-      this.moveRootLineVertical(1);
+      if (this.moveRootLineVertical(1)) this.notify();
       return;
     }
 
@@ -3386,6 +3542,7 @@ export class MathSlotEngine {
     if ((cmdId === 'sqrt' || cmdId === 'nth_root') && sIdx === 0 && parentStruct.slots.length === 2) {
       const rad = parentStruct.slots[1];
       this.cursor = { slotId: rad.id, offset: rad.children.length };
+      this.notify();
       return;
     }
     if (
@@ -3395,21 +3552,25 @@ export class MathSlotEngine {
     ) {
       const region = parentStruct.slots[0];
       this.cursor = { slotId: region.id, offset: region.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'eval_bar' && (sIdx === 0 || sIdx === 2)) {
       const lower = parentStruct.slots[1];
       this.cursor = { slotId: lower.id, offset: lower.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'overbrace' && sIdx === 1) {
       const body = parentStruct.slots[0];
       this.cursor = { slotId: body.id, offset: body.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'underbrace' && sIdx === 0) {
       const note = parentStruct.slots[1];
       this.cursor = { slotId: note.id, offset: note.children.length };
+      this.notify();
       return;
     }
     if (
@@ -3418,6 +3579,7 @@ export class MathSlotEngine {
     ) {
       const den = parentStruct.slots[1];
       this.cursor = { slotId: den.id, offset: den.children.length };
+      this.notify();
       return;
     }
     if (
@@ -3425,31 +3587,39 @@ export class MathSlotEngine {
         cmdId === 'sum' ||
         cmdId === 'product' ||
         cmdId === 'bigcup' ||
-        cmdId === 'bigcap') &&
+        cmdId === 'bigcap' ||
+        cmdId === 'coprod' ||
+        cmdId === 'bigoplus' ||
+        cmdId === 'bigotimes') &&
       (sIdx === 1 || sIdx === 2)
     ) {
       const lower = parentStruct.slots[0];
       this.cursor = { slotId: lower.id, offset: lower.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'limit' && sIdx === 2) {
       const varSlot = parentStruct.slots[0];
       this.cursor = { slotId: varSlot.id, offset: varSlot.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'subsup' && (sIdx === 2 || sIdx === 0)) {
       const sub = parentStruct.slots[1];
       this.cursor = { slotId: sub.id, offset: sub.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'sup' && sIdx === 1) {
       const base = parentStruct.slots[0];
       this.cursor = { slotId: base.id, offset: base.children.length };
+      this.notify();
       return;
     }
     if (cmdId === 'sub' && sIdx === 0) {
       const sub = parentStruct.slots[1];
       this.cursor = { slotId: sub.id, offset: sub.children.length };
+      this.notify();
       return;
     }
 
@@ -3458,6 +3628,7 @@ export class MathSlotEngine {
       const below = parentStruct.slots[sIdx + grid.cols];
       if (below) {
         this.cursor = { slotId: below.id, offset: below.children.length };
+        this.notify();
         return;
       }
     }
@@ -3477,6 +3648,7 @@ export class MathSlotEngine {
       this.cursor.offset = 0;
       this.selection = null;
     }
+    this.notify();
   }
 
   public moveEnd(extendSelection = false): void {
@@ -3490,6 +3662,7 @@ export class MathSlotEngine {
       this.cursor.offset = slot.children.length;
       this.selection = null;
     }
+    this.notify();
   }
 
   public selectAll(): void {
@@ -3504,11 +3677,13 @@ export class MathSlotEngine {
           start: 0,
           end: this.doc.root.children.length,
         };
+        this.notify();
       }
       return;
     }
     this.cursor.offset = slot.children.length;
     this.selection = { slotId: slot.id, start: 0, end: slot.children.length };
+    this.notify();
   }
 
   private setSelectionRange(slotId: string, a: number, b: number): void {

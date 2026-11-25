@@ -38,7 +38,9 @@ jobs:
       - name: Run core tests and typechecks
         run: |
           npm run test
+          npm run check --workspace=@mathslot/ui
           npm run check --workspace=@mathslot/obsidian
+          npm run check --workspace=@mathslot/web
 
   build-obsidian:
     name: Build Obsidian Plugin
@@ -72,6 +74,39 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: obsidian-plugin
+          path: out/*
+
+  build-web:
+    name: Build Web PWA Bundle
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Web PWA
+        run: npm run build:web
+
+      - name: Package Web PWA archive
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p out
+          (cd apps/web/dist && zip -r "${GITHUB_WORKSPACE}/out/mathslot-web-${VERSION}.zip" .)
+          ls -lh out/
+
+      - name: Upload Web PWA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-pwa
           path: out/*
 
   build-linux:
@@ -224,6 +259,7 @@ jobs:
     name: Publish GitHub Release
     needs:
       - build-obsidian
+      - build-web
       - build-linux
       - build-windows
       - build-macos
@@ -277,4 +313,5 @@ jobs:
             - **Windows (x86_64)**：提供 `.exe`（NSIS 安装包）与 `.msi` 安装包
             - **macOS (Apple Silicon)**：提供 `.dmg` 安装镜像
             - **Obsidian 插件**：下载 `mathslot-obsidian-*.zip` 解压至 `<Vault>/.obsidian/plugins/obsidian-mathslot/`（同时附带散装 `main.js` / `styles.css` / `manifest.json` 供 BRAT / 插件更新器直接拉取）
+            - **Web PWA 静态包**：下载 `mathslot-web-*.zip` 解压至任意静态站点或本地 HTTP 服务即可离线使用
             - **校验文件**：`SHA256SUMS.txt`

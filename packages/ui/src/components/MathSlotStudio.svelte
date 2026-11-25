@@ -107,9 +107,11 @@
 
   let canvasRef = $state<{ focus: () => void } | null>(null);
 
+  let hostDark = $state(false);
+
   const resolvedTheme = $derived<'light' | 'dark'>(
     settings.theme === 'system'
-      ? (host.hostDarkMode ? host.hostDarkMode() : systemDark)
+      ? (host.hostDarkMode ? hostDark : systemDark)
         ? 'dark'
         : 'light'
       : settings.theme,
@@ -828,6 +830,14 @@
       return;
     }
 
+    // Alt+; inserts a literal semicolon inside nested slots even when `;` is bound to nextSlot!
+    if (e.altKey && !mod && e.key === ';') {
+      e.preventDefault();
+      engine.pasteLiteralText(';');
+      sync();
+      return;
+    }
+
     if (e.key === 'Home') {
       e.preventDefault();
       engine.moveHome(e.shiftKey);
@@ -897,6 +907,7 @@
   }
 
   onMount(() => {
+    const cleanups: (() => void)[] = [];
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (mq) {
       systemDark = mq.matches;
@@ -904,8 +915,21 @@
         systemDark = ev.matches;
       };
       mq.addEventListener('change', listener);
-      return () => mq.removeEventListener('change', listener);
+      cleanups.push(() => mq.removeEventListener('change', listener));
     }
+    if (host.hostDarkMode) {
+      hostDark = host.hostDarkMode();
+    }
+    if (host.subscribeDarkMode) {
+      cleanups.push(
+        host.subscribeDarkMode((dark) => {
+          hostDark = dark;
+        }),
+      );
+    }
+    return () => {
+      for (const fn of cleanups) fn();
+    };
   });
 
   onMount(() => {
@@ -960,7 +984,12 @@
         }
       } else if (!host.compactToolbar) {
         const restoredV1 = lastDraftV1 ? engine.restoreDraftV1(lastDraftV1) : false;
-        if (!restoredV1 && lastDraftLatex.trim()) {
+        if (restoredV1) {
+          const restoredWrapper = engine.getRestoredDraftWrapper();
+          if (restoredWrapper) {
+            sessionWrapper = restoredWrapper;
+          }
+        } else if (lastDraftLatex.trim()) {
           engine.loadFormulaWithRawFallback(lastDraftLatex);
         }
       }

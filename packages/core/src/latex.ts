@@ -565,6 +565,18 @@ function emitSlotCanonical(
     }
 
     out += t.text;
+
+    // Clean readability space after scripted math functions like `\sin^2 x`, `\log_2 x`
+    if (
+      t.kind === 'struct' &&
+      (t.structCmdId === 'sup' || t.structCmdId === 'sub' || t.structCmdId === 'subsup') &&
+      next &&
+      (next.kind === 'atom' || (next.kind === 'struct' && next.structCmdId !== 'paren')) &&
+      /^\\([a-zA-Z]+)[\^_]/.test(t.text) &&
+      MATH_FUNCTIONS.has(t.text.match(/^\\([a-zA-Z]+)[\^_]/)![1])
+    ) {
+      out += ' ';
+    }
   }
 
   return out.replace(/ {2,}/g, ' ').trim();
@@ -824,6 +836,9 @@ function emitStructCanonical(
       if (node.commandId === 'brace') {
         return tall ? `\\left\\{${inner}\\right\\}` : `\\{${inner}\\}`;
       }
+      if (node.commandId === 'abs') {
+        return tall ? `\\left|${inner}\\right|` : `|${inner}|`;
+      }
     }
   }
 
@@ -967,10 +982,18 @@ export function formatFormulaWithWrapper(latex: string, wrapper: MathWrapperKind
   switch (wrapper) {
     case 'none':
       return clean;
-    case 'dollar_inline':
-      return `$${clean}$`;
-    case 'paren_inline':
-      return `\\(${clean}\\)`;
+    case 'dollar_inline': {
+      const inlineSafe = /\\tag\*?(?![a-zA-Z])/.test(clean)
+        ? normalizePreviewLatex(clean, false)
+        : clean;
+      return `$${inlineSafe}$`;
+    }
+    case 'paren_inline': {
+      const inlineSafe = /\\tag\*?(?![a-zA-Z])/.test(clean)
+        ? normalizePreviewLatex(clean, false)
+        : clean;
+      return `\\(${inlineSafe}\\)`;
+    }
     case 'dollar_block':
       return `$$\n${clean}\n$$`;
     case 'bracket_block':
@@ -1290,7 +1313,7 @@ function emitNodeInteractive(
     case 'symbol':
       return node.latex;
     case 'raw':
-      return node.latex
+      return sanitizeLatexTemplate(node.latex)
         .replace(/\\begin\{align\*?\}/g, '\\begin{aligned}')
         .replace(/\\end\{align\*?\}/g, '\\end{aligned}')
         .replace(/\\tag\*\{([^}]*)\}/g, '\\qquad\\text{$1}')
@@ -1316,6 +1339,8 @@ function emitNodeInteractive(
           template = tall ? '\\left[$1\\right]' : '[$1]';
         } else if (node.commandId === 'brace') {
           template = tall ? '\\left\\{$1\\right\\}' : '\\{$1\\}';
+        } else if (node.commandId === 'abs') {
+          template = tall ? '\\left|$1\\right|' : '|$1|';
         }
       }
       let rendered: string;

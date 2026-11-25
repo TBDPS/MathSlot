@@ -20,6 +20,7 @@ import {
   SUPPORTED_MATRIX_ENVS,
   isCasesEnv,
   isSupportedColSpec,
+  sanitizeLatexTemplate,
 } from './commandSpecs';
 import { MATH_FUNCTIONS } from './emitIr';
 import { DIFFERENTIAL_WORDS } from './shorthands';
@@ -645,6 +646,94 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
     return inner;
   };
 
+  /**
+   * Scans a matched plain `|...|` pair (excluding empty `||` and relation-crossing spans like `P(A|B)` or `a|b=c|d`).
+   */
+  const tryReadPlainAbsRaw = (): string | null => {
+    if (peek() !== '|') return null;
+    let scan = pos + 1;
+    let braceDepth = 0;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let lrDepth = 0;
+    while (scan < src.length) {
+      const c = src[scan];
+      if (c === '\\') {
+        if (src.startsWith('\\left', scan) && !/[a-zA-Z]/.test(src[scan + 5] ?? '')) {
+          lrDepth += 1;
+          scan += 5;
+          continue;
+        }
+        if (src.startsWith('\\right', scan) && !/[a-zA-Z]/.test(src[scan + 6] ?? '')) {
+          lrDepth = Math.max(0, lrDepth - 1);
+          scan += 6;
+          continue;
+        }
+        if (
+          braceDepth === 0 &&
+          parenDepth === 0 &&
+          bracketDepth === 0 &&
+          lrDepth === 0 &&
+          src[scan + 1] === '\\'
+        ) {
+          return null;
+        }
+        scan += 2;
+        continue;
+      }
+      if (c === '{') {
+        braceDepth += 1;
+        scan += 1;
+        continue;
+      }
+      if (c === '}') {
+        if (braceDepth === 0) return null;
+        braceDepth -= 1;
+        scan += 1;
+        continue;
+      }
+      if (braceDepth === 0 && lrDepth === 0) {
+        if (c === '(') {
+          parenDepth += 1;
+          scan += 1;
+          continue;
+        }
+        if (c === ')') {
+          if (parenDepth === 0) return null;
+          parenDepth -= 1;
+          scan += 1;
+          continue;
+        }
+        if (c === '[') {
+          bracketDepth += 1;
+          scan += 1;
+          continue;
+        }
+        if (c === ']') {
+          if (bracketDepth === 0) return null;
+          bracketDepth -= 1;
+          scan += 1;
+          continue;
+        }
+        if (parenDepth === 0 && bracketDepth === 0) {
+          if (c === '|') {
+            const inner = src.slice(pos + 1, scan);
+            if (!inner.trim() || (/^\s/.test(inner) && /\s$/.test(inner))) {
+              return null;
+            }
+            pos = scan + 1;
+            return inner;
+          }
+          if (c === '=' || c === ',' || c === ';' || c === '&' || c === '<' || c === '>') {
+            return null;
+          }
+        }
+      }
+      scan += 1;
+    }
+    return null;
+  };
+
   const readGroupNodes = (): MathNode[] => {
     skipSpaces();
     if (peek() === '{') {
@@ -1103,6 +1192,53 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           envName === 'aligned' ? 'align' : envName;
         return [createRawNode(`\\begin{${preservedEnv}} ${body} \\end{${preservedEnv}}`)];
       }
+      // Inside a nested slot (e.g. `\boxed{\begin{aligned}...\end{aligned}}`, `\left(\begin{gathered}...\end{gathered}\right)`),
+      // NEVER flatten into raw `\\` breaks; preserve as a first-class editable `aligned` / `gathered` grid struct!
+      if (depth > 0) {
+        const { rows, rowGaps, hasGaps } = splitMatrixRows(body);
+        const isGather =
+          envName === 'gathered' || envName === 'gather' || envName === 'gather*';
+        if (isGather) {
+          const slotLabels = rows.map((_, r) => `第 ${r + 1} 行`);
+          const slotContents = rows.map((r) => parseLatexNodes(r.trim(), diagnostics, depth + 1));
+          const struct = createStructNode(
+            { id: 'aligned_2', slots: slotLabels, latex: '' },
+            slotContents,
+          );
+          struct.grid = {
+            env: 'gathered',
+            rows: rows.length,
+            cols: 1,
+            ...(hasGaps ? { rowGaps } : {}),
+          };
+          return [struct];
+        }
+        const cells = rows.map((r) => splitTopLevel(r, '&').map((c) => c.trim()));
+        const colCount = Math.max(...cells.map((r) => r.length), 1);
+        if (rows.length >= 1 && colCount >= 1 && colCount <= 8) {
+          const slotLabels: string[] = [];
+          const slotContents: MathNode[][] = [];
+          for (let r = 0; r < rows.length; r += 1) {
+            for (let c = 0; c < colCount; c += 1) {
+              slotLabels.push(`(${r + 1},${c + 1})`);
+              slotContents.push(parseLatexNodes(cells[r][c] ?? '', diagnostics, depth + 1));
+            }
+          }
+          const struct = createStructNode(
+            { id: 'aligned_2', slots: slotLabels, latex: '' },
+            slotContents,
+          );
+          struct.grid = {
+            env: 'aligned',
+            rows: rows.length,
+            cols: colCount,
+            ...(hasGaps ? { rowGaps } : {}),
+          };
+          return [struct];
+        }
+        const katexEnv = envName === 'align' || envName === 'align*' ? 'aligned' : envName;
+        return [createRawNode(`\\begin{${katexEnv}} ${body} \\end{${katexEnv}}`)];
+      }
       // Strip ONLY top-level relation-alignment `&` markers so nested matrices/cases retain every column separator!
       const { cleaned, hasMultiColumn } = stripTopLevelAmpersands(body);
       if (hasMultiColumn) {
@@ -1220,15 +1356,17 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           ]),
         ];
       }
-      // Dynamic N-row cases / dcases / rcases!
+      // Dynamic N-row / M-column cases / dcases / rcases!
+      const colCount = Math.max(...cells.map((r) => r.length), 2);
       const slotLabels: string[] = [];
       const slotContents: MathNode[][] = [];
       for (let r = 0; r < rows.length; r += 1) {
-        slotLabels.push(`表达式${r + 1}`, `条件${r + 1}`);
-        slotContents.push(
-          parseLatexNodes(cells[r][0] ?? '', diagnostics, depth + 1),
-          parseLatexNodes(cells[r][1] ?? '', diagnostics, depth + 1),
-        );
+        for (let c = 0; c < colCount; c += 1) {
+          slotLabels.push(
+            c === 0 ? `表达式${r + 1}` : c === 1 ? `条件${r + 1}` : `列${c + 1}(${r + 1})`,
+          );
+          slotContents.push(parseLatexNodes(cells[r][c] ?? '', diagnostics, depth + 1));
+        }
       }
       const baseCasesId =
         envName === 'dcases' ? 'dcases_2' : envName === 'rcases' ? 'rcases_2' : 'cases_2';
@@ -1239,7 +1377,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       struct.grid = {
         env: envName,
         rows: rows.length,
-        cols: 2,
+        cols: colCount,
         ...(hasGaps ? { rowGaps } : {}),
       };
       return [struct];
@@ -1414,6 +1552,16 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         return [struct];
       }
     }
+    if (ch === '|') {
+      const inner = tryReadPlainAbsRaw();
+      if (inner !== null) {
+        const struct = createStructNode(COMMANDS_BY_ID.get('abs')!, [
+          parseLatexNodes(inner, diagnostics, depth + 1),
+        ]);
+        struct.autoSized = true;
+        return [struct];
+      }
+    }
 
     if (ch === '\\') {
       const macro = readMacroName();
@@ -1461,30 +1609,64 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         skipSpaces();
         const denRaw = peek() === '{' ? readBracedRaw() : null;
         if (numRaw !== null && denRaw !== null) {
+          const stripBraces = (s: string): string => {
+            const t = s.trim();
+            return t.startsWith('{') && t.endsWith('}') ? t.slice(1, -1).trim() : t;
+          };
+          const nthPNum = numRaw.trim().match(/^\\partial\s*\^(\{[^}]+\}|[A-Za-z0-9])\s*([\s\S]+)$/);
+          const nthPDen = denRaw
+            .trim()
+            .match(/^\\partial\s+([A-Za-z\\][A-Za-z0-9]*)\s*\^(\{[^}]+\}|[A-Za-z0-9])$/);
+          if (nthPNum && nthPDen) {
+            return [
+              createStructNode(COMMANDS_BY_ID.get('nth_partial')!, [
+                parseLatexNodes(stripBraces(nthPNum[1]), diagnostics, depth + 1),
+                parseLatexNodes(nthPNum[2].trim(), diagnostics, depth + 1),
+                parseLatexNodes(nthPDen[1].trim(), diagnostics, depth + 1),
+                parseLatexNodes(stripBraces(nthPDen[2]), diagnostics, depth + 1),
+              ]),
+            ];
+          }
+          const nthDNum = numRaw
+            .trim()
+            .match(/^\\mathrm\{d\}\s*\^(\{[^}]+\}|[A-Za-z0-9])\s*([\s\S]+)$/);
+          const nthDDen = denRaw
+            .trim()
+            .match(/^\\mathrm\{d\}\s*([A-Za-z\\][A-Za-z0-9]*)\s*\^(\{[^}]+\}|[A-Za-z0-9])$/);
+          if (nthDNum && nthDDen) {
+            return [
+              createStructNode(COMMANDS_BY_ID.get('nth_deriv')!, [
+                parseLatexNodes(stripBraces(nthDNum[1]), diagnostics, depth + 1),
+                parseLatexNodes(nthDNum[2].trim(), diagnostics, depth + 1),
+                parseLatexNodes(nthDDen[1].trim(), diagnostics, depth + 1),
+                parseLatexNodes(stripBraces(nthDDen[2]), diagnostics, depth + 1),
+              ]),
+            ];
+          }
           const pNum = numRaw.trim().match(/^\\partial\s+([\s\S]+)$/);
           const pDen = denRaw.trim().match(/^\\partial\s+([\s\S]+)$/);
-          if (pNum && pDen) {
+          if (pNum && pDen && !/^\^/.test(pNum[1].trim()) && !/^\^/.test(pDen[1].trim())) {
             return [
               createStructNode(COMMANDS_BY_ID.get('partial_frac')!, [
-                parseLatexNodes(pNum[1], diagnostics),
-                parseLatexNodes(pDen[1], diagnostics),
+                parseLatexNodes(pNum[1], diagnostics, depth + 1),
+                parseLatexNodes(pDen[1], diagnostics, depth + 1),
               ]),
             ];
           }
           const tNum = numRaw.trim().match(/^\\mathrm\{d\}\s*([\s\S]+)$/);
           const tDen = denRaw.trim().match(/^\\mathrm\{d\}\s*([\s\S]+)$/);
-          if (tNum && tDen) {
+          if (tNum && tDen && !/^\^/.test(tNum[1].trim()) && !/^\^/.test(tDen[1].trim())) {
             return [
               createStructNode(COMMANDS_BY_ID.get('total_frac')!, [
-                parseLatexNodes(tNum[1], diagnostics),
-                parseLatexNodes(tDen[1], diagnostics),
+                parseLatexNodes(tNum[1], diagnostics, depth + 1),
+                parseLatexNodes(tDen[1], diagnostics, depth + 1),
               ]),
             ];
           }
           return [
             createStructNode(COMMANDS_BY_ID.get('frac')!, [
-              parseLatexNodes(numRaw, diagnostics),
-              parseLatexNodes(denRaw, diagnostics),
+              parseLatexNodes(numRaw, diagnostics, depth + 1),
+              parseLatexNodes(denRaw, diagnostics, depth + 1),
             ]),
           ];
         }
@@ -1669,7 +1851,15 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
       }
       if (macro === '\\text') {
         const arg = readBracedRaw();
-        const unescaped = parseLatexTextArg(arg);
+        const safeArg = sanitizeLatexTemplate(arg);
+        const strippedUntrusted = safeArg !== arg;
+        if (strippedUntrusted) {
+          diagnostics.push({
+            severity: 'warning',
+            message: '已过滤 \\text 内不受信任的扩展宏',
+          });
+        }
+        const unescaped = parseLatexTextArg(safeArg);
         if (unescaped !== null) {
           return [createStructNode(COMMANDS_BY_ID.get('text_box')!, [unescaped])];
         }
@@ -1677,7 +1867,7 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
           severity: 'warning',
           message: '含内嵌公式或特殊宏的 \\text 已以原生 LaTeX 保留',
         });
-        return [createRawNode(`\\text{${arg}}`)];
+        return [createRawNode(`\\text{${safeArg}}`)];
       }
       if (ACCENT_MACRO_MAP[macro]) {
         const body = readGroupNodes();
@@ -1878,29 +2068,93 @@ function parseLatexNodes(src: string, diagnostics: Diagnostic[], depth = 0): Mat
         return [createCharNode(macro[1])];
       }
 
-      // Preserve unknown macro together with any immediately attached optional `[...]` / `{...}` argument(s)
-      // so commands like `\phantom{x}` or `\color{red}` are never detached from their arguments.
-      let rawMacro = macro;
-      const saveArgPos = pos;
-      skipSpaces();
-      if (peek() === '[') {
-        const optArg = readBracketRaw();
-        if (optArg !== null) {
+      // Special multi-arg TeX primitives with non-brace delimiter args (`\genfrac(){0pt}{}{a}{b}`)
+      if (macro === '\\genfrac') {
+        let rawMacro = macro;
+        for (let d = 0; d < 2; d += 1) {
           skipSpaces();
           if (peek() === '{') {
-            rawMacro += `[${optArg}]{${readBracedRaw()}}`;
-          } else {
-            pos = saveArgPos;
+            rawMacro += `{${readBracedRaw()}}`;
+          } else if (peek() === '\\') {
+            rawMacro += readMacroName();
+          } else if (!eof()) {
+            rawMacro += src[pos];
+            pos += 1;
           }
         }
-      } else if (peek() === '{') {
-        rawMacro += `{${readBracedRaw()}}`;
-      } else {
+        for (let a = 0; a < 4; a += 1) {
+          const beforeArg = pos;
+          skipSpaces();
+          if (peek() === '{') {
+            rawMacro += `{${readBracedRaw()}}`;
+          } else {
+            pos = beforeArg;
+            break;
+          }
+        }
+        diagnostics.push({ severity: 'warning', message: `以原生 LaTeX 保留未内置宏 ${macro}` });
+        return [createRawNode(sanitizeLatexTemplate(rawMacro))];
+      }
+
+      if (macro === '\\prescript') {
+        let rawMacro = macro;
+        for (let a = 0; a < 3; a += 1) {
+          const beforeArg = pos;
+          skipSpaces();
+          if (peek() === '{') {
+            rawMacro += `{${readBracedRaw()}}`;
+          } else {
+            pos = beforeArg;
+            break;
+          }
+        }
+        diagnostics.push({
+          severity: 'warning',
+          message: 'KaTeX 暂不原生支持 \\prescript，已按原生 LaTeX 保留（建议改用 {}^{a}_{b}X）',
+        });
+        return [createRawNode(sanitizeLatexTemplate(rawMacro))];
+      }
+
+      // Preserve unknown macro together with ALL immediately attached optional `[...]` / mandatory `{...}` arguments
+      // so multi-arg macros like `\cfrac{1}{2}`, `\dbinom{n}{k}`, `\textcolor{red}{x}`, `\fcolorbox{red}{blue}{x}` never detach!
+      let rawMacro = macro;
+      const saveArgPos = pos;
+      let consumedBraceArg = false;
+      let pendingOptPrefix = '';
+      for (let argIdx = 0; argIdx < 6; argIdx += 1) {
+        const beforeArg = pos;
+        skipSpaces();
+        if (peek() === '[') {
+          const optArg = readBracketRaw();
+          if (optArg !== null) {
+            if (consumedBraceArg) {
+              rawMacro += `[${optArg}]`;
+            } else {
+              pendingOptPrefix += `[${optArg}]`;
+            }
+            continue;
+          }
+          pos = beforeArg;
+          break;
+        }
+        if (peek() === '{') {
+          if (pendingOptPrefix) {
+            rawMacro += pendingOptPrefix;
+            pendingOptPrefix = '';
+          }
+          rawMacro += `{${readBracedRaw()}}`;
+          consumedBraceArg = true;
+          continue;
+        }
+        pos = beforeArg;
+        break;
+      }
+      if (!consumedBraceArg) {
         pos = saveArgPos;
       }
 
       diagnostics.push({ severity: 'warning', message: `以原生 LaTeX 保留未内置宏 ${macro}` });
-      return [createRawNode(rawMacro)];
+      return [createRawNode(sanitizeLatexTemplate(rawMacro))];
     }
 
     if (ch === '~') {

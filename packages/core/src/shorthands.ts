@@ -140,6 +140,7 @@ export const SHORTHAND_SPECS: readonly ShorthandSpec[] = [
   { trigger: 'emptyset', kind: 'word', role: 'atom', commandId: 'emptyset', latex: '\\varnothing' },
   { trigger: 'hbar', kind: 'word', role: 'atom', commandId: 'hbar', latex: '\\hbar' },
   { trigger: 'ell', kind: 'word', role: 'atom', commandId: 'ell', latex: '\\ell' },
+  { trigger: 'triangle', kind: 'word', role: 'atom', commandId: 'triangle', latex: '\\triangle' },
   { trigger: 'ldots', kind: 'word', role: 'atom', latex: '\\ldots' },
   { trigger: 'cdots', kind: 'word', role: 'atom', commandId: 'cdots', latex: '\\cdots' },
   { trigger: 'vdots', kind: 'word', role: 'atom', commandId: 'vdots', latex: '\\vdots' },

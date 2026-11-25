@@ -174,6 +174,8 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "star_op", "keys": ["o", "C"], "label": "星号算子", "category": "symbol", "glyph": "⋆", "slots": [], "latex": "\\star", "doc": "霍奇星号/卷积星算子：\\star (也可直输 star)", "examples": ["▸oC"], "wrapSlot": null},
   {"id": "div_op", "keys": ["o", "D"], "label": "除号", "category": "symbol", "glyph": "÷", "slots": [], "latex": "\\div", "doc": "算术除号：\\div (也可直输 div)", "examples": ["▸oD"], "wrapSlot": null},
   {"id": "nparallel", "keys": ["o", "E"], "label": "不平行", "category": "symbol", "glyph": "∦", "slots": [], "latex": "\\nparallel", "doc": "不平行符号：\\nparallel (也可直输 !|| 或 nparallel)", "examples": ["▸oE"], "wrapSlot": null},
+  {"id": "triangle", "keys": ["o", "F"], "label": "三角形", "category": "symbol", "glyph": "△", "slots": [], "latex": "\\triangle", "doc": "几何三角形/对称差符号：\\triangle (也可直输 triangle)", "examples": ["▸oF"], "wrapSlot": null},
+  {"id": "square_sym", "keys": ["o", "G"], "label": "正方形/证毕", "category": "symbol", "glyph": "□", "slots": [], "latex": "\\square", "doc": "正方形/达朗贝尔算子/证毕符号：\\square", "examples": ["▸oG"], "wrapSlot": null},
   {"id": "equiv", "keys": ["x", "a"], "label": "恒等", "category": "relation", "glyph": "≡", "slots": [], "latex": "\\equiv", "doc": "恒等于/同余：\\equiv", "examples": ["▸xa"], "wrapSlot": null},
   {"id": "approx", "keys": ["x", "b"], "label": "近似", "category": "relation", "glyph": "≈", "slots": [], "latex": "\\approx", "doc": "约等于：\\approx", "examples": ["▸xb"], "wrapSlot": null},
   {"id": "sim", "keys": ["x", "c"], "label": "相似", "category": "relation", "glyph": "∼", "slots": [], "latex": "\\sim", "doc": "相似于：\\sim", "examples": ["▸xc"], "wrapSlot": null},
@@ -239,6 +241,7 @@ export const COMMANDS: readonly CommandDef[] = [
   {"id": "nmid", "keys": ["q", "y"], "label": "不整除", "category": "setlogic", "glyph": "∤", "slots": [], "latex": "\\nmid", "doc": "数论不整除符号：\\nmid (也可直输 !| 或 nmid)", "examples": ["▸qy"], "wrapSlot": null},
   {"id": "nsupseteq", "keys": ["q", "z"], "label": "非超集", "category": "setlogic", "glyph": "⊉", "slots": [], "latex": "\\nsupseteq", "doc": "非超集符号：\\nsupseteq (也可直输 nsupseteq)", "examples": ["▸qz"], "wrapSlot": null},
   {"id": "nexists", "keys": ["q", "A"], "label": "不存在", "category": "setlogic", "glyph": "∄", "slots": [], "latex": "\\nexists", "doc": "不存在量词：\\nexists (也可直输 nexists)", "examples": ["▸qA"], "wrapSlot": null},
+  {"id": "complement", "keys": ["q", "B"], "label": "补集符号", "category": "setlogic", "glyph": "∁", "slots": [], "latex": "\\complement", "doc": "集合补集符号：\\complement", "examples": ["▸qB"], "wrapSlot": null},
 ];
 
 export const COMMANDS_BY_ID: ReadonlyMap<string, CommandDef> = new Map(

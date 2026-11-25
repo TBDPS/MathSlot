@@ -192,6 +192,7 @@ export interface AppSettings {
   naturalFraction: boolean;
   autoBrackets: boolean;
   spaceExitsScript: boolean;
+  operatorExitsScript?: boolean;
   autoShorthands: boolean;
   showHierarchyBoxes: boolean;
   showLatexDock: boolean;
@@ -288,7 +289,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   naturalScripts: true,
   naturalFraction: true,
   autoBrackets: true,
-  spaceExitsScript: false,
+  spaceExitsScript: true,
+  operatorExitsScript: false,
   autoShorthands: true,
   showHierarchyBoxes: true,
   showLatexDock: true,

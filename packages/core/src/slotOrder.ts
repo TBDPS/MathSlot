@@ -35,10 +35,32 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
   {
     id: 'bigop',
     label: '积分 / 求和 / 并交',
-    commandIds: ['integral', 'sum', 'product', 'bigcup', 'bigcap'],
+    commandIds: [
+      'integral',
+      'sum',
+      'product',
+      'bigcup',
+      'bigcap',
+      'double_integral',
+      'contour_integral',
+      'triple_integral',
+      'coprod',
+      'bigoplus',
+      'bigotimes',
+    ],
     options: [
       { label: '下限 → 上限 → 主体', order: [0, 1, 2] },
       { label: '上限 → 下限 → 主体', order: [1, 0, 2] },
+      { label: '主体 → 下限 → 上限', order: [2, 0, 1] },
+    ],
+  },
+  {
+    id: 'nth_deriv',
+    label: '高阶导数 / 偏导',
+    commandIds: ['nth_partial', 'nth_deriv'],
+    options: [
+      { label: '阶数 → 分子 → 变量 → 分母阶数', order: [0, 1, 2, 3] },
+      { label: '分子 → 变量 → 阶数 → 分母阶数', order: [1, 2, 0, 3] },
     ],
   },
   {

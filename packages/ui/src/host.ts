@@ -70,4 +70,6 @@ export interface HostAdapter {
   initialWrapper?: MathWrapperKind;
   /** Optional external dark-mode override (e.g. Obsidian host theme) */
   hostDarkMode?: () => boolean;
+  /** Optional reactive dark-mode subscription so open modals follow live host theme switches */
+  subscribeDarkMode?: (listener: (dark: boolean) => void) => () => void;
 }
