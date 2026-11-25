@@ -140,7 +140,9 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.36);
+    background: rgba(15, 23, 42, 0.34);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -152,7 +154,7 @@
     background: var(--ms-surface);
     border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius-lg);
-    box-shadow: var(--ms-shadow-lg);
+    box-shadow: var(--ms-shadow-lg), var(--ms-inset-specular);
     padding: 16px 18px;
     display: flex;
     flex-direction: column;

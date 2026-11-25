@@ -100,12 +100,37 @@ export const AUTO_SHORTHANDS: readonly ShorthandRule[] = [
   { trigger: 'ddots', commandId: 'ddots', kind: 'word' },
   { trigger: 'varphi', commandId: 'varphi', kind: 'word' },
   { trigger: 'vartheta', commandId: 'vartheta', kind: 'word' },
+  { trigger: 'Upsilon', commandId: 'cap_upsilon', kind: 'word' },
+  { trigger: 'hbar', commandId: 'hbar', kind: 'word' },
+  { trigger: 'ell', commandId: 'ell', kind: 'word' },
+  { trigger: 'quad', commandId: 'quad_space', kind: 'word' },
+  { trigger: 'uparrow', commandId: 'uparrow', kind: 'word' },
+  { trigger: 'downarrow', commandId: 'downarrow', kind: 'word' },
+  { trigger: 'hookrightarrow', commandId: 'hookrightarrow', kind: 'word' },
+  { trigger: 'mid', commandId: 'mid_rel', kind: 'word' },
   { trigger: 'leftarrow', commandId: 'leftarrow', kind: 'word' },
   { trigger: 'leftrightarrow', commandId: 'leftrightarrow', kind: 'word' },
 ];
 
+/**
+ * Direct-typing structural shorthands handled by MathSlotEngine.insertChar
+ * (natural fraction, natural scripts, and auto-closing brackets).
+ */
+export const DIRECT_INPUT_SHORTHANDS: Readonly<Record<string, string>> = {
+  frac: '/',
+  sup: '^',
+  sub: '_',
+  subsup: '_ / ^',
+  paren: '(',
+  bracket: '[',
+  brace: '{',
+};
+
 export const SHORTHAND_BY_COMMAND_ID: ReadonlyMap<string, string> = (() => {
   const map = new Map<string, string>();
+  for (const [commandId, trigger] of Object.entries(DIRECT_INPUT_SHORTHANDS)) {
+    map.set(commandId, trigger);
+  }
   for (const rule of AUTO_SHORTHANDS) {
     const existing = map.get(rule.commandId);
     if (!existing || rule.trigger.length < existing.length) {

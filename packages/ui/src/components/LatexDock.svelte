@@ -237,6 +237,8 @@
       </button>
     {/if}
 
+    <span class="dock-divider" aria-hidden="true"></span>
+
     <button
       type="button"
       class="dock-icon-btn"
@@ -268,12 +270,12 @@
 
 <style>
   .latex-dock {
-    min-height: 44px;
+    min-height: 46px;
     display: flex;
     align-items: flex-start;
     gap: 10px;
     padding: 8px 14px;
-    border-top: 1px solid var(--ms-border);
+    border-top: 1px solid var(--ms-border-subtle);
     background: var(--ms-chrome);
     flex-shrink: 0;
   }
@@ -281,22 +283,24 @@
   .latex-input {
     flex: 1;
     min-width: 0;
-    min-height: 24px;
+    min-height: 28px;
     max-height: 104px;
-    padding: 3px 0 2px;
+    padding: 4px 10px;
     margin: 0;
-    border: none;
+    border: 1px solid var(--ms-border-subtle);
+    border-radius: 8px;
     outline: none;
     resize: none;
-    background: transparent;
+    background: var(--ms-bg);
     color: var(--ms-fg-muted);
     font-family: var(--ms-font-mono);
-    font-size: 12.5px;
+    font-size: 12px;
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
     box-sizing: border-box;
+    transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
   }
 
   .latex-dock.expanded .latex-input {
@@ -305,6 +309,8 @@
 
   .latex-input:focus {
     color: var(--ms-fg);
+    border-color: var(--ms-accent);
+    background: var(--ms-surface);
   }
 
   .latex-input::placeholder {
@@ -316,7 +322,15 @@
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-    padding-top: 0;
+    padding-top: 1px;
+  }
+
+  .dock-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--ms-border);
+    margin: 0 2px;
+    flex-shrink: 0;
   }
 
   .raw-badge {
@@ -339,21 +353,30 @@
     padding: 0 8px;
     border: 1px solid var(--ms-border);
     border-radius: 6px;
-    background: var(--ms-bg);
+    background: var(--ms-surface);
     color: var(--ms-fg-muted);
     font-family: var(--ms-font-mono);
     font-size: 11px;
+    font-weight: 500;
     cursor: pointer;
+    box-shadow: 0 1px 1px rgba(15, 23, 42, 0.03);
+    transition: border-color 110ms ease, color 110ms ease, background-color 110ms ease, transform 110ms var(--ms-ease-out);
   }
 
   .dock-chip:hover:not(:disabled) {
     border-color: var(--ms-accent);
     color: var(--ms-accent);
+    background: var(--ms-accent-soft);
+  }
+
+  .dock-chip:active:not(:disabled) {
+    transform: scale(0.96);
   }
 
   .dock-chip:disabled {
     opacity: 0.35;
     cursor: default;
+    box-shadow: none;
   }
 
   .dock-icon-btn {
@@ -367,6 +390,7 @@
     background: transparent;
     color: var(--ms-fg-muted);
     cursor: pointer;
+    transition: background-color 100ms ease, color 100ms ease, transform 110ms var(--ms-ease-out);
   }
 
   .dock-icon-btn:hover:not(:disabled) {
@@ -374,13 +398,17 @@
     color: var(--ms-fg);
   }
 
+  .dock-icon-btn:active:not(:disabled) {
+    transform: scale(0.93);
+  }
+
   .dock-icon-btn:disabled {
     opacity: 0.35;
     cursor: default;
   }
-  .latex-dock.has-error {
-    border-top-color: var(--ms-danger);
-    box-shadow: inset 0 2px 0 var(--ms-danger-soft);
+  .latex-dock.has-error .latex-input {
+    border-color: var(--ms-danger);
+    box-shadow: 0 0 0 2px var(--ms-danger-soft);
   }
 
   @media (max-width: 520px) {

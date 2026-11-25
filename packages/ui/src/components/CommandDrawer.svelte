@@ -364,12 +364,12 @@
 {#snippet commandMeta(cmd: CommandDef)}
   {@const shorthand = SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
   <div class="cmd-meta">
-    <span class="cmd-name">{cmd.label}</span>
+    <span class="cmd-name" title={cmd.label}>{cmd.label}</span>
     <span class="cmd-badges">
       {#if shorthand}
         <span
           class="cmd-short"
-          title={`简写：输入 ${shorthand}（词简写需空格/边界，标点简写即时生效）`}
+          title={`直输简写：${shorthand}（结构/标点即时生效，字母词需空格或符号边界）`}
         >
           {shorthand}
         </span>
@@ -1140,7 +1140,9 @@
   .backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(15, 23, 42, 0.36);
+    background: rgba(15, 23, 42, 0.34);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     display: flex;
     align-items: flex-start;
     justify-content: center;
@@ -1149,14 +1151,14 @@
   }
 
   .palette {
-    width: min(700px, 100%);
+    width: min(710px, 100%);
     max-height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--ms-surface);
     border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius-lg);
-    box-shadow: var(--ms-shadow-lg);
+    box-shadow: var(--ms-shadow-lg), var(--ms-inset-specular);
     overflow: hidden;
   }
 
@@ -1190,6 +1192,14 @@
     font-family: var(--ms-font-sans);
   }
 
+  .search-input:focus-visible {
+    outline: none;
+  }
+
+  .search-row:focus-within .search-icon {
+    color: var(--ms-accent);
+  }
+
   .search-input::placeholder {
     color: var(--ms-fg-faint);
   }
@@ -1217,26 +1227,34 @@
   }
 
   .tab-btn {
-    border: none;
+    border: 1px solid transparent;
     background: transparent;
     color: var(--ms-fg-muted);
     padding: 5px 10px;
-    border-radius: var(--ms-radius-sm);
+    border-radius: 7px;
     font-size: 12.5px;
     font-weight: 500;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    transition: background-color 110ms var(--ms-ease-out), color 110ms var(--ms-ease-out);
+  }
+
+  .tab-btn:hover:not(.active) {
+    color: var(--ms-fg);
+    background: var(--ms-surface-muted);
   }
 
   .tab-btn span {
     font-size: 11px;
+    font-variant-numeric: tabular-nums;
     color: var(--ms-fg-faint);
   }
 
   .tab-btn.active {
     background: var(--ms-surface);
+    border-color: var(--ms-border-subtle);
     color: var(--ms-accent);
     box-shadow: var(--ms-shadow-sm);
   }
@@ -1451,13 +1469,13 @@
 
   .cmd-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
     gap: 7px;
   }
 
   .cmd-tile {
     height: auto;
-    min-height: 74px;
+    min-height: 76px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -1470,12 +1488,19 @@
     cursor: pointer;
     text-align: left;
     overflow: hidden;
-    transition: border-color 90ms ease, background-color 90ms ease;
+    transition:
+      border-color 100ms var(--ms-ease-out),
+      background-color 100ms var(--ms-ease-out),
+      transform 90ms var(--ms-ease-out);
   }
 
   .cmd-tile:hover {
     border-color: var(--ms-accent);
     background: var(--ms-tile-hover);
+  }
+
+  .cmd-tile:active {
+    transform: scale(0.98);
   }
 
   .cmd-math {
@@ -1488,26 +1513,31 @@
 
   .cmd-meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
+    column-gap: 6px;
+    row-gap: 4px;
   }
 
   .cmd-badges {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    min-width: 0;
+    margin-left: auto;
+    max-width: 100%;
   }
 
   .cmd-short {
     font-family: var(--ms-font-mono);
-    font-size: 9.5px;
-    line-height: 1.2;
-    padding: 1px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.25;
+    padding: 1px 5px;
     border-radius: 4px;
-    border: 1px dashed var(--ms-border);
-    color: var(--ms-fg-muted);
+    background: var(--ms-accent-soft);
+    border: 1px solid color-mix(in srgb, var(--ms-accent) 26%, transparent);
+    color: var(--ms-accent);
     white-space: nowrap;
   }
 
@@ -1528,9 +1558,11 @@
   .cmd-keys kbd {
     font-family: var(--ms-font-mono);
     font-size: 10px;
+    font-weight: 600;
     padding: 1px 4px;
     border-radius: 4px;
     border: 1px solid var(--ms-keycap-border);
+    box-shadow: var(--ms-keycap-shadow);
     background: var(--ms-keycap-bg);
     color: var(--ms-keycap-fg);
   }

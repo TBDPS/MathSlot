@@ -1,56 +1,67 @@
-/* MathSlot v2 — Layered High-Contrast Mathematical Studio Tokens */
+/* MathSlot v2.3 — Swiss Mathematical Studio Design Tokens */
 
 .ms-studio {
-  /* Layer 1: Canvas (bright serene drafting paper) */
-  --ms-bg: #faf9f5;
-  /* Layer 2: Chrome (topbar & bottom dock — clearly distinct warm stone) */
-  --ms-chrome: #ebe9e1;
+  /* Layer 1: Canvas (archival porcelain drafting paper) */
+  --ms-bg: #fcfcfa;
+  --ms-canvas-dot: rgba(15, 23, 42, 0.055);
+  /* Layer 2: Chrome (topbar & bottom dock — calm alabaster stone) */
+  --ms-chrome: #f3f3ee;
   /* Layer 3: Floating panels, ribbon & modals */
   --ms-surface: #ffffff;
   --ms-surface-elevated: #ffffff;
-  --ms-surface-muted: #e5e2d9;
+  --ms-surface-glass: rgba(255, 255, 255, 0.88);
+  --ms-surface-muted: #eaeae2;
   /* Tactile button tiles inside ribbon & popovers */
-  --ms-tile: #f4f3ee;
-  --ms-tile-hover: #e7ebf5;
-  --ms-border: #c9c4b7;
-  --ms-border-subtle: #dcd8cc;
-  --ms-fg: #111318;
-  --ms-fg-muted: #3b4252;
-  --ms-fg-faint: #646c7d;
-  --ms-accent: #1d4ed8;
-  --ms-accent-hover: #1e40af;
+  --ms-tile: #f6f6f2;
+  --ms-tile-hover: #edf2fc;
+  /* Hairline precision borders */
+  --ms-border: rgba(15, 23, 42, 0.13);
+  --ms-border-subtle: rgba(15, 23, 42, 0.075);
+  --ms-inset-specular: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  /* Typography ink hierarchy */
+  --ms-fg: #0f172a;
+  --ms-fg-muted: #475569;
+  --ms-fg-faint: #8492a6;
+  /* Signature Blueprint Cobalt accent */
+  --ms-accent: #2255d4;
+  --ms-accent-hover: #1b44b0;
   --ms-accent-fg: #ffffff;
-  --ms-accent-soft: rgba(29, 78, 216, 0.1);
-  --ms-accent-ring: rgba(29, 78, 216, 0.34);
-  --ms-keycap-bg: #e6ecf8;
-  --ms-keycap-border: #b8c4dc;
+  --ms-accent-soft: rgba(34, 85, 212, 0.09);
+  --ms-accent-ring: rgba(34, 85, 212, 0.28);
+  /* Sculpted miniature keycaps */
+  --ms-keycap-bg: #eef2fa;
+  --ms-keycap-border: rgba(30, 58, 138, 0.2);
   --ms-keycap-fg: #1e3a8a;
+  --ms-keycap-shadow: 0 1px 0 rgba(15, 23, 42, 0.09);
+  /* Jump & Favorite warm amber accent */
   --ms-jump-bg: #fef3c7;
   --ms-jump-border: #d97706;
   --ms-jump-fg: #92400e;
   /* Depth-coded always-visible hierarchy dashed box tokens */
-  --ms-lvl-1: rgba(37, 99, 235, 0.36);
-  --ms-lvl-1-active: rgba(29, 78, 216, 0.78);
-  --ms-lvl-1-fill: rgba(37, 99, 235, 0.045);
-  --ms-lvl-2: rgba(124, 58, 237, 0.4);
-  --ms-lvl-2-active: rgba(109, 40, 217, 0.82);
-  --ms-lvl-2-fill: rgba(124, 58, 237, 0.05);
-  --ms-lvl-3: rgba(13, 148, 136, 0.42);
-  --ms-lvl-3-active: rgba(15, 118, 110, 0.84);
-  --ms-lvl-3-fill: rgba(13, 148, 136, 0.05);
-  --ms-lvl-4: rgba(217, 119, 6, 0.42);
+  --ms-lvl-1: rgba(34, 85, 212, 0.3);
+  --ms-lvl-1-active: rgba(34, 85, 212, 0.78);
+  --ms-lvl-1-fill: rgba(34, 85, 212, 0.04);
+  --ms-lvl-2: rgba(124, 58, 237, 0.32);
+  --ms-lvl-2-active: rgba(109, 40, 217, 0.8);
+  --ms-lvl-2-fill: rgba(124, 58, 237, 0.045);
+  --ms-lvl-3: rgba(13, 148, 136, 0.34);
+  --ms-lvl-3-active: rgba(15, 118, 110, 0.82);
+  --ms-lvl-3-fill: rgba(13, 148, 136, 0.045);
+  --ms-lvl-4: rgba(217, 119, 6, 0.36);
   --ms-lvl-4-active: rgba(180, 83, 9, 0.84);
-  --ms-lvl-4-fill: rgba(217, 119, 6, 0.05);
+  --ms-lvl-4-fill: rgba(217, 119, 6, 0.045);
   --ms-danger: #dc2626;
-  --ms-danger-soft: rgba(220, 38, 38, 0.1);
-  --ms-shadow-sm: 0 3px 10px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
-  --ms-shadow-md: 0 14px 36px rgba(15, 23, 42, 0.15), 0 2px 8px rgba(15, 23, 42, 0.08);
-  --ms-shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.1);
+  --ms-danger-soft: rgba(220, 38, 38, 0.09);
+  /* Soft optical elevation shadows */
+  --ms-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px rgba(15, 23, 42, 0.06);
+  --ms-shadow-md: 0 2px 6px rgba(15, 23, 42, 0.06), 0 14px 32px rgba(15, 23, 42, 0.12);
+  --ms-shadow-lg: 0 4px 12px rgba(15, 23, 42, 0.08), 0 24px 56px rgba(15, 23, 42, 0.18);
   --ms-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', sans-serif;
   --ms-font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', ui-monospace, monospace;
   --ms-radius-sm: 6px;
   --ms-radius-md: 10px;
   --ms-radius-lg: 14px;
+  --ms-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
   font-family: var(--ms-font-sans);
   color: var(--ms-fg);
@@ -60,50 +71,86 @@
 }
 
 .ms-studio[data-theme='dark'] {
-  /* Layer 1: Deep ink formula canvas */
-  --ms-bg: #0e1117;
-  /* Layer 2: Distinct elevated chrome for topbar & dock */
-  --ms-chrome: #161b24;
+  /* Layer 1: Deep obsidian slate canvas */
+  --ms-bg: #0b0e14;
+  --ms-canvas-dot: rgba(255, 255, 255, 0.045);
+  /* Layer 2: Calm elevated chrome for topbar & dock */
+  --ms-chrome: #11151f;
   /* Layer 3: Floating ribbon & popovers */
-  --ms-surface: #1b212d;
-  --ms-surface-elevated: #1f2634;
-  --ms-surface-muted: #262e3e;
+  --ms-surface: #161b26;
+  --ms-surface-elevated: #1b2230;
+  --ms-surface-glass: rgba(22, 27, 38, 0.86);
+  --ms-surface-muted: #202736;
   /* Tactile button tiles */
-  --ms-tile: #232a38;
-  --ms-tile-hover: #2d3648;
-  --ms-border: #364054;
-  --ms-border-subtle: #283040;
-  --ms-fg: #f0f2f6;
-  --ms-fg-muted: #a8b1c4;
-  --ms-fg-faint: #737d94;
-  --ms-accent: #60a5fa;
-  --ms-accent-hover: #93c5fd;
-  --ms-accent-fg: #0b1120;
-  --ms-accent-soft: rgba(96, 165, 250, 0.16);
-  --ms-accent-ring: rgba(96, 165, 250, 0.42);
+  --ms-tile: #1c2230;
+  --ms-tile-hover: #252e42;
+  --ms-border: rgba(255, 255, 255, 0.11);
+  --ms-border-subtle: rgba(255, 255, 255, 0.065);
+  --ms-inset-specular: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --ms-fg: #f1f5f9;
+  --ms-fg-muted: #94a3b8;
+  --ms-fg-faint: #64748b;
+  --ms-accent: #5b9bff;
+  --ms-accent-hover: #82b4ff;
+  --ms-accent-fg: #07101f;
+  --ms-accent-soft: rgba(91, 155, 255, 0.14);
+  --ms-accent-ring: rgba(91, 155, 255, 0.32);
   --ms-keycap-bg: #172033;
-  --ms-keycap-border: #3b4a69;
+  --ms-keycap-border: rgba(147, 197, 253, 0.22);
   --ms-keycap-fg: #93c5fd;
-  --ms-jump-bg: #2c2110;
+  --ms-keycap-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  --ms-jump-bg: #2b2110;
   --ms-jump-border: #f59e0b;
   --ms-jump-fg: #fcd34d;
-  --ms-lvl-1: rgba(96, 165, 250, 0.38);
+  --ms-lvl-1: rgba(91, 155, 255, 0.34);
   --ms-lvl-1-active: rgba(147, 197, 253, 0.84);
-  --ms-lvl-1-fill: rgba(96, 165, 250, 0.07);
-  --ms-lvl-2: rgba(167, 139, 250, 0.42);
+  --ms-lvl-1-fill: rgba(91, 155, 255, 0.065);
+  --ms-lvl-2: rgba(167, 139, 250, 0.38);
   --ms-lvl-2-active: rgba(196, 181, 253, 0.86);
-  --ms-lvl-2-fill: rgba(167, 139, 250, 0.08);
-  --ms-lvl-3: rgba(45, 212, 191, 0.44);
+  --ms-lvl-2-fill: rgba(167, 139, 250, 0.075);
+  --ms-lvl-3: rgba(45, 212, 191, 0.4);
   --ms-lvl-3-active: rgba(94, 234, 212, 0.88);
-  --ms-lvl-3-fill: rgba(45, 212, 191, 0.08);
-  --ms-lvl-4: rgba(251, 191, 36, 0.44);
+  --ms-lvl-3-fill: rgba(45, 212, 191, 0.075);
+  --ms-lvl-4: rgba(251, 191, 36, 0.4);
   --ms-lvl-4-active: rgba(252, 211, 77, 0.88);
-  --ms-lvl-4-fill: rgba(251, 191, 36, 0.08);
+  --ms-lvl-4-fill: rgba(251, 191, 36, 0.075);
   --ms-danger: #f87171;
   --ms-danger-soft: rgba(248, 113, 113, 0.14);
-  --ms-shadow-sm: 0 3px 10px rgba(0, 0, 0, 0.45);
-  --ms-shadow-md: 0 14px 36px rgba(0, 0, 0, 0.6);
-  --ms-shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.74);
+  --ms-shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
+  --ms-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 16px 36px rgba(0, 0, 0, 0.45);
+  --ms-shadow-lg: 0 8px 20px rgba(0, 0, 0, 0.55), 0 24px 64px rgba(0, 0, 0, 0.65);
+}
+
+/* Tactile focus-visible & subtle custom scrollbars across Studio */
+.ms-studio button:focus-visible,
+.ms-studio input:focus-visible,
+.ms-studio textarea:focus-visible,
+.ms-studio select:focus-visible {
+  outline: 2px solid var(--ms-accent);
+  outline-offset: 1px;
+}
+
+.ms-studio * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ms-border) transparent;
+}
+
+.ms-studio ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ms-studio ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ms-studio ::-webkit-scrollbar-thumb {
+  background: var(--ms-border);
+  border-radius: 999px;
+}
+
+.ms-studio ::-webkit-scrollbar-thumb:hover {
+  background: var(--ms-fg-faint);
 }
 
 /* Interactive KaTeX math slot & caret styles
@@ -176,5 +223,9 @@
 @media (prefers-reduced-motion: reduce) {
   .ms-studio .ms-caret-anchor::after {
     animation: none;
+  }
+  .ms-studio * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

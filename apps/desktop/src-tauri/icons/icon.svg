@@ -1,69 +1,128 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e3a8a"/>
-      <stop offset="48%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#4f46e5"/>
+    <!-- Deep Prussian Ink Slate chassis gradient -->
+    <linearGradient id="chassis" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A7A"/>
+      <stop offset="44%" stop-color="#122144"/>
+      <stop offset="100%" stop-color="#0A1120"/>
     </linearGradient>
-    <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
-      <stop offset="46%" stop-color="#ffffff" stop-opacity="0.03"/>
-      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.18"/>
+
+    <!-- Top-left atmospheric blueprint light -->
+    <radialGradient id="topGlow" cx="22%" cy="14%" r="68%">
+      <stop offset="0%" stop-color="#60A5FA" stop-opacity="0.34"/>
+      <stop offset="52%" stop-color="#3B82F6" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0A1120" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Soft ambient bounce light behind the active slot -->
+    <radialGradient id="slotAmbient" cx="73%" cy="52%" r="36%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.34"/>
+      <stop offset="58%" stop-color="#2563EB" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#0A1120" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular rim light for squircle bezel -->
+    <linearGradient id="bezel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="35%" stop-color="#93C5FD" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#020617" stop-opacity="0.46"/>
     </linearGradient>
+
+    <!-- Sculpted porcelain Sigma fill -->
+    <linearGradient id="sigmaFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="70%" stop-color="#F1F5F9"/>
+      <stop offset="100%" stop-color="#CBD5E1"/>
+    </linearGradient>
+
+    <!-- Luminous blueprint slot glass fill -->
     <linearGradient id="slotFill" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.34"/>
-      <stop offset="100%" stop-color="#a5b4fc" stop-opacity="0.22"/>
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0.15"/>
     </linearGradient>
-    <linearGradient id="slotStroke" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7dd3fc"/>
-      <stop offset="100%" stop-color="#e0f2fe"/>
+
+    <!-- Crisp slot dashed border gradient -->
+    <linearGradient id="slotBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#BAE6FD"/>
+      <stop offset="52%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
     </linearGradient>
+
+    <!-- Active typing caret gradient (warm luminous amber focal point) -->
+    <linearGradient id="caretFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FEF3C7"/>
+      <stop offset="42%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+
+    <clipPath id="squircleClip">
+      <rect x="24" y="24" width="464" height="464" rx="112"/>
+    </clipPath>
   </defs>
 
-  <!-- Squircle background -->
-  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bg)"/>
-  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#sheen)"/>
-  <rect x="30" y="30" width="452" height="452" rx="106" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="3"/>
+  <!-- Outer squircle base -->
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#chassis)"/>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#topGlow)"/>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#slotAmbient)"/>
 
-  <!-- Subtle outer math brackets -->
-  <g fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 116 118 H 86 A 14 14 0 0 0 72 132 V 380 A 14 14 0 0 0 86 394 H 116"/>
-    <path d="M 396 118 H 426 A 14 14 0 0 1 440 132 V 380 A 14 14 0 0 1 426 394 H 396"/>
+  <!-- Whisper-subtle architectural drafting grid -->
+  <g clip-path="url(#squircleClip)" opacity="0.075" stroke="#E2E8F0" stroke-width="1.5">
+    <line x1="128" y1="24" x2="128" y2="488"/>
+    <line x1="256" y1="24" x2="256" y2="488"/>
+    <line x1="384" y1="24" x2="384" y2="488"/>
+    <line x1="24" y1="128" x2="488" y2="128"/>
+    <line x1="24" y1="256" x2="488" y2="256"/>
+    <line x1="24" y1="384" x2="488" y2="384"/>
   </g>
 
-  <!-- Soft geometric drop shadows (pure vector, 100% portable across all SVG renderers) -->
-  <path
-    d="M 270 162 H 134 L 212 266 L 134 370 H 270"
-    fill="none"
-    stroke="#0f172a"
-    stroke-opacity="0.26"
-    stroke-width="34"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
-  <rect x="298" y="166" width="106" height="200" rx="26" fill="#0f172a" fill-opacity="0.22"/>
+  <!-- Refined inner bezel -->
+  <rect x="27" y="27" width="458" height="458" rx="109" fill="none" stroke="url(#bezel)" stroke-width="3"/>
 
-  <!-- Crisp geometric Sigma glyph -->
+  <!-- Soft geometric drop shadow under Sigma -->
   <path
-    d="M 270 152 H 134 L 212 256 L 134 360 H 270"
-    fill="none"
-    stroke="#ffffff"
-    stroke-width="34"
-    stroke-linecap="round"
-    stroke-linejoin="round"
+    d="M 88 128 H 264 L 270 184 H 248 C 242 164 231 158 210 158 H 142 L 222 250 L 222 260 L 138 358 H 214 C 236 358 248 350 255 328 H 276 L 266 390 H 88 V 370 L 176 268 L 88 150 Z"
+    transform="translate(0, 10)"
+    fill="#020617"
+    fill-opacity="0.44"
   />
 
-  <!-- Interactive MathSlot dashed container + live cursor -->
+  <!-- Sculpted mathematical Serif Sigma (optically balanced TeX geometry, clean gap from slot) -->
+  <path
+    d="M 88 126 H 264 L 270 182 H 248 C 242 162 231 156 210 156 H 142 L 222 248 L 222 258 L 138 356 H 214 C 236 356 248 348 255 326 H 276 L 266 388 H 88 V 368 L 176 266 L 88 148 Z"
+    fill="url(#sigmaFill)"
+  />
+
+  <!-- Interactive MathSlot container shadow -->
+  <rect x="298" y="182" width="124" height="164" rx="28" fill="#020617" fill-opacity="0.36"/>
+
+  <!-- Interactive MathSlot dashed container (crisp 22px channel from Sigma serifs) -->
   <rect
     x="298"
-    y="156"
-    width="106"
-    height="200"
-    rx="26"
+    y="174"
+    width="124"
+    height="164"
+    rx="28"
     fill="url(#slotFill)"
-    stroke="url(#slotStroke)"
-    stroke-width="11"
+    stroke="url(#slotBorder)"
+    stroke-width="10"
     stroke-dasharray="22 14"
+    stroke-linecap="round"
   />
-  <rect x="345" y="198" width="12" height="116" rx="6" fill="#ffffff"/>
+
+  <!-- Inner luminous slot highlight rim -->
+  <rect
+    x="309"
+    y="185"
+    width="102"
+    height="142"
+    rx="18"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-opacity="0.16"
+    stroke-width="2"
+  />
+
+  <!-- Active typing caret inside slot -->
+  <rect x="352" y="211" width="16" height="90" rx="8" fill="#020617" fill-opacity="0.3" transform="translate(0, 4)"/>
+  <rect x="352" y="209" width="16" height="90" rx="8" fill="url(#caretFill)"/>
 </svg>

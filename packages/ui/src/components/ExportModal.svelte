@@ -300,7 +300,9 @@
   .backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(15, 23, 42, 0.36);
+    background: rgba(15, 23, 42, 0.34);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -314,7 +316,7 @@
     background: var(--ms-surface);
     border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius-lg);
-    box-shadow: var(--ms-shadow-lg);
+    box-shadow: var(--ms-shadow-lg), var(--ms-inset-specular);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -471,13 +473,21 @@
     font-size: 12.5px;
     font-weight: 500;
     cursor: pointer;
-    transition: border-color 90ms ease, background-color 90ms ease, color 90ms ease;
+    transition:
+      border-color 100ms var(--ms-ease-out),
+      background-color 100ms var(--ms-ease-out),
+      color 100ms var(--ms-ease-out),
+      transform 90ms var(--ms-ease-out);
   }
 
   .action-btn:hover:not(:disabled) {
     border-color: var(--ms-accent);
     color: var(--ms-accent);
     background: var(--ms-accent-soft);
+  }
+
+  .action-btn:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
   .action-btn.primary {

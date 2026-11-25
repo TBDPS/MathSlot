@@ -601,6 +601,16 @@
         >
           {@html rendered.html}
         </div>
+        {#if snapshot.isEmpty && snapshot.mode.kind === 'edit' && !shiftedUp}
+          <div class="empty-hint" aria-hidden="true">
+            <span>直接键入公式，或按</span>
+            <kbd>Tab</kbd>
+            <span>唤出结构</span>
+            <span class="hint-dot"></span>
+            <kbd>Ctrl+K</kbd>
+            <span>搜索公式库</span>
+          </div>
+        {/if}
       </div>
 
       {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind === 'edit' && !shiftedUp}
@@ -698,6 +708,9 @@
     contain: layout style;
     cursor: text;
     user-select: none;
+    background-image: radial-gradient(circle, var(--ms-canvas-dot) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: center center;
   }
 
   .canvas-scroll {
@@ -726,22 +739,25 @@
   .zoom-controls {
     position: absolute;
     right: 14px;
-    bottom: 10px;
+    bottom: 12px;
     z-index: 15;
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    padding: 2px 4px;
+    padding: 3px 5px;
     border-radius: 999px;
-    background: var(--ms-surface);
+    background: var(--ms-surface-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--ms-border);
-    box-shadow: var(--ms-shadow-sm);
-    opacity: 0.78;
-    transition: opacity 100ms ease;
+    box-shadow: var(--ms-shadow-sm), var(--ms-inset-specular);
+    opacity: 0.85;
+    transition: opacity 120ms ease, box-shadow 120ms ease;
   }
 
   .zoom-controls:hover {
     opacity: 1;
+    box-shadow: var(--ms-shadow-md), var(--ms-inset-specular);
   }
 
   .zoom-btn {
@@ -759,6 +775,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: background-color 100ms ease, color 100ms ease, transform 110ms var(--ms-ease-out);
   }
 
   .zoom-btn:hover {
@@ -766,8 +783,12 @@
     color: var(--ms-fg);
   }
 
+  .zoom-btn:active {
+    transform: scale(0.92);
+  }
+
   .zoom-val {
-    min-width: 38px;
+    min-width: 40px;
     height: 22px;
     padding: 0 4px;
     border: none;
@@ -775,6 +796,7 @@
     background: transparent;
     color: var(--ms-fg-muted);
     font-family: var(--ms-font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
@@ -880,6 +902,7 @@
     position: relative;
     z-index: 2;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
@@ -888,6 +911,43 @@
 
   .formula-center.shifted {
     transform: translateY(-102px);
+  }
+
+  .empty-hint {
+    position: absolute;
+    top: calc(50% + 28px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--ms-fg-faint);
+    opacity: 0.82;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .empty-hint kbd {
+    font-family: var(--ms-font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    box-shadow: var(--ms-keycap-shadow);
+    color: var(--ms-fg-muted);
+  }
+
+  .hint-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--ms-fg-faint);
+    opacity: 0.55;
+    margin: 0 2px;
   }
 
   .formula-render {
@@ -911,30 +971,39 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 3px 6px;
+    padding: 4px 7px;
     border-radius: 999px;
-    background: var(--ms-surface);
+    background: var(--ms-surface-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--ms-border);
-    box-shadow: var(--ms-shadow-sm);
+    box-shadow: var(--ms-shadow-sm), var(--ms-inset-specular);
   }
 
   .grid-dim {
     font-family: var(--ms-font-mono);
+    font-variant-numeric: tabular-nums;
     font-size: 10.5px;
     font-weight: 600;
     color: var(--ms-fg-muted);
-    padding: 0 4px;
+    padding: 0 5px 0 3px;
   }
 
   .grid-btn {
-    height: 20px;
-    padding: 0 6px;
+    height: 21px;
+    padding: 0 7px;
     border: 1px solid var(--ms-border-subtle);
     border-radius: 999px;
     background: var(--ms-tile);
     color: var(--ms-fg);
     font-size: 11px;
+    font-weight: 500;
     cursor: pointer;
+    transition: border-color 110ms ease, color 110ms ease, background-color 110ms ease, transform 110ms var(--ms-ease-out);
+  }
+
+  .grid-btn:active:not(:disabled) {
+    transform: scale(0.94);
   }
 
   .grid-btn:hover:not(:disabled),

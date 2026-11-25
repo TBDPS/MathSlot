@@ -952,11 +952,31 @@
 <div class="ms-studio studio-shell" class:compact-obsidian={!!host.compactToolbar} data-theme={resolvedTheme}>
   <header class="topbar ms-topbar">
     <div class="brand">
-      <svg class="brand-mark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M7 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h2" />
-        <path d="M17 4h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-2" />
-        <path d="M9 12h6" />
-        <path d="M12 9v6" />
+      <svg class="brand-mark" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="msBrandBg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#1E3A7A" />
+            <stop offset="100%" stop-color="#0B1325" />
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#msBrandBg)" />
+        <rect x="1.5" y="1.5" width="29" height="29" rx="7.5" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1" />
+        <path
+          d="M 6.5 8.5 H 16.5 L 16.9 11.7 H 15.5 C 15.2 10.6 14.6 10.2 13.4 10.2 H 9.7 L 14.2 15.6 V 16.3 L 9.5 21.8 H 13.7 C 14.9 21.8 15.5 21.3 15.9 20.1 H 17.2 L 16.6 23.8 H 6.5 V 22.6 L 11.6 16.8 L 6.5 9.8 Z"
+          fill="#F8FAFC"
+        />
+        <rect
+          x="18.6"
+          y="10.8"
+          width="7.8"
+          height="10.4"
+          rx="2.2"
+          fill="rgba(56,189,248,0.22)"
+          stroke="#7DD3FC"
+          stroke-width="1.4"
+          stroke-dasharray="2.4 1.6"
+        />
+        <rect x="21.8" y="13.2" width="1.4" height="5.6" rx="0.7" fill="#FBBF24" />
       </svg>
       <span class="brand-name">MathSlot</span>
     </div>
@@ -1080,6 +1100,7 @@
       </button>
 
       {#if !host.compactToolbar}
+        <span class="toolbar-sep" aria-hidden="true"></span>
         {#if host.setAlwaysOnTop}
           <button
             type="button"
@@ -1667,13 +1688,13 @@
   }
 
   .topbar {
-    height: 48px;
+    height: 46px;
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
     gap: 12px;
     padding: 0 14px;
-    border-bottom: 1px solid var(--ms-border);
+    border-bottom: 1px solid var(--ms-border-subtle);
     background: var(--ms-chrome);
     flex-shrink: 0;
   }
@@ -1703,13 +1724,15 @@
   }
 
   .brand-mark {
-    color: var(--ms-accent);
+    display: block;
+    flex-shrink: 0;
+    filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.18));
   }
 
   .brand-name {
     font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-weight: 650;
+    letter-spacing: -0.025em;
     color: var(--ms-fg);
   }
 
@@ -1724,9 +1747,11 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 3px 10px;
+    padding: 3px 9px;
     border-radius: 999px;
-    background: var(--ms-surface-muted);
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border-subtle);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     max-width: 100%;
     overflow: hidden;
   }
@@ -1736,14 +1761,16 @@
     background: transparent;
     color: var(--ms-fg-muted);
     font-size: 11.5px;
-    padding: 1px 3px;
+    padding: 1px 4px;
     border-radius: 4px;
     cursor: pointer;
     white-space: nowrap;
+    transition: color 120ms ease, background-color 120ms ease;
   }
 
   .crumb-btn:hover {
     color: var(--ms-accent);
+    background: var(--ms-accent-soft);
   }
 
   .crumb-sep {
@@ -1752,8 +1779,8 @@
   }
 
   .crumb-up {
-    border: 1px solid var(--ms-border);
-    background: var(--ms-surface);
+    border: 1px solid var(--ms-border-subtle);
+    background: var(--ms-tile);
     color: var(--ms-fg-muted);
     font-size: 11px;
     width: 20px;
@@ -1765,6 +1792,7 @@
     align-items: center;
     justify-content: center;
     padding: 0;
+    transition: border-color 120ms ease, color 120ms ease, transform 120ms var(--ms-ease-out);
   }
 
   .crumb-up:hover {
@@ -1772,10 +1800,22 @@
     color: var(--ms-accent);
   }
 
+  .crumb-up:active {
+    transform: scale(0.94);
+  }
+
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
+  .toolbar-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--ms-border);
+    margin: 0 4px;
     flex-shrink: 0;
   }
 
@@ -1794,7 +1834,7 @@
     border-radius: var(--ms-radius-md);
     background: var(--ms-surface);
     border: 1px solid var(--ms-border);
-    box-shadow: var(--ms-shadow-lg);
+    box-shadow: var(--ms-shadow-lg), var(--ms-inset-specular);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -1816,6 +1856,7 @@
     text-align: left;
     cursor: pointer;
     white-space: nowrap;
+    transition: background-color 100ms ease;
   }
 
   .menu-item:hover:not(:disabled) {
@@ -1840,7 +1881,7 @@
   }
 
   .text-btn {
-    height: 30px;
+    height: 29px;
     padding: 0 10px;
     border: 1px solid var(--ms-border);
     border-radius: 7px;
@@ -1851,7 +1892,8 @@
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
-    transition: border-color 80ms ease, color 80ms ease, background-color 80ms ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease, transform 120ms var(--ms-ease-out);
   }
 
   .text-btn:hover {
@@ -1860,9 +1902,13 @@
     background: var(--ms-accent-soft);
   }
 
+  .text-btn:active {
+    transform: scale(0.97);
+  }
+
   .icon-btn {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     flex-shrink: 0;
     display: inline-flex;
@@ -1873,12 +1919,16 @@
     background: transparent;
     color: var(--ms-fg-muted);
     cursor: pointer;
-    transition: background-color 80ms ease, color 80ms ease;
+    transition: background-color 110ms ease, color 110ms ease, transform 120ms var(--ms-ease-out);
   }
 
   .icon-btn:hover:not(:disabled) {
     background: var(--ms-surface-muted);
     color: var(--ms-fg);
+  }
+
+  .icon-btn:active:not(:disabled) {
+    transform: scale(0.94);
   }
 
   .icon-btn.active {
@@ -1892,7 +1942,7 @@
   }
 
   .primary-cta {
-    height: 30px;
+    height: 29px;
     margin-left: 6px;
     padding: 0 13px;
     border: none;
@@ -1900,18 +1950,24 @@
     background: var(--ms-accent);
     color: var(--ms-accent-fg);
     font-size: 12.5px;
-    font-weight: 500;
+    font-weight: 550;
     cursor: pointer;
-    transition: background-color 90ms ease;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 3px rgba(15, 23, 42, 0.14);
+    transition: background-color 120ms ease, transform 120ms var(--ms-ease-out), box-shadow 120ms ease;
   }
 
   .primary-cta:hover:not(:disabled) {
     background: var(--ms-accent-hover);
   }
 
+  .primary-cta:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
   .primary-cta:disabled {
     opacity: 0.38;
     cursor: default;
+    box-shadow: none;
   }
 
   .canvas-wrap {
@@ -1925,25 +1981,27 @@
 
   .left-edit-dock {
     position: absolute;
-    left: 12px;
-    top: 12px;
+    left: 14px;
+    top: 14px;
     z-index: 16;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     padding: 4px;
     border-radius: 11px;
-    background: var(--ms-surface);
+    background: var(--ms-surface-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--ms-border);
-    box-shadow: var(--ms-shadow-sm);
-    opacity: 0.88;
-    transition: opacity 110ms ease, box-shadow 110ms ease;
+    box-shadow: var(--ms-shadow-sm), var(--ms-inset-specular);
+    opacity: 0.92;
+    transition: opacity 120ms ease, box-shadow 120ms ease;
   }
 
   .left-edit-dock:hover {
     opacity: 1;
-    box-shadow: var(--ms-shadow-md);
+    box-shadow: var(--ms-shadow-md), var(--ms-inset-specular);
   }
 
   .dock-tool-btn {
@@ -1958,12 +2016,16 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 80ms ease, color 80ms ease;
+    transition: background-color 100ms ease, color 100ms ease, transform 120ms var(--ms-ease-out);
   }
 
   .dock-tool-btn:hover:not(:disabled) {
     background: var(--ms-surface-muted);
     color: var(--ms-fg);
+  }
+
+  .dock-tool-btn:active:not(:disabled) {
+    transform: scale(0.93);
   }
 
   .dock-tool-btn.active {
@@ -1982,18 +2044,18 @@
   }
 
   .dock-sep {
-    width: 18px;
+    width: 16px;
     height: 1px;
     background: var(--ms-border-subtle);
-    margin: 2px 0;
+    margin: 3px 0;
   }
 
   .toast {
     position: absolute;
-    top: 58px;
+    top: 56px;
     left: 50%;
     transform: translateX(-50%);
-    padding: 5px 12px;
+    padding: 6px 14px;
     border-radius: 999px;
     background: var(--ms-fg);
     color: var(--ms-bg);

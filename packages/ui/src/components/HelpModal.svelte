@@ -221,7 +221,9 @@
   .backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(15, 23, 42, 0.36);
+    background: rgba(15, 23, 42, 0.34);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -235,7 +237,7 @@
     background: var(--ms-surface);
     border: 1px solid var(--ms-border);
     border-radius: var(--ms-radius-lg);
-    box-shadow: var(--ms-shadow-lg);
+    box-shadow: var(--ms-shadow-lg), var(--ms-inset-specular);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -417,10 +419,12 @@
   kbd {
     font-family: var(--ms-font-mono);
     font-size: 11px;
+    font-weight: 600;
     padding: 1px 5px;
     border-radius: 4px;
     background: var(--ms-keycap-bg);
     border: 1px solid var(--ms-keycap-border);
+    box-shadow: var(--ms-keycap-shadow);
     color: var(--ms-keycap-fg);
   }
 
