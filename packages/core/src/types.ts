@@ -61,6 +61,8 @@ export interface GridMeta {
   env: string;
   rows: number;
   cols: number;
+  /** Optional column alignment / vertical bar spec, e.g. `'cc|c'` for `array` or augmented matrices */
+  colSpec?: string;
   /** Optional explicit LaTeX row gap after row `r`, e.g. `'4pt'` from `\\[4pt]` */
   rowGaps?: (string | undefined)[];
 }
@@ -180,6 +182,8 @@ export interface HistoryFormula {
   timestamp: number;
 }
 
+export type InputContextKind = 'math-root' | 'math-slot' | 'math-grid' | 'text';
+
 export interface ActiveGridInfo {
   structId: string;
   env: string;
@@ -188,6 +192,9 @@ export interface ActiveGridInfo {
   row: number;
   col: number;
   canEditCols: boolean;
+  /** True when a vertical bar `|` exists immediately after `col` (`0 <= col < cols - 1`) */
+  hasRightBar?: boolean;
+  colSpec?: string;
 }
 
 export interface CustomCommandDef {
@@ -212,6 +219,8 @@ export interface ImportResult {
   doc: Document;
   diagnostics: Diagnostic[];
   lossless: boolean;
+  /** True when one or more nodes were preserved as atomic `RawNode`s rather than decomposed into slots */
+  hasRawNodes?: boolean;
 }
 
 export interface BreadcrumbItem {
@@ -233,6 +242,8 @@ export interface EditorSnapshot {
   canUndo: boolean;
   canRedo: boolean;
   isEmpty: boolean;
+  hasRawNodes?: boolean;
+  inputContext?: InputContextKind;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

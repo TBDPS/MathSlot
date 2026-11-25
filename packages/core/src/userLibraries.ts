@@ -1,3 +1,4 @@
+import { sanitizeLatexTemplate } from './commandSpecs';
 import type { CommandCategory, CommandDef, PresetFormula } from './types';
 
 export interface UserPresetEntry {
@@ -83,7 +84,8 @@ export function parseUserPresetsJson(raw: string): {
       continue;
     }
     const name = typeof obj.name === 'string' ? obj.name.trim() : '';
-    const source = typeof obj.source === 'string' ? obj.source.trim() : '';
+    const rawSource = typeof obj.source === 'string' ? obj.source.trim() : '';
+    const source = sanitizeLatexTemplate(rawSource);
     const category = typeof obj.category === 'string' && obj.category.trim() ? obj.category.trim() : '自定义公式';
     if (!name || !source) {
       warnings.push(`presets.json 条目 "${id}" 缺少 name 或 source，已跳过`);
@@ -149,7 +151,8 @@ export function parseUserCommandsJson(raw: string): {
       continue;
     }
     const label = typeof obj.label === 'string' ? obj.label.trim() : '';
-    const latex = typeof obj.latex === 'string' ? obj.latex.trim() : '';
+    const rawLatex = typeof obj.latex === 'string' ? obj.latex.trim() : '';
+    const latex = sanitizeLatexTemplate(rawLatex);
     const categoryRaw = typeof obj.category === 'string' ? (obj.category.trim() as CommandCategory) : 'symbol';
     const category: CommandCategory = VALID_CATEGORIES.has(categoryRaw) ? categoryRaw : 'symbol';
     const keys = Array.isArray(obj.keys)

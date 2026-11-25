@@ -107,6 +107,8 @@
         <div class="diag-line is-error">{submitError}</div>
       {:else if parsed.warnings.length > 0}
         <div class="diag-line is-warn">提示：{parsed.warnings[0].message}</div>
+      {:else if parsed.res.hasRawNodes}
+        <div class="diag-line is-warn">提示：包含原生 LaTeX 保留片段，导入后可在底部源码栏直接编辑</div>
       {/if}
     {/if}
 

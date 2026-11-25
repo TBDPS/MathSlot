@@ -97,10 +97,14 @@ export function createDesktopHost(): HostAdapter {
       if (isTauriRuntime()) {
         return tauriInvoke<ExternalUserLibraries>('load_user_libraries');
       }
+      const rawPresets = localStorage.getItem('mathslot.v2.presets.json');
+      const rawCommands = localStorage.getItem('mathslot.v2.commands.json');
       return {
         configDir: 'localStorage',
-        presetsJson: localStorage.getItem('mathslot.v2.presets.json') ?? '',
-        commandsJson: localStorage.getItem('mathslot.v2.commands.json') ?? '',
+        presetsJson: rawPresets ?? '',
+        commandsJson: rawCommands ?? '',
+        presetsNewlyCreated: rawPresets === null,
+        commandsNewlyCreated: rawCommands === null,
       };
     },
 
@@ -146,6 +150,9 @@ export function createDesktopHost(): HostAdapter {
               history: Array.isArray(parsed.history) ? parsed.history : [],
               userPresets: Array.isArray(parsed.userPresets) ? parsed.userPresets : [],
               userCommands: Array.isArray(parsed.userCommands) ? parsed.userCommands : [],
+              favoriteIds: Array.isArray(parsed.favoriteIds) ? parsed.favoriteIds : [],
+              recentIds: Array.isArray(parsed.recentIds) ? parsed.recentIds : [],
+              lastDraftLatex: typeof parsed.lastDraftLatex === 'string' ? parsed.lastDraftLatex : '',
             };
           }
         } catch {
@@ -163,6 +170,9 @@ export function createDesktopHost(): HostAdapter {
             history: Array.isArray(parsed.history) ? parsed.history : [],
             userPresets: Array.isArray(parsed.userPresets) ? parsed.userPresets : [],
             userCommands: Array.isArray(parsed.userCommands) ? parsed.userCommands : [],
+            favoriteIds: Array.isArray(parsed.favoriteIds) ? parsed.favoriteIds : [],
+            recentIds: Array.isArray(parsed.recentIds) ? parsed.recentIds : [],
+            lastDraftLatex: typeof parsed.lastDraftLatex === 'string' ? parsed.lastDraftLatex : '',
           };
         }
       } catch {

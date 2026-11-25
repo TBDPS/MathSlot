@@ -26,10 +26,13 @@
     snippets: Snippet[];
     customCommands: CustomCommandDef[];
     history?: HistoryFormula[];
+    favoriteIds?: readonly string[];
+    recentIds?: readonly string[];
     initialTab?: DrawerTab;
     onInsertCommand: (commandId: string) => void;
     onInsertSnippet?: (snippet: Snippet) => void;
-    onLoadFormula: (source: string) => void;
+    onLoadFormula: (source: string, presetId?: string) => void;
+    onToggleFavorite?: (favKey: string) => void;
     onCreatePreset?: () => void;
     onEditPreset?: (preset: PresetFormula) => void;
     onDeletePreset?: (id: string) => void;
@@ -53,10 +56,13 @@
     snippets,
     customCommands,
     history = [],
+    favoriteIds = [],
+    recentIds = [],
     initialTab = 'all',
     onInsertCommand,
     onInsertSnippet,
     onLoadFormula,
+    onToggleFavorite,
     onCreatePreset,
     onEditPreset,
     onDeletePreset,
@@ -78,13 +84,15 @@
     tab = initialTab;
   });
   let query = $state('');
-  let selectedCategory = $state<CommandCategory | 'all'>('all');
+  let selectedCategory = $state<CommandCategory | 'all' | 'favorites'>('all');
   let selectedPresetCat = $state<string>('all');
+  let showAllPresetsInAll = $state(false);
   let activeIndex = $state(0);
   let renamingSnippetId = $state<string | null>(null);
   let renameDraft = $state('');
   let searchInputEl: HTMLInputElement | null = $state(null);
 
+  const favSet = $derived(new Set(favoriteIds));
   const presetCategories = $derived(Array.from(new Set(presets.map((p) => p.category))));
 
   const filteredCommands = $derived.by(() => {
@@ -101,8 +109,9 @@
             c.doc.toLowerCase().includes(q)
           );
         })
-      : [...commands];
+      : [...commands].filter((c) => c.id !== 'inline_math');
     if (selectedCategory === 'all') return base;
+    if (selectedCategory === 'favorites') return base.filter((c) => favSet.has(`cmd:${c.id}`));
     return base.filter((c) => c.category === selectedCategory);
   });
 
@@ -119,6 +128,9 @@
         )
       : [...presets];
     if (selectedPresetCat === 'all') return base;
+    if (selectedPresetCat === '__favorites__') {
+      return base.filter((p) => favSet.has(`preset:${p.id}`));
+    }
     return base.filter((p) => p.category === selectedPresetCat);
   });
 
@@ -154,12 +166,33 @@
     | { kind: 'custom'; item: CustomCommandDef }
     | { kind: 'history'; item: HistoryFormula };
 
+  const favoriteCommands = $derived(
+    commands.filter((c) => c.id !== 'inline_math' && favSet.has(`cmd:${c.id}`)),
+  );
+  const favoritePresets = $derived(presets.filter((p) => favSet.has(`preset:${p.id}`)));
+  const recentCommands = $derived.by(() => {
+    const out: CommandDef[] = [];
+    for (const r of recentIds) {
+      if (!r.startsWith('cmd:') || favSet.has(r)) continue;
+      const id = r.slice(4);
+      const found = commands.find((c) => c.id === id && c.id !== 'inline_math');
+      if (found) out.push(found);
+      if (out.length >= 6) break;
+    }
+    return out;
+  });
+
   const allPresetsShown = $derived(
-    query.trim() ? filteredPresets : filteredPresets.slice(0, 8),
+    query.trim() || showAllPresetsInAll ? filteredPresets : filteredPresets.slice(0, 8),
   );
 
   const unifiedEntries = $derived.by<UnifiedEntry[]>(() => {
     const out: UnifiedEntry[] = [];
+    if (!query.trim()) {
+      for (const item of favoriteCommands) out.push({ kind: 'command', item });
+      for (const item of favoritePresets) out.push({ kind: 'preset', item });
+      for (const item of recentCommands) out.push({ kind: 'command', item });
+    }
     for (const item of filteredSnippets) out.push({ kind: 'snippet', item });
     for (const item of filteredCustom) out.push({ kind: 'custom', item });
     if (query.trim()) {
@@ -174,18 +207,39 @@
   });
 
   const unifiedOffsets = $derived.by(() => {
-    const snipStart = 0;
-    const customStart = filteredSnippets.length;
+    const favCmdStart = 0;
+    const favPresetStart = !query.trim() ? favoriteCommands.length : 0;
+    const recentCmdStart = !query.trim() ? favPresetStart + favoritePresets.length : 0;
+    const snipStart = !query.trim() ? recentCmdStart + recentCommands.length : 0;
+    const customStart = snipStart + filteredSnippets.length;
     if (query.trim()) {
       const cmdStart = customStart + filteredCustom.length;
       const presetStart = cmdStart + filteredCommands.length;
       const histStart = presetStart + allPresetsShown.length;
-      return { snipStart, customStart, presetStart, cmdStart, histStart };
+      return {
+        favCmdStart,
+        favPresetStart,
+        recentCmdStart,
+        snipStart,
+        customStart,
+        presetStart,
+        cmdStart,
+        histStart,
+      };
     }
     const presetStart = customStart + filteredCustom.length;
     const cmdStart = presetStart + allPresetsShown.length;
     const histStart = cmdStart + filteredCommands.length;
-    return { snipStart, customStart, presetStart, cmdStart, histStart };
+    return {
+      favCmdStart,
+      favPresetStart,
+      recentCmdStart,
+      snipStart,
+      customStart,
+      presetStart,
+      cmdStart,
+      histStart,
+    };
   });
 
   const totalAllCount = $derived(
@@ -261,7 +315,7 @@
         const entry = unifiedEntries[activeIndex];
         if (!entry) return;
         if (entry.kind === 'command') onInsertCommand(entry.item.id);
-        else if (entry.kind === 'preset') onLoadFormula(entry.item.source);
+        else if (entry.kind === 'preset') onLoadFormula(entry.item.source, entry.item.id);
         else if (entry.kind === 'snippet') {
           if (onInsertSnippet) onInsertSnippet(entry.item);
           else onLoadFormula(entry.item.latex);
@@ -277,7 +331,7 @@
       } else if (tab === 'presets') {
         const item = filteredPresets[activeIndex];
         if (item) {
-          onLoadFormula(item.source);
+          onLoadFormula(item.source, item.id);
           onClose();
         }
       } else if (tab === 'snippets') {
@@ -399,6 +453,16 @@
           <button type="button" class="pill" class:active={selectedCategory === 'all'} onclick={() => (selectedCategory = 'all')}>
             全部
           </button>
+          {#if favoriteCommands.length > 0}
+            <button
+              type="button"
+              class="pill"
+              class:active={selectedCategory === 'favorites'}
+              onclick={() => (selectedCategory = 'favorites')}
+            >
+              ★ 收藏 ({favoriteCommands.length})
+            </button>
+          {/if}
           {#each Object.entries(CATEGORY_LABELS) as [cat, label] (cat)}
             <button
               type="button"
@@ -415,6 +479,16 @@
           <button type="button" class="pill" class:active={selectedPresetCat === 'all'} onclick={() => (selectedPresetCat = 'all')}>
             全部
           </button>
+          {#if favoritePresets.length > 0}
+            <button
+              type="button"
+              class="pill"
+              class:active={selectedPresetCat === '__favorites__'}
+              onclick={() => (selectedPresetCat = '__favorites__')}
+            >
+              ★ 收藏 ({favoritePresets.length})
+            </button>
+          {/if}
           {#each presetCategories as cat (cat)}
             <button
               type="button"
@@ -434,6 +508,152 @@
         {#if unifiedEntries.length === 0}
           <div class="empty-state">未找到匹配「{query}」的命令、公式或片段</div>
         {:else}
+          {#if !query.trim() && (favoriteCommands.length > 0 || favoritePresets.length > 0)}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>★ 常用收藏</span>
+                <span class="sec-count">{favoriteCommands.length + favoritePresets.length}</span>
+              </div>
+              {#if favoriteCommands.length > 0}
+                <div class="cmd-grid" style="margin-bottom: 6px;">
+                  {#each favoriteCommands as cmd, idx (cmd.id)}
+                    {@const uIdx = unifiedOffsets.favCmdStart + idx}
+                    <div class="cmd-tile-wrap" class:selected={uIdx === activeIndex}>
+                      <button
+                        type="button"
+                        class="cmd-tile"
+                        onmouseenter={() => (activeIndex = uIdx)}
+                        onclick={() => {
+                          onInsertCommand(cmd.id);
+                          onClose();
+                        }}
+                      >
+                        <div class="cmd-math">
+                          {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+                        </div>
+                        <div class="cmd-meta">
+                          <span class="cmd-name">{cmd.label}</span>
+                          {#if cmd.keys.length > 0}
+                            <span class="cmd-keys">
+                              <kbd>{leaderKey}</kbd>
+                              {#each cmd.keys as k}
+                                <kbd>{k}</kbd>
+                              {/each}
+                            </span>
+                          {/if}
+                        </div>
+                      </button>
+                      {#if onToggleFavorite}
+                        <button
+                          type="button"
+                          class="cmd-fav-btn is-fav"
+                          title="取消收藏"
+                          aria-label="取消收藏"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            onToggleFavorite(`cmd:${cmd.id}`);
+                          }}
+                        >
+                          ★
+                        </button>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+              {#each favoritePresets as preset, idx (preset.id)}
+                {@const uIdx = unifiedOffsets.favPresetStart + idx}
+                <div class="preset-row" class:selected={uIdx === activeIndex}>
+                  <button
+                    type="button"
+                    class="snip-main"
+                    onmouseenter={() => (activeIndex = uIdx)}
+                    onclick={() => {
+                      onLoadFormula(preset.source, preset.id);
+                      onClose();
+                    }}
+                  >
+                    <div class="preset-info">
+                      <span class="preset-name">{preset.name}</span>
+                      <span class="preset-cat">{preset.category}</span>
+                    </div>
+                    <div class="preset-math">
+                      {@html renderLatexPreview(presetLatex(preset.source), false)}
+                    </div>
+                  </button>
+                  {#if onToggleFavorite}
+                    <button
+                      type="button"
+                      class="fav-row-btn is-fav"
+                      title="取消收藏"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(`preset:${preset.id}`);
+                      }}
+                    >
+                      ★
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if !query.trim() && recentCommands.length > 0}
+            <div class="all-section">
+              <div class="sec-head">
+                <span>最近使用</span>
+                <span class="sec-count">{recentCommands.length}</span>
+              </div>
+              <div class="cmd-grid">
+                {#each recentCommands as cmd, idx (cmd.id)}
+                  {@const uIdx = unifiedOffsets.recentCmdStart + idx}
+                  <div class="cmd-tile-wrap" class:selected={uIdx === activeIndex}>
+                    <button
+                      type="button"
+                      class="cmd-tile"
+                      onmouseenter={() => (activeIndex = uIdx)}
+                      onclick={() => {
+                        onInsertCommand(cmd.id);
+                        onClose();
+                      }}
+                    >
+                      <div class="cmd-math">
+                        {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+                      </div>
+                      <div class="cmd-meta">
+                        <span class="cmd-name">{cmd.label}</span>
+                        {#if cmd.keys.length > 0}
+                          <span class="cmd-keys">
+                            <kbd>{leaderKey}</kbd>
+                            {#each cmd.keys as k}
+                              <kbd>{k}</kbd>
+                            {/each}
+                          </span>
+                        {/if}
+                      </div>
+                    </button>
+                    {#if onToggleFavorite}
+                      <button
+                        type="button"
+                        class="cmd-fav-btn"
+                        class:is-fav={favSet.has(`cmd:${cmd.id}`)}
+                        title="收藏命令"
+                        aria-label="收藏命令"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          onToggleFavorite(`cmd:${cmd.id}`);
+                        }}
+                      >
+                        {favSet.has(`cmd:${cmd.id}`) ? '★' : '☆'}
+                      </button>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
           {#if filteredSnippets.length > 0}
             <div class="all-section">
               <div class="sec-head">
@@ -548,10 +768,14 @@
             <div class="all-section">
               <div class="sec-head">
                 <span>预置公式库</span>
-                <span class="sec-count">{filteredPresets.length}</span>
-                {#if !query.trim() && filteredPresets.length > allPresetsShown.length}
-                  <button type="button" class="sec-more" onclick={() => (tab = 'presets')}>
-                    查看全部 {filteredPresets.length} 条 →
+                <span class="sec-count">{allPresetsShown.length} / {filteredPresets.length}</span>
+                {#if !query.trim() && filteredPresets.length > 8}
+                  <button
+                    type="button"
+                    class="sec-more"
+                    onclick={() => (showAllPresetsInAll = !showAllPresetsInAll)}
+                  >
+                    {showAllPresetsInAll ? '收起至前 8 条' : `展开全部 ${filteredPresets.length} 条`}
                   </button>
                 {/if}
               </div>
@@ -563,7 +787,7 @@
                     class="snip-main"
                     onmouseenter={() => (activeIndex = uIdx)}
                     onclick={() => {
-                      onLoadFormula(preset.source);
+                      onLoadFormula(preset.source, preset.id);
                       onClose();
                     }}
                   >
@@ -575,6 +799,20 @@
                       {@html renderLatexPreview(presetLatex(preset.source), false)}
                     </div>
                   </button>
+                  {#if onToggleFavorite}
+                    <button
+                      type="button"
+                      class="fav-row-btn"
+                      class:is-fav={favSet.has(`preset:${preset.id}`)}
+                      title={favSet.has(`preset:${preset.id}`) ? '取消收藏' : '收藏公式'}
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(`preset:${preset.id}`);
+                      }}
+                    >
+                      {favSet.has(`preset:${preset.id}`) ? '★' : '☆'}
+                    </button>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -677,46 +915,75 @@
                   {/if}
                 </div>
               </button>
-              {#if onEditCommand}
-                <button
-                  type="button"
-                  class="cmd-edit-btn"
-                  title="编辑命令"
-                  aria-label="编辑命令"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    onClose();
-                    onEditCommand(cmd);
-                  }}
-                >
-                  ✎
-                </button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {:else if tab === 'presets'}
-        {#each filteredPresets as preset, idx (preset.id)}
-          <div class="preset-row" class:selected={idx === activeIndex}>
-            <button
-              type="button"
-              class="snip-main"
-              onmouseenter={() => (activeIndex = idx)}
-              onclick={() => {
-                onLoadFormula(preset.source);
-                onClose();
-              }}
-            >
-              <div class="preset-info">
-                <span class="preset-name">{preset.name}</span>
-                <span class="preset-cat">{preset.category}</span>
+                {#if onToggleFavorite}
+                  <button
+                    type="button"
+                    class="cmd-fav-btn"
+                    class:is-fav={favSet.has(`cmd:${cmd.id}`)}
+                    class:with-edit={Boolean(onEditCommand)}
+                    title={favSet.has(`cmd:${cmd.id}`) ? '取消收藏' : '收藏命令'}
+                    aria-label={favSet.has(`cmd:${cmd.id}`) ? '取消收藏' : '收藏命令'}
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite(`cmd:${cmd.id}`);
+                    }}
+                  >
+                    {favSet.has(`cmd:${cmd.id}`) ? '★' : '☆'}
+                  </button>
+                {/if}
+                {#if onEditCommand}
+                  <button
+                    type="button"
+                    class="cmd-edit-btn"
+                    title="编辑命令"
+                    aria-label="编辑命令"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      onClose();
+                      onEditCommand(cmd);
+                    }}
+                  >
+                    ✎
+                  </button>
+                {/if}
               </div>
-              <div class="preset-math">
-                {@html renderLatexPreview(presetLatex(preset.source), false)}
-              </div>
-            </button>
-            {#if onEditPreset || onDeletePreset}
+            {/each}
+          </div>
+        {:else if tab === 'presets'}
+          {#each filteredPresets as preset, idx (preset.id)}
+            <div class="preset-row" class:selected={idx === activeIndex}>
+              <button
+                type="button"
+                class="snip-main"
+                onmouseenter={() => (activeIndex = idx)}
+                onclick={() => {
+                  onLoadFormula(preset.source, preset.id);
+                  onClose();
+                }}
+              >
+                <div class="preset-info">
+                  <span class="preset-name">{preset.name}</span>
+                  <span class="preset-cat">{preset.category}</span>
+                </div>
+                <div class="preset-math">
+                  {@html renderLatexPreview(presetLatex(preset.source), false)}
+                </div>
+              </button>
               <div class="row-actions">
+                {#if onToggleFavorite}
+                  <button
+                    type="button"
+                    class="fav-row-btn"
+                    class:is-fav={favSet.has(`preset:${preset.id}`)}
+                    title={favSet.has(`preset:${preset.id}`) ? '取消收藏' : '收藏公式'}
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      onToggleFavorite(`preset:${preset.id}`);
+                    }}
+                  >
+                    {favSet.has(`preset:${preset.id}`) ? '★' : '☆'}
+                  </button>
+                {/if}
                 {#if onEditPreset}
                   <button
                     type="button"
@@ -740,9 +1007,8 @@
                   </button>
                 {/if}
               </div>
-            {/if}
-          </div>
-        {/each}
+            </div>
+          {/each}
       {:else if tab === 'snippets'}
         {#if filteredSnippets.length === 0}
           <div class="empty-state">暂无片段</div>
@@ -1083,6 +1349,59 @@
   .cmd-edit-btn:hover {
     border-color: var(--ms-accent);
     color: var(--ms-accent);
+  }
+
+  .cmd-fav-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--ms-border);
+    border-radius: 5px;
+    background: var(--ms-surface);
+    color: var(--ms-fg-muted);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 90ms ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cmd-fav-btn.with-edit {
+    right: 28px;
+  }
+
+  .cmd-fav-btn.is-fav {
+    opacity: 1;
+    color: #d97706;
+    border-color: rgba(217, 119, 6, 0.35);
+  }
+
+  .cmd-tile-wrap:hover .cmd-fav-btn,
+  .cmd-tile-wrap.selected .cmd-fav-btn {
+    opacity: 1;
+  }
+
+  .fav-row-btn {
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--ms-fg-faint);
+    font-size: 13px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border-radius: 5px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .fav-row-btn:hover,
+  .fav-row-btn.is-fav {
+    color: #d97706;
   }
 
   .filter-pills {

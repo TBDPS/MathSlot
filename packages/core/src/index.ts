@@ -1,5 +1,6 @@
 export * from './types';
 export * from './catalog';
+export * from './commandSpecs';
 export * from './presets';
 export * from './userLibraries';
 export * from './slotOrder';

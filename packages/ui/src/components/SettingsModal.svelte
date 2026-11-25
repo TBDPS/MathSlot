@@ -41,10 +41,10 @@
     { value: 'dark', label: '深色' },
   ];
 
+  // Exclude `\` as leader choice so LaTeX inline commands (`\int`, `\frac`, `\alpha`) always stay accessible!
   const leaders: { value: LeaderKey; label: string }[] = [
     { value: 'Tab', label: 'Tab' },
-    { value: '/', label: '/' },
-    { value: '\\', label: '\\' },
+    { value: '/', label: '/（替代斜杠分式）' },
   ];
 
   const delimiters: { value: DelimiterStyle; label: string }[] = [
@@ -80,6 +80,8 @@
     });
   }
 </script>
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div

@@ -34,8 +34,8 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
   },
   {
     id: 'bigop',
-    label: '积分 / 求和',
-    commandIds: ['integral', 'sum', 'product'],
+    label: '积分 / 求和 / 并交',
+    commandIds: ['integral', 'sum', 'product', 'bigcup', 'bigcap'],
     options: [
       { label: '下限 → 上限 → 主体', order: [0, 1, 2] },
       { label: '上限 → 下限 → 主体', order: [1, 0, 2] },

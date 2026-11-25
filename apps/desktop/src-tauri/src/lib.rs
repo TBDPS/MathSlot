@@ -88,6 +88,8 @@ struct UserLibrariesPayload {
     config_dir: String,
     presets_json: String,
     commands_json: String,
+    presets_newly_created: bool,
+    commands_newly_created: bool,
 }
 
 #[tauri::command]
@@ -251,11 +253,16 @@ fn load_user_libraries(app: tauri::AppHandle) -> Result<UserLibrariesPayload, St
     let presets_path = dir.join("presets.json");
     let commands_path = dir.join("commands.json");
 
+    let mut presets_newly_created = false;
+    let mut commands_newly_created = false;
+
     if !presets_path.exists() {
         write_atomic(&presets_path, STARTER_PRESETS_JSON)?;
+        presets_newly_created = true;
     }
     if !commands_path.exists() {
         write_atomic(&commands_path, STARTER_COMMANDS_JSON)?;
+        commands_newly_created = true;
     }
 
     let presets_json = fs::read_to_string(&presets_path).map_err(|e| e.to_string())?;
@@ -265,6 +272,8 @@ fn load_user_libraries(app: tauri::AppHandle) -> Result<UserLibrariesPayload, St
         config_dir: dir.to_string_lossy().into_owned(),
         presets_json,
         commands_json,
+        presets_newly_created,
+        commands_newly_created,
     })
 }
 

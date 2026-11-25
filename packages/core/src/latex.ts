@@ -1,5 +1,18 @@
 import { findSlotPath, getGridMeta, isOptionalSlot, isSlotVisibleInteractive } from './ast';
 import { COMMANDS_BY_ID } from './catalog';
+import {
+  BINARY_RELATION_SYMBOLS,
+  DELIMITER_STRUCT_IDS,
+  INTEGRAL_OPS,
+  PREFIX_BIGOPS,
+  SELF_DELIMITED_STRUCTS,
+  TALL_STRUCT_IDS,
+  formatGridEnvironment,
+  hasCustomColSpec,
+  isIntegralBodySlot,
+  isTightSlot,
+  sanitizeLatexTemplate,
+} from './commandSpecs';
 import type {
   Cursor,
   DelimiterStyle,
@@ -186,6 +199,7 @@ export const BARE_WORD_BINOPS: Readonly<Record<string, string>> = {
   ge: '\\ge',
   neq: '\\neq',
   ne: '\\neq',
+  mid: '\\mid',
 };
 
 export const DIFFERENTIAL_WORDS: Readonly<Record<string, string>> = {
@@ -208,152 +222,10 @@ export const DIFFERENTIAL_WORDS: Readonly<Record<string, string>> = {
   dxi: '\\mathrm{d}\\xi',
 };
 
-const BINARY_RELATION_SYMBOLS = new Set([
-  'to',
-  'pm',
-  'mp',
-  'times',
-  'cdot',
-  'in',
-  'notin',
-  'subseteq',
-  'subset',
-  'equiv',
-  'approx',
-  'sim',
-  'propto',
-  'implies',
-  'iff',
-  'mapsto',
-  'cong',
-  'll',
-  'gg',
-  'simeq',
-  'leq',
-  'geq',
-  'neq',
-  'cup',
-  'cap',
-  'land',
-  'lor',
-  'setminus',
-  'parallel',
-  'perp',
-  'leftarrow',
-  'leftrightarrow',
-  'uparrow',
-  'downarrow',
-  'hookrightarrow',
-]);
-
-const SELF_DELIMITED_STRUCTS = new Set([
-  'paren',
-  'abs',
-  'bracket',
-  'brace',
-  'interval_oc',
-  'interval_co',
-  'set_builder',
-  'boxed',
-  'substack_2',
-  'norm',
-  'angle',
-  'floor',
-  'ceil',
-  'hat',
-  'bar',
-  'vec',
-  'tilde',
-  'dot',
-  'ddot',
-  'overline',
-  'underline',
-]);
-
-const PREFIX_BIGOPS = new Set([
-  'integral',
-  'indef_integral',
-  'sum',
-  'product',
-  'limit',
-  'double_integral',
-  'triple_integral',
-  'contour_integral',
-]);
-
-const INTEGRAL_OPS = new Set([
-  'integral',
-  'indef_integral',
-  'double_integral',
-  'triple_integral',
-  'contour_integral',
-]);
-
-const TALL_STRUCT_IDS = new Set([
-  'frac',
-  'partial_frac',
-  'total_frac',
-  'binom',
-  'integral',
-  'double_integral',
-  'triple_integral',
-  'contour_integral',
-  'sum',
-  'product',
-  'limit',
-  'sqrt',
-  'nth_root',
-  'matrix_2x2',
-  'matrix_3x3',
-  'bmatrix_2x2',
-  'bmatrix_3x3',
-  'det_2x2',
-  'det_3x3',
-  'matrix_ellipsis',
-  'det_ellipsis',
-  'cases_2',
-  'cases_3',
-  'eval_bar',
-  'overbrace',
-  'underbrace',
-]);
-
-const DELIMITER_STRUCT_IDS = new Set([
-  'paren',
-  'bracket',
-  'brace',
-  'interval_oc',
-  'interval_co',
-  'set_builder',
-  'abs',
-  'norm',
-]);
-
 type SpacingLevel = 'display' | 'tight';
 
 export interface LatexEmitOptions {
   autoShorthands?: boolean;
-}
-
-function isTightSlot(commandId: string, slotIndex: number): boolean {
-  if ((commandId === 'sup' || commandId === 'sub') && slotIndex === 1) return true;
-  if (commandId === 'subsup' && (slotIndex === 1 || slotIndex === 2)) return true;
-  if (
-    (commandId === 'integral' || commandId === 'sum' || commandId === 'product' || commandId === 'limit') &&
-    (slotIndex === 0 || slotIndex === 1)
-  ) {
-    return true;
-  }
-  if (
-    (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
-    (slotIndex === 0 || slotIndex === 1)
-  ) {
-    return true;
-  }
-  if (commandId === 'substack_2') return true;
-  if ((commandId === 'nth_root' || commandId === 'sqrt') && slotIndex === 0) return true;
-  if (commandId === 'eval_bar' && (slotIndex === 1 || slotIndex === 2)) return true;
-  return false;
 }
 
 function slotHasTallContent(slot: SlotNode): boolean {
@@ -370,7 +242,11 @@ function slotHasTallContent(slot: SlotNode): boolean {
   return false;
 }
 
-function escapeCharLatex(ch: string, autoShorthands = true): string {
+function escapeCharLatex(
+  ch: string,
+  mode: 'math' | 'text' = 'math',
+  autoShorthands = true,
+): string {
   switch (ch) {
     case '%':
       return '\\%';
@@ -387,11 +263,12 @@ function escapeCharLatex(ch: string, autoShorthands = true): string {
     case '}':
       return '\\}';
     case '~':
-      return autoShorthands ? '\\sim' : '\\textasciitilde ';
+      if (mode === 'text') return '\\textasciitilde{}';
+      return autoShorthands ? '\\sim' : '\\text{\\textasciitilde}';
     case '^':
-      return '\\textasciicircum ';
+      return mode === 'text' ? '\\textasciicircum{}' : '\\text{\\textasciicircum}';
     case '\\':
-      return '\\backslash ';
+      return mode === 'text' ? '\\textbackslash{}' : '\\backslash ';
     default:
       return ch;
   }
@@ -509,7 +386,7 @@ function tokenizeSlotForCanonical(
           const unary = isUnaryContext(lastNonSpace);
           tokens.push({ text: '\\sim', kind: unary ? 'atom' : 'binop' });
         } else {
-          tokens.push({ text: '\\textasciitilde ', kind: 'atom' });
+          tokens.push({ text: '\\text{\\textasciitilde}', kind: 'atom' });
         }
         i += 1;
         continue;
@@ -541,7 +418,10 @@ function tokenizeSlotForCanonical(
         continue;
       }
 
-      tokens.push({ text: escapeCharLatex(node.value, autoShorthands && !node.verbatim), kind: 'atom' });
+      tokens.push({
+        text: escapeCharLatex(node.value, 'math', autoShorthands && !node.verbatim),
+        kind: 'atom',
+      });
       i += 1;
       continue;
     }
@@ -585,13 +465,14 @@ function tokenizeSlotForCanonical(
 
     // StructNode
     const isBigOp = PREFIX_BIGOPS.has(node.commandId);
+    const isFuncStruct = node.commandId === 'operatorname';
     const isBinOpStruct =
       node.commandId === 'xrightarrow' ||
       node.commandId === 'xleftarrow' ||
       node.commandId === 'pmod';
     tokens.push({
       text: emitStructCanonical(node, level, autoShorthands),
-      kind: isBigOp ? 'bigop' : isBinOpStruct ? 'binop' : 'struct',
+      kind: isBigOp ? 'bigop' : isFuncStruct ? 'func' : isBinOpStruct ? 'binop' : 'struct',
       structCmdId: node.commandId,
       isIntegral: INTEGRAL_OPS.has(node.commandId),
     });
@@ -611,18 +492,6 @@ function startsWithAsciiLetter(s: string): boolean {
 
 function isGenericDiffWord(text: string): boolean {
   return /^d[a-zA-Z]$/.test(text);
-}
-
-function isIntegralBodySlot(commandId: string, slotIndex: number): boolean {
-  if (commandId === 'integral' && slotIndex === 2) return true;
-  if (commandId === 'indef_integral' && slotIndex === 0) return true;
-  if (
-    (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
-    slotIndex === 2
-  ) {
-    return true;
-  }
-  return false;
 }
 
 function isSimpleFuncArgParen(node: StructNode): boolean {
@@ -903,10 +772,20 @@ function resolveAdaptiveStructTemplate(
       return null;
     case 'integral':
     case 'sum':
-    case 'product': {
+    case 'product':
+    case 'bigcup':
+    case 'bigcap': {
       if (node.slots.length !== 3) return null;
       const baseMacro =
-        node.commandId === 'integral' ? '\\int' : node.commandId === 'sum' ? '\\sum' : '\\prod';
+        node.commandId === 'integral'
+          ? '\\int'
+          : node.commandId === 'sum'
+            ? '\\sum'
+            : node.commandId === 'product'
+              ? '\\prod'
+              : node.commandId === 'bigcup'
+                ? '\\bigcup'
+                : '\\bigcap';
       const macro = node.limitsMode ? `${baseMacro}\\${node.limitsMode}` : baseMacro;
       const hasLo = hasSlot(0);
       const hasHi = hasSlot(1);
@@ -996,16 +875,26 @@ function emitStructCanonical(
   parentLevel: SpacingLevel,
   autoShorthands: boolean,
 ): string {
-  if (!node.customLatex) {
+  const safeCustomLatex = node.customLatex ? sanitizeLatexTemplate(node.customLatex) : undefined;
+  if (!safeCustomLatex) {
+    if (node.commandId === 'inline_math' && node.slots.length === 1) {
+      return emitSlotCanonical(node.slots[0], parentLevel, autoShorthands);
+    }
+    if (node.commandId === 'operatorname' && node.slots.length === 1) {
+      return `\\operatorname{${emitSlotCanonical(node.slots[0], 'tight', false)}}`;
+    }
     if (node.commandId === 'text_box' && node.slots.length === 1) {
       const inner = node.slots[0].children
         .map((ch) => {
           if (ch.type === 'char') {
             if (ch.value === ' ') return ' ';
-            return escapeCharLatex(ch.value, false);
+            return escapeCharLatex(ch.value, 'text', false);
           }
           if (ch.type === 'symbol') return `$${ch.latex}$`;
           if (ch.type === 'raw') return ch.latex;
+          if (ch.commandId === 'inline_math' && ch.slots.length === 1) {
+            return `$${emitSlotCanonical(ch.slots[0], 'display', autoShorthands)}$`;
+          }
           return `$${emitStructCanonical(ch, 'display', autoShorthands)}$`;
         })
         .join('');
@@ -1033,9 +922,9 @@ function emitStructCanonical(
       return `${base}^${formatScriptArg(node.slots[2], autoShorthands)}`;
     }
 
-    // Dynamic R×C matrix / N-row cases emission (preserving optional `\\[4pt]` row gaps!)
+    // Dynamic R×C matrix / array / N-row cases emission (preserving colSpec & optional `\\[4pt]` row gaps!)
     if (node.grid) {
-      const { env, rows, cols, rowGaps } = node.grid;
+      const { env, rows, cols, colSpec, rowGaps } = node.grid;
       const rowStrings: string[] = [];
       for (let r = 0; r < rows; r += 1) {
         const colStrings: string[] = [];
@@ -1053,7 +942,7 @@ function emitStructCanonical(
           joined += gap ? ` \\\\[${gap}] ` : ' \\\\ ';
         }
       }
-      return `\\begin{${env}} ${joined} \\end{${env}}`;
+      return formatGridEnvironment(env, colSpec, cols, joined);
     }
 
     // Smart auto-sizing for keyboard-typed `( )`, `[ ]`, `{ }`:
@@ -1078,7 +967,7 @@ function emitStructCanonical(
     (idx) => (node.slots[idx]?.children.length ?? 0) > 0,
   );
   const template =
-    node.customLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
+    safeCustomLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
   if (!template) {
     return node.slots.map((s) => emitSlotCanonical(s, parentLevel, autoShorthands)).join(' ');
   }
@@ -1103,7 +992,7 @@ export function emitNodeCanonical(node: MathNode, options: LatexEmitOptions = {}
   const autoShorthands = options.autoShorthands ?? true;
   switch (node.type) {
     case 'char':
-      return escapeCharLatex(node.value, autoShorthands && !node.verbatim);
+      return escapeCharLatex(node.value, 'math', autoShorthands && !node.verbatim);
     case 'symbol':
       return node.latex;
     case 'raw':
@@ -1567,22 +1456,27 @@ function emitNodeInteractive(
 ): string {
   switch (node.type) {
     case 'char': {
-      const escaped = escapeCharLatex(node.value, autoShorthands && !node.verbatim);
+      const escaped = escapeCharLatex(node.value, 'math', autoShorthands && !node.verbatim);
       return isUprightChar ? `\\mathrm{${escaped}}` : escaped;
     }
     case 'symbol':
       return node.latex;
     case 'raw':
-      return node.latex;
+      return node.latex
+        .replace(/\\begin\{align\*?\}/g, '\\begin{aligned}')
+        .replace(/\\end\{align\*?\}/g, '\\end{aligned}')
+        .replace(/\\tag\*\{([^}]*)\}/g, '\\qquad\\text{$1}')
+        .replace(/\\tag\{([^}]*)\}/g, '\\qquad\\text{($1)}');
     case 'struct': {
       const structDepth = depth + 1;
       const structHeight = getStructSubtreeHeight(node);
+      const safeCustomLatex = node.customLatex ? sanitizeLatexTemplate(node.customLatex) : undefined;
       const adaptiveTemplate = resolveAdaptiveStructTemplate(node, (idx) =>
         isSlotVisibleInteractive(node, idx, cursor.slotId),
       );
       let template =
-        node.customLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
-      if (!node.customLatex && node.autoSized && node.slots.length === 1) {
+        safeCustomLatex ?? adaptiveTemplate ?? COMMANDS_BY_ID.get(node.commandId)?.latex;
+      if (!safeCustomLatex && node.autoSized && node.slots.length === 1) {
         const tall = slotHasTallContent(node.slots[0]);
         if (node.commandId === 'paren') {
           template = tall ? '\\left($1\\right)' : '($1)';
@@ -1593,8 +1487,15 @@ function emitNodeInteractive(
         }
       }
       let rendered: string;
-      const dynGrid = node.grid ?? (getGridMeta(node) && node.slots.length !== (COMMANDS_BY_ID.get(node.commandId)?.slots.length ?? 0) ? getGridMeta(node) : null);
-      if (node.commandId === 'text_box' && !node.customLatex && node.slots.length === 1) {
+      const baseMeta = getGridMeta(node);
+      const dynGrid =
+        node.grid ??
+        (baseMeta &&
+        (node.slots.length !== (COMMANDS_BY_ID.get(node.commandId)?.slots.length ?? 0) ||
+          hasCustomColSpec(baseMeta.colSpec, baseMeta.cols))
+          ? baseMeta
+          : null);
+      if (node.commandId === 'text_box' && !safeCustomLatex && node.slots.length === 1) {
         const slot = node.slots[0];
         const isActive = cursor.slotId === slot.id;
         const slotClasses = ['ms-slot'];
@@ -1617,7 +1518,7 @@ function emitNodeInteractive(
             const ch = slot.children[i];
             let atomLatex: string;
             if (ch.type === 'char') {
-              const esc = ch.value === ' ' ? ' ' : escapeCharLatex(ch.value, false);
+              const esc = ch.value === ' ' ? ' ' : escapeCharLatex(ch.value, 'text', false);
               atomLatex = `\\text{${esc}}`;
             } else {
               atomLatex = emitNodeInteractive(
@@ -1641,7 +1542,7 @@ function emitNodeInteractive(
           rendered = `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${parts.join('')}}}`;
         }
       } else if (dynGrid) {
-        const { env, rows, cols, rowGaps } = dynGrid;
+        const { env, rows, cols, colSpec, rowGaps } = dynGrid;
         const rowStrings: string[] = [];
         for (let r = 0; r < rows; r += 1) {
           const colStrings: string[] = [];
@@ -1672,7 +1573,7 @@ function emitNodeInteractive(
             joined += gap ? ` \\\\[${gap}] ` : ' \\\\ ';
           }
         }
-        rendered = `\\begin{${env}} ${joined} \\end{${env}}`;
+        rendered = formatGridEnvironment(env, colSpec, cols, joined);
       } else if (!template) {
         rendered = node.slots
           .map((s) =>
@@ -1803,20 +1704,33 @@ export function toInteractiveLatex(
 }
 
 export function commandPreviewLatex(template: string): string {
-  if (template === '\\text{$1}') {
+  const safe = sanitizeLatexTemplate(template);
+  if (safe === '\\text{$1}') {
     return '\\text{abc}';
   }
-  if (template === '\\left\\{ $1 \\,\\middle|\\, $2 \\right\\}') {
+  if (safe === '\\mathbf{$1}') {
+    return '\\mathbf{x}';
+  }
+  if (safe === '\\mathcal{$1}') {
+    return '\\mathcal{L}';
+  }
+  if (safe === '\\mathbb{$1}') {
+    return '\\mathbb{E}';
+  }
+  if (safe === '\\operatorname{$1}') {
+    return '\\operatorname{op}';
+  }
+  if (safe === '\\left\\{ $1 \\,\\middle|\\, $2 \\right\\}') {
     return '\\left\\{ \\square \\,\\middle|\\, \\square \\right\\}';
   }
-  if (template === '\\substack{$1 \\\\ $2}') {
+  if (safe === '\\substack{$1 \\\\ $2}') {
     return '\\substack{\\square \\\\ \\square}';
   }
-  if (template.includes('\\ddots') && template.includes('\\begin{pmatrix}')) {
+  if (safe.includes('\\ddots') && safe.includes('\\begin{pmatrix}')) {
     return '\\begin{pmatrix} \\square & \\cdots & \\square \\\\ \\vdots & \\ddots & \\vdots \\\\ \\square & \\cdots & \\square \\end{pmatrix}';
   }
-  if (template.includes('\\ddots') && template.includes('\\begin{vmatrix}')) {
+  if (safe.includes('\\ddots') && safe.includes('\\begin{vmatrix}')) {
     return '\\begin{vmatrix} \\square & \\cdots & \\square \\\\ \\vdots & \\ddots & \\vdots \\\\ \\square & \\cdots & \\square \\end{vmatrix}';
   }
-  return template.replace(/\$(\d+)/g, '\\square');
+  return safe.replace(/\$(\d+)/g, '\\square');
 }

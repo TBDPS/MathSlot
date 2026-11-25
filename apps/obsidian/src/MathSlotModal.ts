@@ -60,6 +60,7 @@ export class MathSlotModal extends Modal {
           : '复制',
       compactToolbar: true,
       initialFormula: this.opts.initialFormula,
+      initialDelimiter: this.opts.forceDelimiter,
       hostDarkMode: () => document.body.classList.contains('theme-dark'),
       copyText: copyTextWithFallback,
       readText: async () => {
@@ -110,19 +111,7 @@ export class MathSlotModal extends Modal {
         new Notice('已复制公式');
         this.close();
       },
-      loadStore: async () => {
-        const stored = await this.opts.loadStore();
-        if (this.opts.forceDelimiter) {
-          return {
-            ...stored,
-            settings: {
-              ...stored.settings,
-              delimiter: this.opts.forceDelimiter,
-            },
-          };
-        }
-        return stored;
-      },
+      loadStore: () => this.opts.loadStore(),
       saveStore: this.opts.saveStore,
     };
 

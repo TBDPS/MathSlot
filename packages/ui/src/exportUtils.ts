@@ -28,6 +28,7 @@ export interface RenderedPng {
   rgba: Uint8Array;
   width: number;
   height: number;
+  scale: number;
 }
 
 export interface RenderedSvg {
@@ -426,11 +427,11 @@ export async function renderLatexToPng(
     fontSize: options.fontSize ?? 34,
   });
 
-  // Cap canvas dimensions to 8192px to prevent GPU/browser silent blank canvas on giant formulas
+  // Cap canvas dimensions strictly to 8192px (never exceed MAX_CANVAS_DIM even on ultra-wide formulas!)
   const MAX_CANVAS_DIM = 8192;
   const maxScaleW = MAX_CANVAS_DIM / Math.max(1, scene.width);
   const maxScaleH = MAX_CANVAS_DIM / Math.max(1, scene.height);
-  const scale = Math.max(0.5, Math.min(requestedScale, maxScaleW, maxScaleH));
+  const scale = Math.min(requestedScale, maxScaleW, maxScaleH);
 
   const width = Math.max(1, Math.round(scene.width * scale));
   const height = Math.max(1, Math.round(scene.height * scale));
@@ -516,6 +517,7 @@ export async function renderLatexToPng(
     rgba: new Uint8Array(imageData.data.buffer),
     width,
     height,
+    scale,
   };
 }
 

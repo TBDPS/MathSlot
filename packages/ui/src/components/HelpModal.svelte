@@ -11,6 +11,8 @@
   let tab = $state<HelpTab>('quickstart');
 </script>
 
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="backdrop"
@@ -21,7 +23,7 @@
     <div class="modal-head">
       <div class="head-title">
         <span>MathSlot 使用手册</span>
-        <span class="ver-badge">v2.1</span>
+        <span class="ver-badge">v2.3.0 · 165 命令</span>
       </div>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
     </div>
@@ -99,13 +101,13 @@
         <section class="doc-sec">
           <h4>二级菜单（单键即渲染默认项，再按第二键变形）</h4>
           <div class="kv-grid wide">
-            <div><kbd>Tab g</kbd> 希腊字母（默认 α）</div>
-            <div><kbd>Tab c</kbd> 微积分（默认偏导 ∂/∂）</div>
-            <div><kbd>Tab m</kbd> 矩阵分段（默认 2×2，<code>i</code>/<code>j</code> 省略阵）</div>
-            <div><kbd>Tab a</kbd> 装饰定界（默认 x̂，<code>c</code> 向量）</div>
-            <div><kbd>Tab o</kbd> 运算符（默认 ±，<code>r/s/t</code> 省略号）</div>
-            <div><kbd>Tab x</kbd> 关系符（默认 ≈）</div>
-            <div><kbd>Tab q</kbd> 集合逻辑（默认 ∪）</div>
+            <div><kbd>Tab g</kbd> 希腊字母（默认 α，含 <code>w</code> φ / <code>V</code> ϑ）</div>
+            <div><kbd>Tab c</kbd> 微积分（默认 ∂/∂，<code>c/d/e</code> 多重/环路积分）</div>
+            <div><kbd>Tab m</kbd> 矩阵分段（默认 2×2，<code>k</code> 增广阵 / <code>l</code> 小矩阵 / <code>m,n</code> dcases,rcases）</div>
+            <div><kbd>Tab a</kbd> 装饰字体（<code>r</code> 文本可嵌 <code>$x$</code> / <code>C–F</code> 粗体,花体,黑板,算子）</div>
+            <div><kbd>Tab o</kbd> 运算符（<code>u/v</code> 标注箭头 / <code>w/x</code> 宽细空格）</div>
+            <div><kbd>Tab x</kbd> 关系符（默认 ≈，<code>q–u</code> 全向/嵌入箭头）</div>
+            <div><kbd>Tab q</kbd> 集合逻辑（<code>p</code> 集合构造式 / <code>q,r</code> 大并大交 / <code>s</code> 条件竖线）</div>
             <div><kbd>Tab k / t</kbd> 自定义结构 / 复用片段</div>
           </div>
         </section>
@@ -124,12 +126,13 @@
       {:else if tab === 'matrix'}
         <section class="doc-sec">
           <h4>矩阵、行列式与分段函数增删行列</h4>
-          <p class="muted">光标位于矩阵 / 行列式 / 分段函数单元格内时，除使用下方悬浮按钮（<code>+行 −行 +列 −列</code>）外，全部支持键盘极速增删：</p>
+          <p class="muted">光标位于矩阵 / 行列式单元格内时支持全向增删行列；分段函数（<code>cases</code>）固定为「表达式 + 条件」两列，支持动态增删行：</p>
           <div class="kv-grid wide">
             <div><kbd>Shift + ↑ / ↓</kbd> 在上方 / 下方增加一行</div>
             <div><kbd>Shift + ← / →</kbd> 在左侧 / 右侧增加一列</div>
             <div><kbd>Ctrl + Shift + ↑ / ↓</kbd> 删除当前行（亦支持 <kbd>Alt+Backspace</kbd>）</div>
             <div><kbd>Ctrl + Shift + ← / →</kbd> 删除当前列（亦支持 <kbd>Alt+Shift+Backspace</kbd>）</div>
+            <div><kbd>Alt + \</kbd>（或点击悬浮条 <code>|线</code>）切换当前列右侧增广分隔竖线</div>
           </div>
           <div class="recipe">
             <strong>快速输入 n 阶范德蒙德行列式</strong>

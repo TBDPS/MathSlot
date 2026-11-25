@@ -415,11 +415,92 @@ describe('Audit fixes & new math structures regression suite', () => {
     const outerCode = ['~~~md', '> $$', '> x^2', '> $$', '~~~'];
     expect(detectFormulaInLines(outerCode, { line: 2, ch: 3 })).toBeNull();
 
-    // Blockquote containing a fenced code block skips code inside fence, then detects real math after fence!
+    //Blockquote containing a fenced code block skips code inside fence, then detects real math after fence!
     const quotedCode = ['> ~~~tex', '> $a+b$', '> ~~~', '> $c+d$'];
     expect(detectFormulaInLines(quotedCode, { line: 1, ch: 4 })).toBeNull();
     const realAfter = detectFormulaInLines(quotedCode, { line: 3, ch: 4 });
     expect(realAfter?.raw).toBe('$c+d$');
     expect(realAfter?.linePrefix).toBe('> ');
+  });
+
+  it('fixes v2.2.3 audit P1s: text_box pure text & backslash, disabled natural ^/~, formal a~b/epsilon/ldots, nested paste \\\\, rowGaps resize, snippet optional slots, htmlData strip, and stream ▸r3;8;', () => {
+    const engine = new MathSlotEngine();
+    const type = (s: string) => {
+      for (const ch of s) engine.insertText(ch);
+    };
+
+    // P1-1 & P1-5: `text_box` acts as pure text mode (`/`, `;`, `(`, `->`, `\`, `^`, `~` stay literal & valid KaTeX!)
+    engine.insertCommand('text_box');
+    type('a/b; (c) a\\b ^ ~');
+    const textLatex = engine.getSnapshot().latex;
+    expect(textLatex).toBe('\\text{a/b; (c) a\\textbackslash{}b \\textasciicircum{} \\textasciitilde{}}');
+    // Roundtrip `\text{...}` with `\textbackslash{}`!
+    const textRound = importFormula(textLatex);
+    expect(textRound.lossless).toBe(true);
+    expect(toLatex(textRound.doc)).toBe(textLatex);
+
+    // P1-2: `naturalScripts=false` and `autoShorthands=false` emit valid KaTeX math macros for `^` and `~`
+    const literalEngine = new MathSlotEngine({ naturalScripts: false, autoShorthands: false });
+    for (const ch of 'x^2 + a~b') literalEngine.insertText(ch);
+    expect(literalEngine.getSnapshot().latex).toBe('x\\text{\\textasciicircum}2 + a\\text{\\textasciitilde}b');
+
+    // P1-3: Formal LaTeX import preserves `a~b`, `\epsilon`, `\ldots`, `\emptyset` without lossy substitution
+    expect(toLatex(importFormula('a~b').doc)).toBe('a~b');
+    expect(toLatex(importFormula('\\epsilon + \\varepsilon').doc)).toBe('\\epsilon + \\varepsilon');
+    expect(toLatex(importFormula('x_1, \\ldots, x_n').doc)).toBe('x_1, \\ldots, x_n');
+    expect(toLatex(importFormula('A \\cap B = \\emptyset').doc)).toBe('A \\cap B = \\emptyset');
+
+    // P1-4: Multi-line paste / snippet inside a fraction numerator sanitizes `\\` to space
+    engine.clear();
+    engine.insertCommand('frac');
+    engine.pasteText('a \\\\ b');
+    expect(engine.getSnapshot().latex).toBe('\\frac{a b}{}');
+    engine.clear();
+    engine.insertCommand('frac');
+    engine.pasteLiteralText('c\nd');
+    expect(engine.getSnapshot().latex).toBe('\\frac{c d}{}');
+
+    // P1-6: Non-relation single-line `aligned` (`a & b`) and `\tag{1}` preserve environment with warning
+    const cellAlign = importFormula('\\begin{aligned} a & b \\end{aligned}');
+    expect(cellAlign.lossless).toBe(false);
+    expect(toLatex(cellAlign.doc)).toContain('a & b');
+    const tagAlign = importFormula('\\begin{align} a &= b \\tag{1} \\end{align}');
+    expect(tagAlign.lossless).toBe(false);
+    expect(toLatex(tagAlign.doc)).toContain('\\tag{1}');
+    expect(toLatex(tagAlign.doc)).toContain('\\begin{align}');
+
+    // P1-7: `addGridRow` and `addGridCol` preserve `\\[4pt]` in `grid.rowGaps`!
+    engine.loadFormula('\\begin{pmatrix} a & b \\\\[4pt] c & d \\end{pmatrix}');
+    const mat = engine.getSnapshot().doc.root.children[0];
+    if (mat.type === 'struct') {
+      engine.setCursor(mat.slots[0].id, 1);
+      engine.addGridRow('below');
+      expect(engine.getSnapshot().latex).toBe('\\begin{pmatrix} a & b \\\\[4pt] & \\\\ c & d \\end{pmatrix}');
+      engine.addGridCol('right');
+      expect(engine.getSnapshot().latex).toContain('\\\\[4pt]');
+    }
+
+    // P1-15: `insertSnippetAtCursor` skips optional empty slots (lands after `\xrightarrow{f}` and `\int x\,dx`)
+    engine.clear();
+    engine.insertSnippetAtCursor({ latex: '\\xrightarrow{f}' });
+    expect(engine.getSnapshot().cursor.slotId).toBe(engine.getSnapshot().doc.root.id);
+    engine.clear();
+    engine.insertSnippetAtCursor({ latex: '\\int x\\,\\mathrm{d}x' });
+    expect(engine.getSnapshot().cursor.slotId).toBe(engine.getSnapshot().doc.root.id);
+
+    // P1-14: `loadFormulaWithRawFallback` keeps broken source instead of blank canvas
+    const brokenRes = engine.loadFormulaWithRawFallback('$\\left(x + 1$');
+    expect(brokenRes.diagnostics.some((d) => d.severity === 'error')).toBe(true);
+    expect(engine.getSnapshot().isEmpty).toBe(false);
+    expect(engine.getSnapshot().latex).toBe('\\left(x + 1');
+
+    // Security (§9.6): Imported `\htmlData` is stripped and unwrapped with warning
+    const forged = importFormula('\\htmlData{slot-id=fake}{x+1}');
+    expect(forged.lossless).toBe(false);
+    expect(toLatex(forged.doc)).toBe('x + 1');
+
+    // P2-10: Stream code `▸r3;8;` and `▸rx;` both parse accurately
+    expect(toLatex(importFormula('▸rx;').doc)).toBe('\\sqrt{x}');
+    expect(toLatex(importFormula('▸r3;8;').doc)).toBe('\\sqrt[3]{8}');
   });
 });

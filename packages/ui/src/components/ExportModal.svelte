@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { formatExport, type DelimiterStyle } from '@mathslot/core';
   import { renderLatexPreview } from '../katexRenderer';
   import {
@@ -33,7 +34,8 @@
     onClose,
   }: Props = $props();
 
-  let background = $state<ExportBackground>('transparent');
+  // Default to white background in dark theme so exported/copied images remain legible on Word/PPT/Docs!
+  let background = $state<ExportBackground>(untrack(() => (isDark ? 'light' : 'transparent')));
   let pngScale = $state<2 | 3 | 4>(3);
   let busy = $state(false);
   let lastSavedPath = $state('');
@@ -78,7 +80,11 @@
       } else {
         throw new Error('Clipboard image write unsupported');
       }
-      onNotify(`已复制 ${pngScale}× 高清 PNG 图片`);
+      const actualScaleLabel =
+        rendered.scale < pngScale - 0.05
+          ? `${rendered.scale.toFixed(1)}×（已按 8192px 画布上限自适应缩放）`
+          : `${pngScale}×`;
+      onNotify(`已复制 ${actualScaleLabel} 高清 PNG 图片`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       onNotify(`PNG 复制失败：${msg}`);
@@ -107,15 +113,29 @@
 
   async function copyMathML(): Promise<void> {
     if (busy || !latex.trim()) return;
-    const mml = latexToMathML(latex);
-    await onCopyText(mml);
-    onNotify('已复制 Word 公式 (MathML)');
+    busy = true;
+    try {
+      const mml = latexToMathML(latex);
+      await onCopyText(mml);
+      onNotify('已复制 Word 公式 (MathML)');
+    } catch {
+      onNotify('Word 公式 (MathML) 复制失败');
+    } finally {
+      busy = false;
+    }
   }
 
   async function copyLatex(): Promise<void> {
     if (busy || !latex.trim()) return;
-    await onCopyText(formatExport(latex, delimiter));
-    onNotify('已复制 LaTeX');
+    busy = true;
+    try {
+      await onCopyText(formatExport(latex, delimiter));
+      onNotify('已复制 LaTeX');
+    } catch {
+      onNotify('复制 LaTeX 失败');
+    } finally {
+      busy = false;
+    }
   }
 
   async function exportPng(): Promise<void> {
@@ -156,16 +176,32 @@
 
   async function exportTex(): Promise<void> {
     if (busy || !latex.trim()) return;
-    const bytes = new TextEncoder().encode(formatExport(latex, delimiter) + '\n');
-    await saveBytes(`${timestampSlug()}.tex`, bytes, 'text/plain;charset=utf-8');
+    busy = true;
+    try {
+      const bytes = new TextEncoder().encode(formatExport(latex, delimiter) + '\n');
+      await saveBytes(`${timestampSlug()}.tex`, bytes, 'text/plain;charset=utf-8');
+    } catch {
+      onNotify('导出 TeX 文件失败');
+    } finally {
+      busy = false;
+    }
   }
 
   async function exportMathML(): Promise<void> {
     if (busy || !latex.trim()) return;
-    const bytes = new TextEncoder().encode(latexToMathML(latex) + '\n');
-    await saveBytes(`${timestampSlug()}.mml`, bytes, 'application/mathml+xml;charset=utf-8');
+    busy = true;
+    try {
+      const bytes = new TextEncoder().encode(latexToMathML(latex) + '\n');
+      await saveBytes(`${timestampSlug()}.mml`, bytes, 'application/mathml+xml;charset=utf-8');
+    } catch {
+      onNotify('导出 MathML 文件失败');
+    } finally {
+      busy = false;
+    }
   }
 </script>
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div

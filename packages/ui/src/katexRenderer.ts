@@ -49,8 +49,41 @@ export function renderLatexInteractive(latex: string): RenderResult {
 
 const previewCache = new Map<string, string>();
 const MAX_PREVIEW_CACHE = 2000;
+const MAX_PREVIEW_LATEX_LENGTH = 24000;
+const MAX_PREVIEW_BRACE_DEPTH = 128;
+
+export function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function exceedsBraceDepthBudget(latex: string, maxDepth: number): boolean {
+  let depth = 0;
+  for (let i = 0; i < latex.length; i += 1) {
+    const ch = latex[i];
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (ch === '{') {
+      depth += 1;
+      if (depth > maxDepth) return true;
+    } else if (ch === '}') {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return false;
+}
 
 export function renderLatexPreview(latex: string, displayMode = false): string {
+  if (latex.length > MAX_PREVIEW_LATEX_LENGTH || exceedsBraceDepthBudget(latex, MAX_PREVIEW_BRACE_DEPTH)) {
+    const snippet = latex.length > 180 ? `${latex.slice(0, 180)}…` : latex;
+    return `<span class="katex-error" title="公式过长或嵌套过深">${escapeHtml(snippet)}</span>`;
+  }
   const key = `${displayMode ? 'D' : 'I'}:${latex}`;
   const cached = previewCache.get(key);
   if (cached !== undefined) return cached;
@@ -69,6 +102,8 @@ export function renderLatexPreview(latex: string, displayMode = false): string {
     previewCache.set(key, html);
     return html;
   } catch {
-    return latex;
+    // NEVER return unescaped `latex` into `{@html ...}` — escape strictly to block HTML/DOM injection!
+    const snippet = latex.length > 180 ? `${latex.slice(0, 180)}…` : latex;
+    return `<span class="katex-error">${escapeHtml(snippet)}</span>`;
   }
 }

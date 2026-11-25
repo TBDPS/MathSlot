@@ -13,6 +13,8 @@ import {
 import { MathSlotModal } from './MathSlotModal';
 
 export default class MathSlotPlugin extends Plugin {
+  private saveQueue: Promise<void> = Promise.resolve();
+
   async onload(): Promise<void> {
     this.addRibbonIcon('sigma', 'MathSlot 公式编辑器', () => {
       const editor = this.app.workspace.activeEditor?.editor;
@@ -111,10 +113,22 @@ export default class MathSlotPlugin extends Plugin {
           history: Array.isArray(data?.history) ? data.history : [],
           userPresets: Array.isArray(data?.userPresets) ? data.userPresets : [],
           userCommands: Array.isArray(data?.userCommands) ? data.userCommands : [],
+          favoriteIds: Array.isArray(data?.favoriteIds) ? data.favoriteIds : [],
+          recentIds: Array.isArray(data?.recentIds) ? data.recentIds : [],
+          lastDraftLatex: typeof data?.lastDraftLatex === 'string' ? data.lastDraftLatex : '',
         };
       },
       saveStore: async (store: PersistedStore) => {
-        await this.saveData(store);
+        const run = this.saveQueue.then(async () => {
+          const prev = ((await this.loadData()) as Partial<PersistedStore> | null) ?? {};
+          await this.saveData({
+            ...prev,
+            ...store,
+            settings: { ...(prev.settings ?? {}), ...(store.settings ?? {}) },
+          });
+        });
+        this.saveQueue = run.catch(() => {});
+        await run;
       },
     });
     modal.open();

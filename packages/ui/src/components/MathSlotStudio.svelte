@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import {
     COMMANDS,
     DEFAULT_SETTINGS,
@@ -8,6 +8,7 @@
     formatExport,
     mergeCommands,
     mergePresets,
+    normalizeSettings,
     parseUserCommandsJson,
     parseUserPresetsJson,
     serializeUserCommandsJson,
@@ -51,11 +52,22 @@
   let customCommands = $state<CustomCommandDef[]>([]);
   let userPresets = $state<UserPresetEntry[]>([]);
   let userCommands = $state<UserCommandEntry[]>([]);
+  let favoriteIds = $state<string[]>([]);
+  let recentIds = $state<string[]>([]);
+  let lastDraftLatex = $state('');
   let configDir = $state('');
   let history = $state<HistoryFormula[]>([]);
   let pinned = $state(false);
   let snapshot = $state<EditorSnapshot>(engine.getSnapshot());
   let systemDark = $state(false);
+  let sessionDelimiter = $state<DelimiterStyle | null>(
+    untrack(() => host.initialDelimiter ?? null),
+  );
+  let persistChain: Promise<void> = Promise.resolve();
+  let draftSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let storeHydrated = false;
+
+  const effectiveDelimiter = $derived<DelimiterStyle>(sessionDelimiter ?? settings.delimiter);
 
   const effectivePresets = $derived(mergePresets(PRESETS, userPresets));
   const effectiveCommands = $derived(mergeCommands(COMMANDS, userCommands));
@@ -98,6 +110,30 @@
     snapshot = engine.getSnapshot();
   }
 
+  function scheduleDraftSave(nextLatex: string): void {
+    if (!storeHydrated || host.compactToolbar || host.initialFormula) return;
+    if (nextLatex === lastDraftLatex) return;
+    lastDraftLatex = nextLatex;
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(() => {
+      draftSaveTimer = null;
+      void persist();
+    }, 800);
+  }
+
+  function recordRecent(itemKey: string): void {
+    recentIds = [itemKey, ...recentIds.filter((k) => k !== itemKey)].slice(0, 16);
+    void persist();
+  }
+
+  function handleToggleFavorite(favKey: string): void {
+    const exists = favoriteIds.includes(favKey);
+    favoriteIds = exists
+      ? favoriteIds.filter((k) => k !== favKey)
+      : [favKey, ...favoriteIds];
+    void persist();
+  }
+
   function flash(msg: string): void {
     toast = msg;
     if (toastTimer) clearTimeout(toastTimer);
@@ -107,15 +143,23 @@
   }
 
   async function persist(): Promise<void> {
+    const payload = {
+      settings: { ...settings },
+      snippets: [...snippets],
+      customCommands: [...customCommands],
+      history: [...history],
+      userPresets: [...userPresets],
+      userCommands: [...userCommands],
+      favoriteIds: [...favoriteIds],
+      recentIds: [...recentIds],
+      lastDraftLatex,
+    };
+    const next = persistChain.then(async () => {
+      await host.saveStore(payload);
+    });
+    persistChain = next.catch(() => {});
     try {
-      await host.saveStore({
-        settings,
-        snippets,
-        customCommands,
-        history,
-        userPresets,
-        userCommands,
-      });
+      await next;
     } catch {
       flash('保存本地配置失败，请检查存储权限');
     }
@@ -135,6 +179,21 @@
     }
   }
 
+  function mergeLibraryById<T extends { id: string }>(
+    storeItems: readonly T[],
+    extItems: readonly T[],
+  ): T[] {
+    if (storeItems.length === 0) return [...extItems];
+    if (extItems.length === 0) return [...storeItems];
+    const extById = new Map(extItems.map((it) => [it.id, it]));
+    const merged = storeItems.map((it) => extById.get(it.id) ?? it);
+    const storeIds = new Set(storeItems.map((it) => it.id));
+    for (const ext of extItems) {
+      if (!storeIds.has(ext.id)) merged.push(ext);
+    }
+    return merged;
+  }
+
   async function loadExternalLibraries(silent = false): Promise<void> {
     if (!host.loadUserLibraries) return;
     try {
@@ -142,14 +201,39 @@
       configDir = ext.configDir;
       const pRes = parseUserPresetsJson(ext.presetsJson);
       const cRes = parseUserCommandsJson(ext.commandsJson);
-      // Only overwrite active libraries when JSON parsed cleanly; preserve last valid config on syntax errors!
+      let needsSyncBack = false;
+
       if (!pRes.failed) {
-        userPresets = pRes.entries;
+        if (ext.presetsNewlyCreated || (silent && pRes.entries.length === 0 && userPresets.length > 0)) {
+          // Never let a freshly-created empty starter file wipe existing store presets!
+          if (userPresets.length > 0) needsSyncBack = true;
+        } else if (silent && userPresets.length > 0) {
+          userPresets = mergeLibraryById(userPresets, pRes.entries);
+        } else {
+          userPresets = pRes.entries;
+        }
       }
+
       if (!cRes.failed) {
-        userCommands = cRes.entries;
+        if (ext.commandsNewlyCreated || (silent && cRes.entries.length === 0 && userCommands.length > 0)) {
+          if (userCommands.length > 0) needsSyncBack = true;
+        } else if (silent && userCommands.length > 0) {
+          userCommands = mergeLibraryById(userCommands, cRes.entries);
+        } else {
+          userCommands = cRes.entries;
+        }
         engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
       }
+
+      if (needsSyncBack && host.saveUserLibraries) {
+        void host
+          .saveUserLibraries(
+            serializeUserPresetsJson(userPresets),
+            serializeUserCommandsJson(userCommands),
+          )
+          .catch(() => {});
+      }
+
       sync();
       const allWarnings = [...pRes.warnings, ...cRes.warnings];
       if (allWarnings.length > 0) {
@@ -159,7 +243,7 @@
             : allWarnings[0],
         );
       } else if (!silent) {
-        flash(`已重载配置（公式 ${pRes.entries.length} · 命令 ${cRes.entries.length}）`);
+        flash(`已重载配置（公式 ${userPresets.length} · 命令 ${userCommands.length}）`);
       }
     } catch {
       if (!silent) flash('读取外部配置文件失败，已保留当前配置');
@@ -247,7 +331,7 @@
   }
 
   function updateSettings(patch: Partial<AppSettings>): void {
-    settings = { ...settings, ...patch };
+    settings = normalizeSettings({ ...settings, ...patch });
     engine.updateSettings(settings);
     sync();
     void persist();
@@ -255,8 +339,13 @@
 
   function cycleDelimiter(): void {
     const order: DelimiterStyle[] = ['inline', 'block', 'none', 'codeblock'];
-    const idx = order.indexOf(settings.delimiter);
-    updateSettings({ delimiter: order[(idx + 1) % order.length] });
+    const idx = order.indexOf(effectiveDelimiter);
+    const next = order[(idx + 1) % order.length];
+    if (sessionDelimiter !== null) {
+      sessionDelimiter = next;
+    } else {
+      updateSettings({ delimiter: next });
+    }
     canvasRef?.focus();
   }
 
@@ -266,7 +355,7 @@
   }
 
   async function handleCopy(): Promise<void> {
-    const formatted = formatExport(snapshot.latex, settings.delimiter);
+    const formatted = formatExport(snapshot.latex, effectiveDelimiter);
     if (!formatted) return;
     recordHistory(snapshot.latex);
     try {
@@ -295,8 +384,10 @@
     if (!snapshot.latex.trim()) return;
     recordHistory(snapshot.latex);
     try {
+      // Quick-copy PNG always uses crisp dark ink (`dark: false`) so pasting into Word/PPT/WeChat/Docs
+      // on white/light pages stays 100% legible even when Studio is in dark mode!
       const rendered = await renderLatexToPng(snapshot.latex, {
-        dark: resolvedTheme === 'dark',
+        dark: false,
         scale: 3,
       });
       if (host.copyImagePng) {
@@ -318,7 +409,7 @@
     recordHistory(snapshot.latex);
     try {
       const rendered = await renderLatexToSvg(snapshot.latex, {
-        dark: resolvedTheme === 'dark',
+        dark: false,
         embedFonts: true,
       });
       await host.copyText(rendered.svg);
@@ -330,7 +421,7 @@
   }
 
   async function handlePrimarySubmit(): Promise<void> {
-    const formatted = formatExport(snapshot.latex, settings.delimiter);
+    const formatted = formatExport(snapshot.latex, effectiveDelimiter);
     if (!formatted) return;
     recordHistory(snapshot.latex);
     try {
@@ -398,17 +489,22 @@
     void persist();
   }
 
-  function handleLoadFormula(source: string): boolean {
+  function handleLoadFormula(source: string, presetId?: string): boolean {
     const res = engine.loadFormula(source);
     const err = res.diagnostics.find((d) => d.severity === 'error');
     if (err) {
       flash(err.message);
       return false;
     }
+    if (presetId) {
+      recordRecent(`preset:${presetId}`);
+    }
     sync();
     const warn = res.diagnostics.find((d) => d.severity === 'warning');
     if (warn) {
       flash(warn.message);
+    } else if (res.hasRawNodes) {
+      flash('已载入（含部分原生 LaTeX 片段，可在底部源码栏直接修改）');
     }
     canvasRef?.focus();
     return true;
@@ -417,7 +513,7 @@
   async function handleCopySelection(): Promise<void> {
     const text = snapshot.selection
       ? engine.getSelectedLatex()
-      : formatExport(snapshot.latex, settings.delimiter);
+      : formatExport(snapshot.latex, effectiveDelimiter);
     if (!text) return;
     try {
       await host.copyText(text);
@@ -429,6 +525,10 @@
 
   async function handleCutSelection(): Promise<void> {
     const sel = snapshot.selection ? { ...snapshot.selection } : null;
+    if (!sel) {
+      flash('请先选中要剪切的内容');
+      return;
+    }
     const text = engine.getSelectedLatex();
     if (!text) return;
     try {
@@ -711,6 +811,14 @@
       return;
     }
 
+    if (e.altKey && (e.key === '\\' || e.key === '|') && snapshot.activeGrid?.canEditCols) {
+      e.preventDefault();
+      if (engine.toggleGridColBar()) {
+        sync();
+      }
+      return;
+    }
+
     if (e.key === 'Home') {
       e.preventDefault();
       engine.moveHome(e.shiftKey);
@@ -754,6 +862,10 @@
       clearTimeout(toastTimer);
       toastTimer = null;
     }
+    if (draftSaveTimer) {
+      clearTimeout(draftSaveTimer);
+      draftSaveTimer = null;
+    }
   });
 
   function handleWindowPointerDown(e: PointerEvent): void {
@@ -776,9 +888,14 @@
   });
 
   onMount(() => {
+    const unsubscribe = engine.subscribe(() => {
+      const nextSnap = engine.getSnapshot();
+      snapshot = nextSnap;
+      scheduleDraftSave(nextSnap.latex);
+    });
     void host.loadStore().then((loaded) => {
       if (loaded.settings) {
-        settings = { ...DEFAULT_SETTINGS, ...loaded.settings };
+        settings = normalizeSettings(loaded.settings);
         engine.updateSettings(settings);
       }
       if (Array.isArray(loaded.snippets)) {
@@ -799,14 +916,34 @@
         userCommands = loaded.userCommands;
         engine.setEffectiveCommands(mergeCommands(COMMANDS, userCommands));
       }
+      if (Array.isArray(loaded.favoriteIds)) {
+        favoriteIds = loaded.favoriteIds;
+      }
+      if (Array.isArray(loaded.recentIds)) {
+        recentIds = loaded.recentIds;
+      }
+      if (typeof loaded.lastDraftLatex === 'string') {
+        lastDraftLatex = loaded.lastDraftLatex;
+      }
+      if (host.initialFormula && host.initialFormula.trim()) {
+        const initRes = engine.loadFormulaWithRawFallback(host.initialFormula);
+        const initErr = initRes.diagnostics.find((d) => d.severity === 'error');
+        const initWarn = initRes.diagnostics.find((d) => d.severity === 'warning');
+        if (initErr) {
+          flash(`原公式语法有误（${initErr.message}），已按原文载入供底部源码栏修正`);
+        } else if (initWarn) {
+          flash(initWarn.message);
+        }
+      } else if (!host.compactToolbar && lastDraftLatex.trim()) {
+        engine.loadFormulaWithRawFallback(lastDraftLatex);
+      }
+      storeHydrated = true;
       if (host.loadUserLibraries) {
         void loadExternalLibraries(true);
       }
-      if (host.initialFormula && host.initialFormula.trim()) {
-        engine.loadFormula(host.initialFormula);
-      }
       sync();
     });
+    return () => unsubscribe();
   });
 </script>
 
@@ -1275,6 +1412,11 @@
         sync();
         canvasRef?.focus();
       }}
+      onToggleGridBar={() => {
+        engine.toggleGridColBar();
+        sync();
+        canvasRef?.focus();
+      }}
     />
   </div>
 
@@ -1288,7 +1430,7 @@
     {snippets}
     onPopoverChange={(open) => (ribbonPopoverOpen = open)}
     onInsertCommand={(id) => {
-      engine.insertCommand(id);
+      if (engine.insertCommand(id)) recordRecent(`cmd:${id}`);
       sync();
       canvasRef?.focus();
     }}
@@ -1317,7 +1459,8 @@
   {#if settings.showLatexDock}
     <LatexDock
       latex={snapshot.latex}
-      delimiter={settings.delimiter}
+      delimiter={effectiveDelimiter}
+      hasRawNodes={Boolean(snapshot.hasRawNodes)}
       onApplyRawLatex={handleLoadFormula}
       onCycleDelimiter={cycleDelimiter}
       onSaveSnippet={openSaveSnippetModal}
@@ -1344,9 +1487,11 @@
       {snippets}
       {customCommands}
       {history}
+      {favoriteIds}
+      {recentIds}
       initialTab={drawerTab}
       onInsertCommand={(id) => {
-        engine.insertCommand(id);
+        if (engine.insertCommand(id)) recordRecent(`cmd:${id}`);
         sync();
         canvasRef?.focus();
       }}
@@ -1356,6 +1501,7 @@
         canvasRef?.focus();
       }}
       onLoadFormula={handleLoadFormula}
+      onToggleFavorite={handleToggleFavorite}
       onCreatePreset={() => {
         editingPreset = null;
         presetModalOpen = true;
@@ -1411,7 +1557,7 @@
   {#if exportOpen}
     <ExportModal
       latex={snapshot.latex}
-      delimiter={settings.delimiter}
+      delimiter={effectiveDelimiter}
       isDark={resolvedTheme === 'dark'}
       onCopyText={host.copyText}
       onCopyImagePng={host.copyImagePng}

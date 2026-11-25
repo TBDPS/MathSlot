@@ -75,6 +75,9 @@ describe(`Real KaTeX rendering verification across all ${COMMANDS.length} comman
       '\\begin{pmatrix} a & b \\\\[4pt] c & d \\end{pmatrix}',
       '\\begin{pmatrix} 1 & 2 \\\\ \\\\ 3 & 4 \\end{pmatrix}',
       '\\begin{align}a&=b & c&=d\\end{align}',
+      '\\begin{align} a &= b \\tag{1} \\end{align}',
+      '\\text{a\\textbackslash{}b \\textasciicircum{} \\textasciitilde{}}',
+      'x\\text{\\textasciicircum}2 + a\\text{\\textasciitilde}b',
     ];
     for (const src of cases) {
       const engine = new MathSlotEngine();

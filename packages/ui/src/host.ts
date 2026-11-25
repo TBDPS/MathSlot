@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   CustomCommandDef,
+  DelimiterStyle,
   HistoryFormula,
   Snippet,
   UserCommandEntry,
@@ -14,12 +15,17 @@ export interface PersistedStore {
   history?: HistoryFormula[];
   userPresets?: UserPresetEntry[];
   userCommands?: UserCommandEntry[];
+  favoriteIds?: string[];
+  recentIds?: string[];
+  lastDraftLatex?: string;
 }
 
 export interface ExternalUserLibraries {
   configDir: string;
   presetsJson: string;
   commandsJson: string;
+  presetsNewlyCreated?: boolean;
+  commandsNewlyCreated?: boolean;
 }
 
 export interface HostAdapter {
@@ -53,6 +59,8 @@ export interface HostAdapter {
   saveStore(store: PersistedStore): Promise<void>;
   /** Optional initial formula (e.g. selected or cursor-enclosed LaTeX in Obsidian) */
   initialFormula?: string;
+  /** Optional session-scoped delimiter override (does NOT overwrite persisted user settings!) */
+  initialDelimiter?: DelimiterStyle;
   /** Optional external dark-mode override (e.g. Obsidian host theme) */
   hostDarkMode?: () => boolean;
 }

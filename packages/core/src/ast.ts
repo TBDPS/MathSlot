@@ -1,4 +1,12 @@
 import { COMMANDS_BY_ID } from './catalog';
+import {
+  BINARY_RELATION_SYMBOLS,
+  BUILTIN_GRID_META,
+  COMMAND_CAPABILITIES,
+  getOptionalSlots,
+  getSlotPlacement,
+  isCasesEnv,
+} from './commandSpecs';
 import type {
   BreadcrumbItem,
   CharNode,
@@ -203,19 +211,6 @@ export function findSlot(root: SlotNode, slotId: string): SlotNode | null {
   return path ? path[path.length - 1].slot : null;
 }
 
-const BUILTIN_GRID_META: Readonly<Record<string, GridMeta>> = {
-  matrix_2x2: { env: 'pmatrix', rows: 2, cols: 2 },
-  matrix_3x3: { env: 'pmatrix', rows: 3, cols: 3 },
-  bmatrix_2x2: { env: 'bmatrix', rows: 2, cols: 2 },
-  bmatrix_3x3: { env: 'bmatrix', rows: 3, cols: 3 },
-  det_2x2: { env: 'vmatrix', rows: 2, cols: 2 },
-  det_3x3: { env: 'vmatrix', rows: 3, cols: 3 },
-  matrix_ellipsis: { env: 'pmatrix', rows: 4, cols: 4 },
-  det_ellipsis: { env: 'vmatrix', rows: 4, cols: 4 },
-  cases_2: { env: 'cases', rows: 2, cols: 2 },
-  cases_3: { env: 'cases', rows: 3, cols: 2 },
-};
-
 export function getGridMeta(node: StructNode): GridMeta | null {
   if (node.grid) return node.grid;
   return BUILTIN_GRID_META[node.commandId] ?? null;
@@ -238,15 +233,18 @@ export function getBreadcrumbs(
       : undefined;
     const custom = !cmd && cmdId ? customCommands.find((c) => c.id === cmdId) : undefined;
     const grid = entry.parentStruct ? getGridMeta(entry.parentStruct) : null;
+    const dynGrid = entry.parentStruct?.grid;
+    const formatGridLabel = (g: GridMeta): string => {
+      if (isCasesEnv(g.env)) return '分段函数';
+      if (g.colSpec?.includes('|')) return `${g.rows}×${g.cols} 增广矩阵`;
+      if (g.env === 'array') return `${g.rows}×${g.cols} 数组`;
+      return `${g.rows}×${g.cols} 矩阵`;
+    };
     const commandLabel =
-      (entry.parentStruct?.grid
-        ? entry.parentStruct.grid.env === 'cases'
-          ? '分段函数'
-          : `${entry.parentStruct.grid.rows}×${entry.parentStruct.grid.cols} 矩阵`
-        : undefined) ??
+      (dynGrid ? formatGridLabel(dynGrid) : undefined) ??
       cmd?.label ??
       custom?.label ??
-      (grid ? (grid.env === 'cases' ? '分段函数' : `${grid.rows}×${grid.cols} 矩阵`) : '结构');
+      (grid ? formatGridLabel(grid) : '结构');
     items.push({
       commandLabel,
       slotLabel: entry.slot.label,
@@ -256,42 +254,76 @@ export function getBreadcrumbs(
   return items;
 }
 
-export function listAllSlots(root: SlotNode): SlotNode[] {
-  const out: SlotNode[] = [root];
+export interface NodeVisitor<R = void> {
+  char: (node: CharNode) => R;
+  symbol: (node: SymbolNode) => R;
+  raw: (node: RawNode) => R;
+  struct: (node: StructNode) => R;
+}
+
+export function visitNode<R>(node: MathNode, visitor: NodeVisitor<R>): R {
+  switch (node.type) {
+    case 'char':
+      return visitor.char(node);
+    case 'symbol':
+      return visitor.symbol(node);
+    case 'raw':
+      return visitor.raw(node);
+    case 'struct':
+      return visitor.struct(node);
+  }
+}
+
+export function forEachSlot(
+  root: SlotNode,
+  fn: (slot: SlotNode, parentStruct: StructNode | null, slotIndex: number) => void,
+): void {
+  fn(root, null, -1);
   const walk = (slot: SlotNode) => {
     for (const child of slot.children) {
       if (child.type === 'struct') {
-        for (const sub of child.slots) {
-          out.push(sub);
-          walk(sub);
+        for (let i = 0; i < child.slots.length; i += 1) {
+          fn(child.slots[i], child, i);
+          walk(child.slots[i]);
         }
       }
     }
   };
   walk(root);
+}
+
+export function slotHasRawNodes(root: SlotNode): boolean {
+  let found = false;
+  forEachSlot(root, (slot) => {
+    if (found) return;
+    for (const n of slot.children) {
+      if (
+        n.type === 'raw' &&
+        !/^\\\\(?:\*?\[[^\]]*\])?$/.test(n.latex.trim()) &&
+        !/^(?:~|\\,|\\:|\\;|\\!|\\ |\\quad|\\qquad)$/.test(n.latex.trim())
+      ) {
+        found = true;
+        return;
+      }
+    }
+  });
+  return found;
+}
+
+export function listAllSlots(root: SlotNode): SlotNode[] {
+  const out: SlotNode[] = [];
+  forEachSlot(root, (slot) => out.push(slot));
   return out;
 }
 
-export const OPTIONAL_SLOTS_BY_CMD: Readonly<Record<string, readonly number[]>> = {
-  sqrt: [0],
-  nth_root: [0],
-  integral: [0, 1],
-  sum: [0, 1],
-  product: [0, 1],
-  double_integral: [0, 1],
-  contour_integral: [0, 1],
-  triple_integral: [0, 1],
-  subsup: [1, 2],
-  eval_bar: [1, 2],
-  overbrace: [1],
-  underbrace: [1],
-  xrightarrow: [0],
-  xleftarrow: [0],
-};
+export const OPTIONAL_SLOTS_BY_CMD: Readonly<Record<string, readonly number[]>> = Object.fromEntries(
+  Array.from(COMMAND_CAPABILITIES.entries())
+    .filter(([, caps]) => caps.optionalSlots.length > 0)
+    .map(([id, caps]) => [id, caps.optionalSlots]),
+);
 
 export function isOptionalSlot(commandId: string, slotIndex: number): boolean {
-  const list = OPTIONAL_SLOTS_BY_CMD[commandId];
-  return list ? list.includes(slotIndex) : false;
+  return getOptionalSlots(commandId).includes(slotIndex);
 }
 
 /**
@@ -353,48 +385,15 @@ export function isStructEmpty(node: StructNode): boolean {
 
 const JUMP_ALPHABET = 'abcdefghiklmnopqrstuvwxyz';
 
-function getSlotPlacement(commandId: string, slotIndex: number): 'top' | 'bottom' {
-  if (
-    (commandId === 'frac' || commandId === 'partial_frac' || commandId === 'total_frac' || commandId === 'binom') &&
-    slotIndex === 1
-  ) {
-    return 'bottom';
-  }
-  if (
-    (commandId === 'integral' || commandId === 'sum' || commandId === 'product' || commandId === 'limit') &&
-    slotIndex === 0
-  ) {
-    return 'bottom';
-  }
-  if (commandId === 'limit' && slotIndex === 1) {
-    return 'bottom';
-  }
-  if (
-    (commandId === 'double_integral' || commandId === 'triple_integral' || commandId === 'contour_integral') &&
-    slotIndex === 0
-  ) {
-    return 'bottom';
-  }
-  if ((commandId === 'sub' || commandId === 'subsup') && slotIndex === 1) {
-    return 'bottom';
-  }
-  return 'top';
-}
-
 export function slotHasNestedStruct(slot: SlotNode): boolean {
   return slot.children.some((c) => c.type === 'struct');
 }
 
 const TERM_SPLIT_CHARS = new Set(['+', '-', '=', '<', '>', '~', ',']);
-const TERM_SPLIT_SYMBOLS = new Set([
-  'to', 'pm', 'mp', 'in', 'notin', 'subseteq', 'subset', 'equiv', 'approx',
-  'sim', 'propto', 'implies', 'iff', 'mapsto', 'cong', 'll', 'gg', 'simeq',
-  'leq', 'geq', 'neq', 'cup', 'cap', 'land', 'lor',
-]);
 
 function isTermSeparator(node: MathNode): boolean {
   if (node.type === 'char') return TERM_SPLIT_CHARS.has(node.value);
-  if (node.type === 'symbol') return TERM_SPLIT_SYMBOLS.has(node.commandId);
+  if (node.type === 'symbol') return BINARY_RELATION_SYMBOLS.has(node.commandId);
   if (node.type === 'raw') return node.latex.trim() === '\\\\';
   return false;
 }

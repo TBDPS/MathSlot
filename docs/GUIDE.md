@@ -1,6 +1,6 @@
-# MathSlot v2 详细帮助文档
+# MathSlot v2.3.0 详细帮助文档
 
-本手册完整覆盖 MathSlot v2.0（桌面端 & Obsidian 插件）的所有编辑机制、快捷键体系、智能缺省规则、LaTeX 兼容与外部配置扩展。
+本手册完整覆盖 MathSlot v2.3.0（桌面端 & Obsidian 插件，内置 **165 条命令** 与 **89 条预置公式**）的所有编辑机制、快捷键体系、智能缺省规则、LaTeX 兼容与外部配置扩展。
 
 ---
 
@@ -37,7 +37,7 @@
 
 ## 2. 快捷键与二级菜单单键默认
 
-> 默认引导键为 `Tab`（可在「设置」中切换为 `/` 或 `\`）。
+> 默认引导键为 `Tab`（可在「设置」中切换为 `/`）。
 
 ### 2.1 一级高频结构（`Tab` + 1 键）
 
@@ -61,13 +61,13 @@
 
 | 二级入口 | 分类 | 单键默认结构 | 常用第二键示例 |
 | :--- | :--- | :--- | :--- |
-| `Tab g` | 希腊字母 | `\alpha` | `p` $\pi$ · `t` $\theta$ · `l` $\lambda$ · `s` $\sigma$ · `w`/`o` $\omega$ · 大写字母如 `D` $\Delta$ |
+| `Tab g` | 希腊字母 | `\alpha` | `p` $\pi$ · `t` $\theta$ · `l` $\lambda$ · `s` $\sigma$ · `o` $\omega$ · `w` $\varphi$ · `V` $\vartheta$ · 大写如 `D` $\Delta$ |
 | `Tab c` | 微积分 | `\frac{\partial \square}{\partial \square}`（偏导分式） | `a` 不定积分 · `b` 连乘 $\prod$ · `c` 二重积分 $\iint$ · `d` 环路积分 $\oint$ · `e` 三重积分 $\iiint$ · `i` 全导分式 $\frac{\mathrm{d}\square}{\mathrm{d}\square}$ |
-| `Tab m` | 矩阵与分段 | `2×2 矩阵` | `b` 3×3 矩阵 · `c` 2×2 行列式 · `d` 分段函数 · `e` 方括号矩阵 · `i` 省略矩阵 · `j` 省略行列式 |
-| `Tab a` | 装饰与定界 | `\hat{x}`（支持自动包裹前字符） | `b` $\bar{x}$ · `c` $\vec{x}$ · `d` $\tilde{x}$ · `f` 范数 $\|x\|$ · `j`/`k` 上/下花括号 · `l`/`m` 中/大括号 · `q` 求值线 $F\|_a^b$ |
-| `Tab o` | 运算符号 | `\pm` | `a` $\infty$ · `b` $\to$ · `c` $\partial$ · `d` $\nabla$ · `f` $\times$ · `g` $\cdot$ · `r`/`s`/`t` $\cdots$/$\vdots$/$\ddots$ |
-| `Tab x` | 关系符号 | `\approx` | `a` $\equiv$ · `c` $\sim$ · `e` $\Rightarrow$ · `f` $\Leftrightarrow$ · `n` $\le$ · `o` $\ge$ · `p` $\neq$ |
-| `Tab q` | 集合与逻辑 | `\cup` | `b` $\cap$ · `c` $\varnothing$ · `d` $\subset$ · `e` $\exists$ · `i`/`j`/`k`/`n` $\mathbb{R}/\mathbb{N}/\mathbb{Z}/\mathbb{C}$ |
+| `Tab m` | 矩阵与分段 | `2×2 矩阵` | `b` 3×3 矩阵 · `c` 2×2 行列式 · `d` 分段函数 · `e` 方括号矩阵 · `i`/`j` 省略矩阵/行列式 · `k` 增广矩阵 `[A\|b]` · `l` 行内小矩阵 · `m`/`n` `dcases`/`rcases` |
+| `Tab a` | 装饰与字体 | `\hat{x}`（支持自动包裹前字符） | `c` $\vec{x}$ · `f` 范数 $\|x\|$ · `q` 求值线 $F\|_a^b$ · `r` 文本注释 `\text{}`（内部按 `$` 嵌数学槽） · `v` `\boxed{}` · `z`/`A`/`B` 宽帽子/宽波浪/长向量 · `C`/`D`/`E`/`F` `\mathbf`/`\mathcal`/`\mathbb`/`\operatorname` |
+| `Tab o` | 运算符号 | `\pm` | `a` $\infty$ · `b` $\to$ · `c` $\partial$ · `d` $\nabla$ · `f` $\times$ · `g` $\cdot$ · `r`/`s`/`t` $\cdots$/$\vdots$/$\ddots$ · `u`/`v` 标注长箭头 $\xrightarrow{}$/$\xleftarrow{}$ · `w`/`x` 宽/细空格 `\quad`/`\,` |
+| `Tab x` | 关系符号 | `\approx` | `a` $\equiv$ · `c` $\sim$ · `e` $\Rightarrow$ · `f` $\Leftrightarrow$ · `n` $\le$ · `o` $\ge$ · `p` $\neq$ · `q` $\leftarrow$ · `r` $\leftrightarrow$ · `s`/`t` $\uparrow$/$\downarrow$ · `u` $\hookrightarrow$ |
+| `Tab q` | 集合与逻辑 | `\cup` | `b` $\cap$ · `c` $\varnothing$ · `d` $\subset$ · `e` $\exists$ · `i`–`n` $\mathbb{R}/\mathbb{N}/\mathbb{Z}/\mathbb{Q}/\mathbb{C}$ · `o` `\pmod{n}` · `p` 集合构造式 `\{x \mid P\}` · `q`/`r` $\bigcup$/$\bigcap$ · `s` 条件竖线 `\mid` |
 | `Tab k` | 自定义结构 | 第 1 条自定义结构 | 按绑定的单字母键插入对应自定义结构 |
 | `Tab t` | 复用片段 | 第 1 条片段 | 按绑定的单字母键在光标处插入对应片段 |
 
@@ -172,7 +172,7 @@
 打开右上角 **设置（⚙）** 可按习惯配置：
 - **外观**：跟随系统 / 浅色 / 深色
 - **默认输出格式**：纯 LaTeX / `$…$` / `$$…$$` / ` ```latex `
-- **快捷键引导键**：`Tab` / `/` / `\`
+- **快捷键引导键**：`Tab` / `/`（旧配置中的 `\` 会自动迁移为 `Tab`，保留 `\` 用于原生 LaTeX 命令输入）
 - **槽位填空顺序**：
   - 一键切换「标准顺序」或「中文书写习惯」（如分数先分母后分子「三分之二」）
   - 支持对分数、根号、积分/求和、极限、上下标、二项式分别微调

@@ -19,6 +19,7 @@
     onRemoveGridRow?: () => void;
     onAddGridCol?: () => void;
     onRemoveGridCol?: () => void;
+    onToggleGridBar?: () => void;
   }
 
   let {
@@ -37,6 +38,7 @@
     onRemoveGridRow,
     onAddGridCol,
     onRemoveGridCol,
+    onToggleGridBar,
   }: Props = $props();
 
   let stageEl: HTMLDivElement | null = $state(null);
@@ -615,6 +617,18 @@
           {#if snapshot.activeGrid.canEditCols}
             <button type="button" class="grid-btn" title="加一列（Shift+→ 右侧 / Shift+← 左侧）" onmousedown={(e) => e.preventDefault()} onclick={() => onAddGridCol?.()}>+列</button>
             <button type="button" class="grid-btn" title="删当前列（Ctrl+Shift+←/→ 或 Alt+Shift+Backspace）" disabled={snapshot.activeGrid.cols <= 1} onmousedown={(e) => e.preventDefault()} onclick={() => onRemoveGridCol?.()}>−列</button>
+            {#if snapshot.activeGrid.col < snapshot.activeGrid.cols - 1}
+              <button
+                type="button"
+                class="grid-btn"
+                class:is-bar-on={snapshot.activeGrid.hasRightBar}
+                title="切换当前列右侧增广分隔竖线 |（Alt+\）"
+                onmousedown={(e) => e.preventDefault()}
+                onclick={() => onToggleGridBar?.()}
+              >
+                |线
+              </button>
+            {/if}
           {/if}
         </div>
       {/if}
@@ -923,7 +937,8 @@
     cursor: pointer;
   }
 
-  .grid-btn:hover:not(:disabled) {
+  .grid-btn:hover:not(:disabled),
+  .grid-btn.is-bar-on {
     border-color: var(--ms-accent);
     color: var(--ms-accent);
     background: var(--ms-accent-soft);

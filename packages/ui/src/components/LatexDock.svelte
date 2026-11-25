@@ -4,6 +4,7 @@
   interface Props {
     latex: string;
     delimiter: DelimiterStyle;
+    hasRawNodes?: boolean;
     onApplyRawLatex: (raw: string) => boolean;
     onCycleDelimiter: () => void;
     onSaveSnippet: () => void;
@@ -17,6 +18,7 @@
   let {
     latex,
     delimiter,
+    hasRawNodes = false,
     onApplyRawLatex,
     onCycleDelimiter,
     onSaveSnippet,
@@ -152,6 +154,14 @@
   ></textarea>
 
   <div class="dock-actions">
+    {#if hasRawNodes}
+      <span
+        class="raw-badge"
+        title="公式含以原生 LaTeX 保留的片段，点击左侧源码栏可直接编辑完整源码"
+      >
+        原生项
+      </span>
+    {/if}
     {#if canExpand}
       <button
         type="button"
@@ -307,6 +317,21 @@
     gap: 4px;
     flex-shrink: 0;
     padding-top: 0;
+  }
+
+  .raw-badge {
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid var(--ms-jump-border);
+    background: var(--ms-jump-bg);
+    color: var(--ms-jump-fg);
+    font-size: 10.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    user-select: none;
+    flex-shrink: 0;
   }
 
   .dock-chip {
