@@ -30,6 +30,19 @@ function isDollarFenceLine(trimmed: string): boolean {
   return trimmed.startsWith('$$') || trimmed.endsWith('$$');
 }
 
+function isBracketOpenLine(trimmed: string): boolean {
+  if (!trimmed.startsWith('\\[')) return false;
+  // Single-line `\[ ... \]` is handled by `findInlineFormulaOnLine`
+  if (trimmed.endsWith('\\]') && trimmed.length >= 4) return false;
+  return true;
+}
+
+function isBracketCloseLine(trimmed: string): boolean {
+  if (!trimmed.endsWith('\\]')) return false;
+  if (trimmed.startsWith('\\[') && trimmed.length >= 4) return false;
+  return true;
+}
+
 /**
  * Splits a Markdown line into its leading blockquote prefix (e.g. `"> "`, `"> > "`, `"  > "`)
  * and the remaining content after the blockquote markers.
@@ -248,6 +261,46 @@ function findInlineFormulaOnLine(
       continue;
     }
 
+    // Inline `\(...\)` or single-line `\[...\]` LaTeX delimiters (skipping escaped `\\(` / `\\[`)
+    if (ch === '\\' && !isEscapedAt(content, i) && i + 1 < n) {
+      const nextCh = content[i + 1];
+      if (nextCh === '(' || nextCh === '[') {
+        const closeToken = nextCh === '(' ? '\\)' : '\\]';
+        const delimiter: DelimiterStyle = nextCh === '(' ? 'inline' : 'block';
+        let scan = i + 2;
+        let closeIdx = -1;
+        while (scan < n) {
+          if (content[scan] === '`' && !isEscapedAt(content, scan)) {
+            break;
+          }
+          if (
+            content[scan] === '\\' &&
+            !isEscapedAt(content, scan) &&
+            content.startsWith(closeToken, scan)
+          ) {
+            closeIdx = scan;
+            break;
+          }
+          scan += 1;
+        }
+        if (closeIdx > i + 2) {
+          const end = closeIdx + 2;
+          if (cursorOffset >= i && cursorOffset <= end) {
+            return {
+              start: i,
+              end,
+              raw: content.slice(i, end),
+              delimiter,
+            };
+          }
+          i = end;
+          continue;
+        }
+        i += 2;
+        continue;
+      }
+    }
+
     i += 1;
   }
 
@@ -289,6 +342,7 @@ export function detectFormulaInLines(
   //    An open fenced code block at depth `d` encloses ALL lines with blockquote depth `>= d`
   //    (so `~~~md` followed by `> $$` / `> x^2` / `> $$` / `~~~` is recognized as code, NEVER math!).
   let insideBlock = false;
+  let blockKind: '$$' | '\\[' | null = null;
   let openLine = -1;
   let openPrefix = '';
   let fenceState: { depth: number; char: string; len: number } | null = null;
@@ -329,6 +383,7 @@ export function detectFormulaInLines(
       };
       if (depth <= targetDepth) {
         insideBlock = false;
+        blockKind = null;
         openLine = -1;
         openPrefix = '';
       }
@@ -337,18 +392,50 @@ export function detectFormulaInLines(
     }
 
     if (depth !== targetDepth) {
-      // Crossed a blockquote / callout boundary — reset `$$` parity if shallower than targetDepth
+      // Crossed a blockquote / callout boundary — reset block parity if shallower than targetDepth
       if (depth < targetDepth) {
         insideBlock = false;
+        blockKind = null;
         openLine = -1;
         openPrefix = '';
       }
       continue;
     }
 
-    if (isDollarFenceLine(trimmed)) {
+    if (!insideBlock && isBracketOpenLine(trimmed)) {
+      insideBlock = true;
+      blockKind = '\\[';
+      openLine = l;
+      openPrefix = canonicalBlockquotePrefix(split.prefix);
+      continue;
+    }
+
+    if (insideBlock && blockKind === '\\[' && isBracketCloseLine(trimmed)) {
+      if (l === cursor.line) {
+        const stripped: string[] = [];
+        for (let k = openLine; k <= l; k += 1) {
+          stripped.push(extractBlockquotePrefix(lines[k]).content);
+        }
+        return {
+          raw: stripped.join('\n'),
+          delimiter: 'block',
+          from: { line: openLine, ch: 0 },
+          to: { line: l, ch: lines[l].length },
+          linePrefix: openPrefix,
+          includeFirstLinePrefix: openPrefix.length > 0,
+        };
+      }
+      insideBlock = false;
+      blockKind = null;
+      openLine = -1;
+      openPrefix = '';
+      continue;
+    }
+
+    if (isDollarFenceLine(trimmed) && (blockKind === null || blockKind === '$$')) {
       if (!insideBlock) {
         insideBlock = true;
+        blockKind = '$$';
         openLine = l;
         openPrefix = canonicalBlockquotePrefix(split.prefix);
       } else {
@@ -368,6 +455,7 @@ export function detectFormulaInLines(
           };
         }
         insideBlock = false;
+        blockKind = null;
         openLine = -1;
         openPrefix = '';
       }
@@ -377,7 +465,7 @@ export function detectFormulaInLines(
   // Never detect math on or inside a fenced code block!
   if (fenceState !== null || cursorIsCodeFenceLine) return null;
 
-  // 2. If cursor is inside an open multi-line `$$ ... $$` block, resolve its closing fence
+  // 2. If cursor is inside an open multi-line `$$ ... $$` or `\[ ... \]` block, resolve its closing fence
   if (insideBlock && openLine >= 0) {
     const maxLine = Math.min(lines.length - 1, cursor.line + 400);
     let closeLine = -1;
@@ -388,7 +476,11 @@ export function detectFormulaInLines(
       }
       const trimmed = split.content.trim();
       if (CODE_FENCE_RE.test(trimmed)) break;
-      if (trimmed === '$$' || (trimmed.endsWith('$$') && !trimmed.endsWith('$$$'))) {
+      const isMatchClose =
+        blockKind === '\\['
+          ? isBracketCloseLine(trimmed)
+          : trimmed === '$$' || (trimmed.endsWith('$$') && !trimmed.endsWith('$$$'));
+      if (isMatchClose) {
         closeLine = l;
         break;
       }

@@ -73,6 +73,12 @@ const LOSSLESS_RAW_SYMBOLS = new Set([
   '\\longrightarrow',
   '\\longleftarrow',
   '\\rightleftharpoons',
+  '\\backslash',
+  '\\div',
+  '\\ast',
+  '\\otimes',
+  '\\oplus',
+  '\\angle',
 ]);
 
 function lookupSymbol(macro: string): CommandDef | undefined {
@@ -411,12 +417,45 @@ function stripTexComments(input: string): { cleaned: string; hadComments: boolea
   return { cleaned: out, hadComments };
 }
 
+function hasMultipleWrappedFormulas(input: string): boolean {
+  const s = input.trim();
+  if (s.startsWith('$$') && s.endsWith('$$') && s.length >= 4 && hasUnescapedDollar(s.slice(2, -2))) {
+    return true;
+  }
+  if (
+    s.startsWith('\\[') &&
+    s.endsWith('\\]') &&
+    s.length >= 4 &&
+    (hasUnescapedDelimiter(s.slice(2, -2), '\\[') || hasUnescapedDelimiter(s.slice(2, -2), '\\]'))
+  ) {
+    return true;
+  }
+  if (
+    s.startsWith('\\(') &&
+    s.endsWith('\\)') &&
+    s.length >= 4 &&
+    (hasUnescapedDelimiter(s.slice(2, -2), '\\(') || hasUnescapedDelimiter(s.slice(2, -2), '\\)'))
+  ) {
+    return true;
+  }
+  if (s.startsWith('$') && !s.startsWith('$$') && s.endsWith('$') && s.length >= 2 && hasUnescapedDollar(s.slice(1, -1))) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Clean single-pass recursive descent parser for standard mathematical LaTeX -> MathSlot Document AST.
  */
 export function parseLatex(input: string): ImportResult {
   const strippedDelim = stripOuterDelimiters(input);
   const diagnostics: Diagnostic[] = [];
+  if (hasMultipleWrappedFormulas(input)) {
+    diagnostics.push({
+      severity: 'warning',
+      message: '检测到多个独立公式，建议逐个导入以获得完整槽位编辑体验',
+    });
+  }
   const { cleaned: src, hadComments } = stripTexComments(strippedDelim);
   if (hadComments) {
     diagnostics.push({ severity: 'warning', message: '已忽略 LaTeX % 行尾注释' });

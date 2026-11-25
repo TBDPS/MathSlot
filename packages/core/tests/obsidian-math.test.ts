@@ -119,4 +119,25 @@ describe('Obsidian blockquote & callout math detection/replacement', () => {
     expect(linePrefix).toBe('> ');
     expect(clean).toBe('$$\n\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}\n$$');
   });
+
+  it('detects inline \\(...\\), single-line \\[...\\], and multi-line \\[ ... \\] delimiters', () => {
+    const lineInline = ['欧拉公式 \\(e^{i\\pi}+1=0\\) 非常优美'];
+    const hitInline = detectFormulaInLines(lineInline, { line: 0, ch: 10 });
+    expect(hitInline).not.toBeNull();
+    expect(hitInline!.delimiter).toBe('inline');
+    expect(hitInline!.raw).toBe('\\(e^{i\\pi}+1=0\\)');
+
+    const lineBlock = ['公式 \\[x^2 + y^2 = 1\\] 结束'];
+    const hitSingleBlock = detectFormulaInLines(lineBlock, { line: 0, ch: 8 });
+    expect(hitSingleBlock).not.toBeNull();
+    expect(hitSingleBlock!.delimiter).toBe('block');
+    expect(hitSingleBlock!.raw).toBe('\\[x^2 + y^2 = 1\\]');
+
+    const multiBlock = ['> \\[', '> \\frac{a}{b}', '> \\]'];
+    const hitMultiBlock = detectFormulaInLines(multiBlock, { line: 1, ch: 4 });
+    expect(hitMultiBlock).not.toBeNull();
+    expect(hitMultiBlock!.delimiter).toBe('block');
+    expect(hitMultiBlock!.linePrefix).toBe('> ');
+    expect(hitMultiBlock!.raw).toBe('\\[\n\\frac{a}{b}\n\\]');
+  });
 });

@@ -339,6 +339,28 @@ function tokenizeSlotForCanonical(
         continue;
       }
 
+      // Native LaTeX macro draft (`\alpha`, `\frac`, `\mathrm`, ...) typed on canvas:
+      // NEVER turn `\` + `alpha` into `\backslash \alpha`! Emit the macro verbatim while
+      // keeping a standalone stray `\` safely escaped as `\backslash `.
+      if (node.value === '\\' && !node.verbatim) {
+        let j = i + 1;
+        let macroLetters = '';
+        while (
+          j < children.length &&
+          children[j].type === 'char' &&
+          !(children[j] as { verbatim?: boolean }).verbatim &&
+          /^[A-Za-z]$/.test((children[j] as { value: string }).value)
+        ) {
+          macroLetters += (children[j] as { value: string }).value;
+          j += 1;
+        }
+        if (macroLetters.length > 0) {
+          tokens.push({ text: `\\${macroLetters}`, kind: 'raw' });
+          i = j;
+          continue;
+        }
+      }
+
       if (/^[A-Za-z]$/.test(node.value)) {
         const isVerbatim = Boolean(node.verbatim);
         let word = '';
@@ -1114,12 +1136,19 @@ interface WordTokenSpan {
   latex: string;
 }
 
+interface MacroDraftSpan {
+  start: number;
+  end: number;
+  name: string;
+}
+
 interface InteractiveHints {
   upright: Set<number>;
   funcStarts: Set<number>;
   funcEnds: Set<number>;
   diffStarts: Set<number>;
   wordSpans: Map<number, WordTokenSpan>;
+  macroDraftSpans: Map<number, MacroDraftSpan>;
 }
 
 function analyzeInteractiveHints(
@@ -1131,6 +1160,7 @@ function analyzeInteractiveHints(
   const funcEnds = new Set<number>();
   const diffStarts = new Set<number>();
   const wordSpans = new Map<number, WordTokenSpan>();
+  const macroDraftSpans = new Map<number, MacroDraftSpan>();
 
   let hasIntegral = false;
   let i = 0;
@@ -1150,6 +1180,25 @@ function analyzeInteractiveHints(
       i += 1;
       continue;
     }
+    // Capture `\` + contiguous ASCII letters as an in-progress native LaTeX macro draft so
+    // `\` never renders as `\backslash` and `\alpha` never morphs into `\backslash \alpha`!
+    if (node.type === 'char' && node.value === '\\' && !node.verbatim) {
+      const start = i;
+      let j = i + 1;
+      let name = '';
+      while (
+        j < children.length &&
+        children[j].type === 'char' &&
+        !(children[j] as { verbatim?: boolean }).verbatim &&
+        /^[A-Za-z]$/.test((children[j] as { value: string }).value)
+      ) {
+        name += (children[j] as { value: string }).value;
+        j += 1;
+      }
+      macroDraftSpans.set(start, { start, end: j, name });
+      i = j;
+      continue;
+    }
     if (node.type === 'char' && /^[A-Za-z]$/.test(node.value)) {
       const isVerbatim = Boolean(node.verbatim);
       const start = i;
@@ -1164,9 +1213,13 @@ function analyzeInteractiveHints(
         i += 1;
       }
       const end = i;
+      const nextAfterWord = end < children.length ? children[end] : undefined;
+      const nextIsNonSpaceMath =
+        nextAfterWord !== undefined &&
+        !(nextAfterWord.type === 'char' && nextAfterWord.value === ' ');
 
       if (isVerbatim) {
-        if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && end < children.length))) {
+        if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && nextIsNonSpaceMath))) {
           upright.add(start);
           diffStarts.add(start);
           hasIntegral = false;
@@ -1200,7 +1253,7 @@ function analyzeInteractiveHints(
           kind: 'symbol',
           latex: BARE_WORD_ATOMS[word],
         });
-      } else if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && end < children.length))) {
+      } else if (hasIntegral && (isGenericDiffWord(word) || (word === 'd' && nextIsNonSpaceMath))) {
         upright.add(start);
         diffStarts.add(start);
         hasIntegral = false;
@@ -1209,7 +1262,7 @@ function analyzeInteractiveHints(
       i += 1;
     }
   }
-  return { upright, funcStarts, funcEnds, diffStarts, wordSpans };
+  return { upright, funcStarts, funcEnds, diffStarts, wordSpans, macroDraftSpans };
 }
 
 function isPrevExprForDiff(children: MathNode[], idx: number): boolean {
@@ -1313,6 +1366,53 @@ function emitSlotInteractive(
       }
       return undefined;
     })();
+
+    // Native LaTeX macro draft (`\`, `\al`, `\alpha`, `\frac`, ...):
+    // Render as a crisp monospace inline TeX draft while typing (never `\backslash \alpha`),
+    // and render known symbol/function macros cleanly once the caret leaves the span.
+    const macroSpan = hints.macroDraftSpans.get(idx);
+    if (macroSpan) {
+      const caretTouching =
+        isActive && focused && cursor.offset > macroSpan.start && cursor.offset <= macroSpan.end;
+      const selSlicesMacro =
+        selForSlot !== null &&
+        ((selForSlot.start > macroSpan.start && selForSlot.start < macroSpan.end) ||
+          (selForSlot.end > macroSpan.start && selForSlot.end < macroSpan.end));
+      const knownMacroLatex =
+        macroSpan.name.length > 0
+          ? (BARE_WORD_ATOMS[macroSpan.name] ??
+              BARE_WORD_BINOPS[macroSpan.name] ??
+              OPERATORNAME_FUNCTIONS[macroSpan.name] ??
+              (MATH_FUNCTIONS.has(macroSpan.name) ? `\\${macroSpan.name}` : undefined))
+          : undefined;
+
+      if (!caretTouching && !selSlicesMacro && knownMacroLatex) {
+        const isSelected =
+          selForSlot !== null &&
+          selForSlot.start <= macroSpan.start &&
+          selForSlot.end >= macroSpan.end;
+        const atomClasses = isSelected ? 'ms-atom ms-selected' : 'ms-atom';
+        const spanLen = macroSpan.end - macroSpan.start;
+        parts.push(
+          `\\htmlData{atom-slot=${slot.id},offset=${macroSpan.start},span=${spanLen}}{\\htmlClass{${atomClasses}}{${knownMacroLatex}}}`,
+        );
+        idx = macroSpan.end - 1;
+        continue;
+      }
+
+      for (let k = macroSpan.start; k < macroSpan.end; k += 1) {
+        if (k > macroSpan.start && isActive && focused && cursor.offset === k && !selForSlot) {
+          parts.push(wrapCaret());
+        }
+        const mChar = slot.children[k] as { value: string };
+        const isSel = selForSlot !== null && k >= selForSlot.start && k < selForSlot.end;
+        const cls = isSel ? 'ms-atom ms-macro-draft ms-selected' : 'ms-atom ms-macro-draft';
+        const glyph = mChar.value === '\\' ? '\\text{\\texttt{\\textbackslash}}' : `\\text{\\texttt{${mChar.value}}}`;
+        parts.push(`\\htmlData{atom-slot=${slot.id},offset=${k}}{\\htmlClass{${cls}}{${glyph}}}`);
+      }
+      idx = macroSpan.end - 1;
+      continue;
+    }
 
     // Collapsible bare-word symbol/differential token (e.g. `pi` -> `\pi`, `oo` -> `\infty`, `dx` -> `\mathrm{d}x`)
     // Stays as calm plain letters while the caret is inside OR at the right edge of the word (`n pi|`),

@@ -35,6 +35,7 @@ import {
   hasColRightBar,
   insertColIntoSpec,
   isCasesEnv,
+  isTightSlot,
   normalizeSettings,
   removeColFromSpec,
   sanitizeLatexTemplate,
@@ -103,6 +104,10 @@ export class MathSlotEngine {
     selection: Selection | null;
     undoLen: number;
   } | null = null;
+  /** Tracks slots opened via native LaTeX `{...}` / `[...]` syntax so matching `}` / `]` advances/exits cleanly */
+  private latexArgCloseBySlot = new Map<string, '}' | ']'>();
+  /** When `}` / `]` jumps to a struct's next brace argument (e.g. `\frac{1}{2}`, `\sqrt[3]{8}`), consume that `{` cleanly */
+  private expectLatexOpenBraceSlotId: string | null = null;
 
   constructor(initialSettings: Partial<AppSettings> = {}) {
     this.doc = createEmptyDocument();
@@ -360,6 +365,8 @@ export class MathSlotEngine {
     this.jumpHistory = [];
     this.jumpHistoryIdx = -1;
     this.leaderMorphBackup = null;
+    this.latexArgCloseBySlot.clear();
+    this.expectLatexOpenBraceSlotId = null;
     this.mode = { kind: 'edit' };
     this.notify();
   }
@@ -377,6 +384,8 @@ export class MathSlotEngine {
     this.jumpHistory = [];
     this.jumpHistoryIdx = -1;
     this.leaderMorphBackup = null;
+    this.latexArgCloseBySlot.clear();
+    this.expectLatexOpenBraceSlotId = null;
     this.mode = { kind: 'edit' };
     this.notify();
     return result;
@@ -1094,6 +1103,10 @@ export class MathSlotEngine {
     // Pure text mode inside `\text{...}` (`text_box`): disable math triggers (`/`, `^`, `_`, `(`, `;`, `->`),
     // while supporting unescaped `$` to enter an inline `$...$` math slot (and `\$` for literal `$`)!
     if (this.getInputContext() === 'text') {
+      if (text === '}' && !this.isEscapedBeforeCursor() && this.tryCloseLatexArg('}')) {
+        this.notify();
+        return;
+      }
       if (text === '$') {
         if (this.isEscapedBeforeCursor()) {
           this.pushHistory();
@@ -1135,6 +1148,10 @@ export class MathSlotEngine {
 
     // Verbatim identifier mode inside `\operatorname{...}`
     if (this.isInsideOperatorName()) {
+      if (text === '}' && !this.isEscapedBeforeCursor() && this.tryCloseLatexArg('}')) {
+        this.notify();
+        return;
+      }
       if (text === ';' && this.settings.semicolonNextSlot && !this.isEscapedBeforeCursor()) {
         this.selection = null;
         this.nextSlot();
@@ -1159,6 +1176,16 @@ export class MathSlotEngine {
     // Single-character smart triggers
     if (text.length === 1) {
       const ch = text;
+      const awaitedOpenBrace = this.expectLatexOpenBraceSlotId;
+      this.expectLatexOpenBraceSlotId = null;
+
+      // Consume the opening `{` of a multi-arg native LaTeX command (e.g. `\frac{1}{2}`, `\sqrt[3]{8}`)
+      if (ch === '{' && awaitedOpenBrace === this.cursor.slotId && !this.isEscapedBeforeCursor()) {
+        this.latexArgCloseBySlot.set(this.cursor.slotId, '}');
+        this.notify();
+        return;
+      }
+
       // Closing `$` anywhere inside an `inline_math` subtree (`\text{当 $x_1|$}` or `\text{当 $x>0|$}`) exits back to `\text{...}`!
       if (ch === '$' && !this.isEscapedBeforeCursor()) {
         const path = findSlotPath(this.doc.root, this.cursor.slotId);
@@ -1179,14 +1206,87 @@ export class MathSlotEngine {
         }
       }
 
-      // Direct explicit LaTeX spacing macros (`\,`, `\:`, `\;`, `\!`, `\ `) when preceded by `\`
+      // Direct native LaTeX escape sequences when preceded by `\` (`\,`, `\:`, `\;`, `\!`, `\ `, `\\`, `\{`, `\}`, `\|`, `\%`, `\#`, `\&`, `\$`, `\_`)
+      if (this.isEscapedBeforeCursor()) {
+        if (ch === ',' || ch === ':' || ch === ';' || ch === '!' || ch === ' ') {
+          this.pushHistory();
+          const slot = this.currentSlot();
+          slot.children.splice(this.cursor.offset - 1, 1, createRawNode(`\\${ch}`));
+          this.notify();
+          return;
+        }
+        if (ch === '\\') {
+          this.pushHistory();
+          const slot = this.currentSlot();
+          const isRootSlot = slot.id === this.doc.root.id;
+          slot.children.splice(
+            this.cursor.offset - 1,
+            1,
+            createRawNode(isRootSlot ? '\\\\' : '\\backslash'),
+          );
+          this.notify();
+          return;
+        }
+        if (ch === '{') {
+          if (this.tryExpandLeftRightBrace(true)) {
+            this.notify();
+            return;
+          }
+          this.pushHistory();
+          const slot = this.currentSlot();
+          slot.children.splice(this.cursor.offset - 1, 1);
+          this.cursor.offset -= 1;
+          const cmd = COMMANDS_BY_ID.get('brace');
+          if (cmd) {
+            const struct = createStructNode(cmd, [[]]);
+            struct.autoSized = true;
+            slot.children.splice(this.cursor.offset, 0, struct);
+            this.cursor = { slotId: struct.slots[0].id, offset: 0 };
+          }
+          this.notify();
+          return;
+        }
+        if (ch === '}') {
+          if (this.tryExpandLeftRightBrace(false)) {
+            this.notify();
+            return;
+          }
+          this.pushHistory();
+          const slot = this.currentSlot();
+          slot.children.splice(this.cursor.offset - 1, 1);
+          this.cursor.offset -= 1;
+          if (!this.trySkipClosingBracket('brace')) {
+            slot.children.splice(this.cursor.offset, 0, createCharNode('}', true));
+            this.cursor.offset += 1;
+          }
+          this.notify();
+          return;
+        }
+        if (ch === '|') {
+          if (this.tryExpandLeftRightNorm()) {
+            this.notify();
+            return;
+          }
+          this.pushHistory();
+          const slot = this.currentSlot();
+          slot.children.splice(this.cursor.offset - 1, 1, createRawNode('\\|'));
+          this.notify();
+          return;
+        }
+        if (ch === '%' || ch === '#' || ch === '&' || ch === '$' || ch === '_') {
+          this.pushHistory();
+          const slot = this.currentSlot();
+          slot.children.splice(this.cursor.offset - 1, 1, createCharNode(ch, true));
+          this.notify();
+          return;
+        }
+      }
+
+      // Native `\left(` / `\left[` / `\left|` and `\right)` / `\right]` / `\right|` / `\right.`
       if (
-        this.isEscapedBeforeCursor() &&
-        (ch === ',' || ch === ':' || ch === ';' || ch === '!' || ch === ' ')
+        (ch === '(' || ch === '[' || ch === '|' || ch === ')' || ch === ']' || ch === '.') &&
+        this.tryExpandLeftRightDelimiter(ch)
       ) {
-        this.pushHistory();
-        const slot = this.currentSlot();
-        slot.children.splice(this.cursor.offset - 1, 1, createRawNode(`\\${ch}`));
         this.notify();
         return;
       }
@@ -1220,10 +1320,37 @@ export class MathSlotEngine {
           return;
         }
       }
-      // Inline LaTeX command compatibility (`\frac{`, `\sqrt[`, `\sin(`, `\int_`, `\sum^`, `\alpha_1`, etc.)
+
+      // Inline LaTeX command compatibility (`\frac{`, `\sqrt[`, `\mathrm{`, `\sin(`, `\int_`, `\sum^`, `\alpha+`, `\alpha\beta`, ...)
       if ((ch === '{' || ch === '[' || ch === '(') && this.tryExpandInlineMacro(ch)) {
         return;
       }
+      if (
+        !/^[a-zA-Z]$/.test(ch) &&
+        ch !== '{' &&
+        ch !== '[' &&
+        ch !== '(' &&
+        ch !== '^' &&
+        ch !== '_' &&
+        ch !== ' '
+      ) {
+        if (this.tryExpandInlineMacro('other')) {
+          return;
+        }
+      }
+
+      // Native LaTeX `{...}` / `[...]` argument closing (`\frac{1}{2}`, `\sqrt[3]{8}`, `\mathbb{R}`, `e^{-x^2}`, `\int_{0}^{\infty}`)
+      if ((ch === '}' || ch === ']') && !this.isEscapedBeforeCursor() && this.tryCloseLatexArg(ch)) {
+        this.notify();
+        return;
+      }
+
+      // Native LaTeX `{...}` grouping at start of an empty tight script/limit slot (e.g. `e^{-x^2}`, `x_{i+1}`, `\int_{0}^{\infty}`)
+      if (ch === '{' && !this.isEscapedBeforeCursor() && this.tryEnterTightSlotLatexBrace()) {
+        this.notify();
+        return;
+      }
+
       // Auto-closing brackets `( )`, `[ ]`, `{ }` + overtype skip-out on closing `)`, `]`, `}`!
       if (this.settings.autoBrackets) {
         const openBracketCmd =
@@ -1242,6 +1369,12 @@ export class MathSlotEngine {
         if (this.tryExpandInlineMacro(ch)) {
           return;
         }
+        // In `\int_{0}^{\infty}`, after `}` advances from lower limit (slot 0) into empty upper limit (slot 1),
+        // typing `^` naturally targets slot 1 instead of wrapping an empty base in `sup`!
+        if (ch === '^' && this.tryConsumeBigOpUpperCaret()) {
+          this.notify();
+          return;
+        }
         this.insertNaturalScript(ch === '^' ? 'sup' : 'sub');
         return;
       }
@@ -1257,13 +1390,13 @@ export class MathSlotEngine {
         if (this.settings.spaceExitsScript && this.trySpaceExitScript()) {
           return;
         }
-        // Outside `\text{...}`, avoid piling up duplicate invisible spaces or leading root spaces
+        // Outside `\text{...}`, avoid piling up duplicate invisible spaces or leading spaces in ANY empty slot
         if (!this.selection) {
           const path = findSlotPath(this.doc.root, this.cursor.slotId);
           const inTextBox = path?.some((e) => e.parentStruct?.commandId === 'text_box') ?? false;
           if (!inTextBox) {
             const curSlot = this.currentSlot();
-            if (curSlot.id === this.doc.root.id && curSlot.children.length === 0) {
+            if (curSlot.children.length === 0 || this.cursor.offset === 0) {
               return;
             }
             const prevNode =
@@ -1478,8 +1611,214 @@ export class MathSlotEngine {
     return true;
   }
 
+  private matchTrailingLiteral(slot: SlotNode, endOffset: number, literal: string): boolean {
+    const start = endOffset - literal.length;
+    if (start < 0) return false;
+    for (let i = 0; i < literal.length; i += 1) {
+      const n = slot.children[start + i];
+      if (n.type !== 'char' || n.value !== literal[i]) return false;
+    }
+    return true;
+  }
+
+  private tryExpandLeftRightBrace(isOpen: boolean): boolean {
+    const slot = this.currentSlot();
+    const prefix = isOpen ? '\\left\\' : '\\right\\';
+    if (!this.matchTrailingLiteral(slot, this.cursor.offset, prefix)) return false;
+    this.pushHistory();
+    slot.children.splice(this.cursor.offset - prefix.length, prefix.length);
+    this.cursor.offset -= prefix.length;
+    if (isOpen) {
+      const cmd = COMMANDS_BY_ID.get('brace');
+      if (cmd) {
+        const struct = createStructNode(cmd, [[]]);
+        struct.autoSized = false;
+        slot.children.splice(this.cursor.offset, 0, struct);
+        this.cursor = { slotId: struct.slots[0].id, offset: 0 };
+      }
+      return true;
+    }
+    this.trySkipClosingBracket('brace');
+    return true;
+  }
+
+  private tryExpandLeftRightNorm(): boolean {
+    const slot = this.currentSlot();
+    if (this.matchTrailingLiteral(slot, this.cursor.offset, '\\left\\')) {
+      this.pushHistory();
+      slot.children.splice(this.cursor.offset - 6, 6);
+      this.cursor.offset -= 6;
+      const cmd = COMMANDS_BY_ID.get('norm');
+      if (cmd) {
+        const struct = createStructNode(cmd, [[]]);
+        slot.children.splice(this.cursor.offset, 0, struct);
+        this.cursor = { slotId: struct.slots[0].id, offset: 0 };
+      }
+      return true;
+    }
+    if (this.matchTrailingLiteral(slot, this.cursor.offset, '\\right\\')) {
+      this.pushHistory();
+      slot.children.splice(this.cursor.offset - 7, 7);
+      this.cursor.offset -= 7;
+      this.tryExitAnyDelimiter('norm');
+      return true;
+    }
+    return false;
+  }
+
+  private tryExitAnyDelimiter(expectedCmdId?: string): boolean {
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+    for (let i = path.length - 1; i >= 1; i -= 1) {
+      const entry = path[i];
+      const struct = entry.parentStruct;
+      const parentSlot = entry.parentSlot;
+      if (!struct || !parentSlot) break;
+      if (
+        (expectedCmdId && struct.commandId === expectedCmdId) ||
+        (!expectedCmdId && DELIMITER_STRUCT_IDS.has(struct.commandId))
+      ) {
+        this.cursor = { slotId: parentSlot.id, offset: entry.nodeIndexInParent + 1 };
+        this.selection = null;
+        return true;
+      }
+      if (DELIMITER_STRUCT_IDS.has(struct.commandId)) break;
+    }
+    return false;
+  }
+
+  private tryExpandLeftRightDelimiter(ch: '(' | '[' | '|' | ')' | ']' | '.'): boolean {
+    const slot = this.currentSlot();
+    if (ch === '(' || ch === '[' || ch === '|') {
+      if (this.matchTrailingLiteral(slot, this.cursor.offset, '\\left')) {
+        const cmdId = ch === '(' ? 'paren' : ch === '[' ? 'bracket' : 'abs';
+        const cmd = COMMANDS_BY_ID.get(cmdId);
+        if (!cmd) return false;
+        this.pushHistory();
+        slot.children.splice(this.cursor.offset - 5, 5);
+        this.cursor.offset -= 5;
+        const struct = createStructNode(cmd, [[]]);
+        struct.autoSized = false;
+        slot.children.splice(this.cursor.offset, 0, struct);
+        this.cursor = { slotId: struct.slots[0].id, offset: 0 };
+        return true;
+      }
+    }
+    if (ch === ')' || ch === ']' || ch === '|' || ch === '.') {
+      if (this.matchTrailingLiteral(slot, this.cursor.offset, '\\right')) {
+        this.pushHistory();
+        slot.children.splice(this.cursor.offset - 6, 6);
+        this.cursor.offset -= 6;
+        const expected =
+          ch === ')' ? 'paren' : ch === ']' ? 'bracket' : ch === '|' ? 'abs' : undefined;
+        this.tryExitAnyDelimiter(expected);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private tryEnterTightSlotLatexBrace(): boolean {
+    if (this.selection !== null) return false;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+    const cur = path[path.length - 1];
+    if (!cur.parentStruct) return false;
+    if (cur.slot.children.length !== 0 || this.cursor.offset !== 0) return false;
+    if (!isTightSlot(cur.parentStruct.commandId, cur.slotIndexInStruct)) return false;
+    this.latexArgCloseBySlot.set(cur.slot.id, '}');
+    return true;
+  }
+
+  private tryConsumeBigOpUpperCaret(): boolean {
+    if (this.selection !== null) return false;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+    const cur = path[path.length - 1];
+    if (!cur.parentStruct) return false;
+    if (
+      PREFIX_BIGOPS.has(cur.parentStruct.commandId) &&
+      cur.parentStruct.slots.length === 3 &&
+      cur.slotIndexInStruct === 1 &&
+      cur.slot.children.length === 0 &&
+      this.cursor.offset === 0
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  private tryCloseLatexArg(closeCh: '}' | ']'): boolean {
+    if (this.selection !== null || this.latexArgCloseBySlot.size === 0) return false;
+    const path = findSlotPath(this.doc.root, this.cursor.slotId);
+    if (!path || path.length <= 1) return false;
+
+    // Walk up from current slot to find the innermost enclosing slot entered via native LaTeX `{` / `[`
+    for (let i = path.length - 1; i >= 1; i -= 1) {
+      const entry = path[i];
+      const expected = this.latexArgCloseBySlot.get(entry.slot.id);
+      if (expected !== closeCh) {
+        // Stop climbing if we hit a matching auto-bracket delimiter of the same kind first
+        if (
+          entry.parentStruct &&
+          ((closeCh === '}' && entry.parentStruct.commandId === 'brace') ||
+            (closeCh === ']' && entry.parentStruct.commandId === 'bracket'))
+        ) {
+          return false;
+        }
+        continue;
+      }
+
+      const struct = entry.parentStruct;
+      const parentSlot = entry.parentSlot;
+      if (!struct || !parentSlot) return false;
+
+      this.latexArgCloseBySlot.delete(entry.slot.id);
+      this.selection = null;
+      this.lastTypingMeta = null;
+
+      // Multi-arg commands awaiting a second `{...}` argument: `\frac{1}{2}`, `\binom{n}{k}`, `\overset{a}{b}`, `\underset{a}{b}`, `\sqrt[3]{8}`
+      const braceNextSlotMap: Record<string, number> = {
+        frac: 1,
+        binom: 1,
+        overset: 1,
+        underset: 1,
+        sqrt: 1,
+      };
+      if (
+        entry.slotIndexInStruct === 0 &&
+        braceNextSlotMap[struct.commandId] === 1 &&
+        struct.slots.length >= 2
+      ) {
+        const nextSlot = struct.slots[1];
+        this.cursor = { slotId: nextSlot.id, offset: nextSlot.children.length };
+        this.expectLatexOpenBraceSlotId = nextSlot.id;
+        return true;
+      }
+
+      // Big operators (`\int_{0}^{\infty} ...`, `\sum_{i=1}^{n} ...`):
+      // closing slot 0 moves to slot 1 (upper limit); closing slot 1 moves to slot 2 (body)!
+      if (PREFIX_BIGOPS.has(struct.commandId) && struct.slots.length === 3) {
+        if (entry.slotIndexInStruct === 0) {
+          this.cursor = { slotId: struct.slots[1].id, offset: struct.slots[1].children.length };
+          return true;
+        }
+        if (entry.slotIndexInStruct === 1) {
+          this.cursor = { slotId: struct.slots[2].id, offset: struct.slots[2].children.length };
+          return true;
+        }
+      }
+
+      // Default: exit cleanly right after the struct!
+      this.cursor = { slotId: parentSlot.id, offset: entry.nodeIndexInParent + 1 };
+      return true;
+    }
+
+    return false;
+  }
+
   private tryExpandInlineMacro(
-    trigger: 'space' | 'enter' | '_' | '^' | '{' | '[' | '(' = 'space',
+    trigger: 'space' | 'enter' | '_' | '^' | '{' | '[' | '(' | 'other' = 'space',
   ): boolean {
     const slot = this.currentSlot();
     let start = this.cursor.offset - 1;
@@ -1505,6 +1844,9 @@ export class MathSlotEngine {
     if (structCmdId) {
       // Only trigger on matching LaTeX delimiters or Space/Enter
       const isBigOp = PREFIX_BIGOPS.has(structCmdId) && structCmdId !== 'indef_integral';
+      if (trigger === 'other') {
+        return false;
+      }
       if ((trigger === '_' || trigger === '^') && !isBigOp) {
         return false;
       }
@@ -1536,24 +1878,64 @@ export class MathSlotEngine {
         } else if (trigger === '[' && structCmdId === 'sqrt' && inserted.slots.length === 2) {
           inserted.fillOrder = [0, 1];
           this.cursor = { slotId: inserted.slots[0].id, offset: 0 };
+          this.latexArgCloseBySlot.set(inserted.slots[0].id, ']');
         } else if (trigger === '{' && structCmdId === 'sqrt' && inserted.slots.length === 2) {
           inserted.fillOrder = [1, 0];
           this.cursor = { slotId: inserted.slots[1].id, offset: 0 };
+          this.latexArgCloseBySlot.set(inserted.slots[1].id, '}');
         } else if (trigger === '{' && inserted.slots.length >= 1) {
           if (inserted.slots.length === 2) inserted.fillOrder = [0, 1];
           this.cursor = { slotId: inserted.slots[0].id, offset: 0 };
+          this.latexArgCloseBySlot.set(inserted.slots[0].id, '}');
         }
       }
       return ok;
     }
 
+    // 1b. Native 1-arg LaTeX font/style macros (`\mathrm{d}`, `\mathfrak{g}`, `\mathsf{T}`, `\mathtt{x}`, `\boldsymbol{x}`, `\bm{x}`)
+    if (
+      trigger === '{' &&
+      (name === 'mathrm' ||
+        name === 'mathfrak' ||
+        name === 'mathsf' ||
+        name === 'mathtt' ||
+        name === 'boldsymbol' ||
+        name === 'bm')
+    ) {
+      this.pushHistory();
+      slot.children.splice(start, this.cursor.offset - start);
+      this.cursor.offset = start;
+      const customDef: CommandDef = {
+        id: `inline_${name}`,
+        keys: [],
+        label: name,
+        category: 'accent',
+        glyph: name,
+        slots: [name],
+        latex: `\\${name}{$1}`,
+        doc: `\\${name}{...}`,
+        examples: [],
+        wrapSlot: 0,
+      };
+      const struct = createStructNode(customDef, [[]]);
+      struct.customLatex = `\\${name}{$1}`;
+      slot.children.splice(start, 0, struct);
+      this.cursor = { slotId: struct.slots[0].id, offset: 0 };
+      this.latexArgCloseBySlot.set(struct.slots[0].id, '}');
+      this.notify();
+      return true;
+    }
+
     // 2. Explicit spacing macros (`\quad`, `\qquad`)
-    if ((name === 'quad' || name === 'qquad') && (trigger === 'space' || trigger === 'enter')) {
+    if (
+      (name === 'quad' || name === 'qquad') &&
+      (trigger === 'space' || trigger === 'enter' || trigger === 'other')
+    ) {
       this.pushHistory();
       const raw = createRawNode(`\\${name}`);
       slot.children.splice(start, this.cursor.offset - start, raw);
       this.cursor.offset = start + 1;
-      return true;
+      return trigger === 'space' || trigger === 'enter';
     }
 
     // 3. Standard math & operatorname functions (`\sin`, `\cos`, `\ln`, `\argmin`, `\Var`, ...)
@@ -1573,12 +1955,12 @@ export class MathSlotEngine {
       if (trigger === 'enter') {
         return true;
       }
-      // For `(`, `_`, `^` (e.g. `\sin(x)`, `\sin^2 x`, `\lim_{x}`), let the delimiter handler proceed!
+      // For `(`, `_`, `^`, or `'other'` (e.g. `\sin(x)`, `\sin^2 x`, `\sin2x`), let the delimiter/char proceed!
       return false;
     }
 
-    // 4. Atomic LaTeX symbol macros (`\alpha`, `\pi`, `\vdots`, `\ddots`, `\infty`, `\le`, ...)
-    if (trigger === '{' || trigger === '[' || trigger === '(') return false;
+    // 4. Atomic LaTeX symbol macros (`\alpha`, `\pi`, `\vdots`, `\ddots`, `\infty`, `\le`, `\backslash`, ...)
+    if (trigger === '{' || trigger === '[') return false;
     const parsed = importFormula(`\\${name}`);
     const hasErr = parsed.diagnostics.some((d) => d.severity === 'error');
     const hasWarn = parsed.diagnostics.some((d) => d.severity === 'warning');
@@ -1587,11 +1969,8 @@ export class MathSlotEngine {
     this.pushHistory();
     slot.children.splice(start, this.cursor.offset - start, ...parsed.doc.root.children);
     this.cursor.offset = start + parsed.doc.root.children.length;
-    // For `_` or `^` after a symbol (e.g. `\alpha_1` or `\pi^2`), expand `\alpha` AND let script proceed!
-    if (trigger === '_' || trigger === '^') {
-      return false;
-    }
-    return true;
+    // Consume `space` or `enter`; for `_`, `^`, `(`, or `'other'` (`+`, `=`, `)`, `}`, `\`, digits...), let the char proceed!
+    return trigger === 'space' || trigger === 'enter';
   }
 
   private insertNaturalScript(kind: 'sup' | 'sub'): void {

@@ -26,7 +26,7 @@ MathSlot 的核心竞争力仍然是 **槽位 AST + 键盘流 + Obsidian 原位�
 | --- | --- |
 | 命令数 | **165** |
 | 预置公式 | **89** |
-| 核心测试 | **78 passed / 7 files** |
+| 核心测试 | **86 passed / 7 files** |
 | `svelte-check` | **0 errors / 0 warnings** |
 | Obsidian `tsc --noEmit` | 通过 |
 | KaTeX 全量渲染 | 165 命令 + 89 预置零错误 |
@@ -41,9 +41,10 @@ MathSlot 的核心竞争力仍然是 **槽位 AST + 键盘流 + Obsidian 原位�
 | P1 | 选区仍是单槽 | 无法跨槽复制/剪切/包裹；长公式局部结构操作受限 |
 | P1 | 持久化仍以 LaTeX/整包快照为主 | 草稿是 `lastDraftLatex` 字符串而非 Document JSON；Obsidian 两个模态的数组快照仍可能被整包覆盖；双轨库删除语义未定义 |
 | P2 | Grid/Text/LineBreak 没有一等节点 | `array`/增广矩阵依赖 `StructNode.grid`；文本框/内嵌数学仍复用结构槽；换行仍是 RawNode |
-| P2 | 多公式导入与 Obsidian 定界符覆盖有限 | `\(...\) + \(...\)` 不会被拆分，也没有明确提示；Obsidian 光标识别只处理 `$`/`$$` |
 | P2 | 桌面/Obsidian 一些体验仍未闭环 | 弹窗焦点陷阱、移动端 `isDesktopOnly:false` 的验证、屏幕阅读器仍读原始 LaTeX |
 | P3 | 发布与平台工程 | macOS/Windows 签名、公证、自动更新、ARM/Intel 覆盖仍待完善 |
+
+> 已于本轮补齐：原生 LaTeX 实时键入兼容（`\alpha` 草稿不再误输出 `\backslash`、运算符/数字/连续 `\` 自动展开、`\frac{1}{2}`/`\sqrt[3]{8}`/`\mathbb{R}`/`\mathrm{d}x`/`e^{-x^2}`/`\int_{0}^{\infty}` 原生 `{}`/`[]` 闭合推进、`\left(...\right)` 与 `\{`/`\}`/`\|`/`\%`/`\\` 转义）、`\int f(x) d x` 预览/导出一致性、空槽首空格拦截、多公式导入 warning 提示、以及 Obsidian 光标处 `\(...\)` / `\[...\]`（含多行与引用块）原位识别。
 
 ### 0.3 建议的总体方向
 
@@ -230,10 +231,10 @@ interface ShorthandSpec {
 
 ### 3.3 建议的演进阶段
 
-1. **v2.3.x**：`DifferentialNode`；`ShorthandSpec` registry；多公式导入提示；Obsidian `\(...\)` 检测；清掉剩余小问题。
-2. **v2.4**：`AlignNode`、`GridNode`、`TextNode`、`LineBreakNode`；`anchor/focus` 选区；Document JSON + Repository；Obsidian 数组级合并。
-3. **v2.5+**：render projector/caret 层、MathML 可访问性、i18n、Web/PWA、移动端/触屏、签名/更新/ARM/Intel。
-4. **远期**：交换图、化学 `mhchem`、OCR/手写、语义导出（MathJSON/自定义 JSON）、协作/CRDT。
+1. `DifferentialNode`；`ShorthandSpec` registry；多公式导入提示；Obsidian `\(...\)` 检测；清掉剩余小问题。
+2. `AlignNode`、`GridNode`、`TextNode`、`LineBreakNode`；`anchor/focus` 选区；Document JSON + Repository；Obsidian 数组级合并。
+3. render projector/caret 层、MathML 可访问性、i18n、Web/PWA、移动端/触屏、签名/更新/ARM/Intel。
+4. 交换图、化学 `mhchem`、OCR/手写、语义导出（MathJSON/自定义 JSON）、协作/CRDT。
 
 ---
 

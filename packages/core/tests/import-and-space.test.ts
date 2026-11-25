@@ -102,4 +102,97 @@ describe('differential shorthand', () => {
     expect(toLatex(importFormula('y=dx').doc)).toBe('y = dx');
     expect(toLatex(importFormula('y=da').doc)).toBe('y = da');
   });
+
+  it('keeps preview and export consistent for \\int f(x) d x (literal d x with space)', () => {
+    const engine = new MathSlotEngine();
+    engine.insertCommand('integral');
+    engine.nextSlot();
+    engine.nextSlot();
+    typeAll(engine, 'f(x) d x');
+    const snap = engine.getSnapshot();
+    expect(snap.latex).toBe('\\int f(x) d x');
+    expect(snap.interactiveLatex).not.toContain('\\mathrm{d}');
+  });
+
+  it('blocks leading spaces inside empty non-root math slots', () => {
+    const engine = new MathSlotEngine();
+    engine.insertCommand('frac');
+    engine.insertText(' ');
+    expect(engine.getSnapshot().latex).toBe('\\frac{}{}');
+    expect(engine.getSnapshot().interactiveLatex).toContain('ms-empty-box');
+  });
+
+  it('warns explicitly when importing multiple wrapped formulas at once', () => {
+    const multi1 = importFormula('\\(x^2\\) + \\(y^2\\)');
+    expect(multi1.diagnostics.some((d) => d.severity === 'warning' && d.message.includes('多个独立公式'))).toBe(true);
+    const multi2 = importFormula('$x$ + $y$');
+    expect(multi2.diagnostics.some((d) => d.severity === 'warning' && d.message.includes('多个独立公式'))).toBe(true);
+  });
+});
+
+describe('native LaTeX live typing compatibility', () => {
+  const typeLatex = (source: string) => {
+    const engine = new MathSlotEngine();
+    typeAll(engine, source);
+    return engine.getSnapshot();
+  };
+
+  it('never turns in-progress \\macro into \\backslash \\alpha and renders draft cleanly in KaTeX', () => {
+    const draft = typeLatex('\\alpha');
+    expect(draft.latex).toBe('\\alpha');
+    expect(draft.interactiveLatex).toContain('ms-macro-draft');
+    expect(draft.interactiveLatex).not.toContain('\\backslash');
+    expect(() =>
+      katex.renderToString(draft.interactiveLatex, {
+        displayMode: true,
+        throwOnError: true,
+        strict: false,
+        trust: true,
+      }),
+    ).not.toThrow();
+
+    const bare = typeLatex('\\');
+    expect(bare.interactiveLatex).toContain('ms-macro-draft');
+    expect(bare.interactiveLatex).not.toContain('\\backslash');
+    expect(() =>
+      katex.renderToString(bare.interactiveLatex, {
+        displayMode: true,
+        throwOnError: true,
+        strict: false,
+        trust: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it('expands native LaTeX symbols on operators, digits, delimiters, and consecutive backslashes', () => {
+    expect(typeLatex('\\alpha+1').latex).toBe('\\alpha + 1');
+    expect(typeLatex('\\pi=3.14').latex).toBe('\\pi = 3.14');
+    expect(typeLatex('\\alpha\\beta ').latex).toBe('\\alpha\\beta');
+    expect(typeLatex('f(\\alpha)').latex).toBe('f(\\alpha)');
+    expect(typeLatex('\\alpha^2').latex).toBe('\\alpha^2');
+  });
+
+  it('handles native brace/bracket argument commands cleanly without leaking \\} or \\{', () => {
+    expect(typeLatex('\\frac{1}{2}').latex).toBe('\\frac{1}{2}');
+    expect(typeLatex('\\frac{1}{2}+1').latex).toBe('\\frac{1}{2} + 1');
+    expect(typeLatex('\\sqrt{x}').latex).toBe('\\sqrt{x}');
+    expect(typeLatex('\\sqrt[3]{8}').latex).toBe('\\sqrt[3]{8}');
+    expect(typeLatex('\\mathbb{R}').latex).toBe('\\mathbb{R}');
+    expect(typeLatex('\\mathrm{d}x').latex).toBe('\\mathrm{d}x');
+    expect(typeLatex('\\text{hello world}').latex).toBe('\\text{hello world}');
+    expect(typeLatex('e^{-x^2}').latex).toBe('e^{-x^2}');
+    expect(typeLatex('\\int_{0}^{\\infty} e^{-x^2} dx').latex).toBe(
+      '\\int_{0}^{\\infty} e^{-x^2}\\,\\mathrm{d}x',
+    );
+    expect(typeLatex('\\frac{\\alpha+1}{\\sqrt{x}}').latex).toBe('\\frac{\\alpha + 1}{\\sqrt{x}}');
+  });
+
+  it('handles native \\left/\\right delimiters and LaTeX escapes (\\{, \\}, \\|, \\%, \\\\)', () => {
+    expect(typeLatex('\\left(x\\right)').latex).toBe('\\left(x\\right)');
+    expect(typeLatex('\\left[x\\right]').latex).toBe('\\left[x\\right]');
+    expect(typeLatex('\\left\\{x\\right\\}').latex).toBe('\\left\\{x\\right\\}');
+    expect(typeLatex('\\{x\\}').latex).toBe('\\{x\\}');
+    expect(typeLatex('50\\%').latex).toBe('50\\%');
+    expect(typeLatex('a\\\\b').latex).toBe('\\begin{gathered} a\\\\b \\end{gathered}');
+  });
 });
