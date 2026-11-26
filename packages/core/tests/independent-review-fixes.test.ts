@@ -271,9 +271,10 @@ describe('Independent Review P0/P1/P2 Regression & Semantic Gates', () => {
     if (initialMode.kind === 'jump' && initialMode.targets[0]?.label.length === 2) {
       const firstChar = initialMode.targets[0].label[0];
       je.handleJumpKey(firstChar);
-      expect(je.getSnapshot().mode.kind).toBe('jump');
-      if (je.getSnapshot().mode.kind === 'jump') {
-        expect(je.getSnapshot().mode.typed).toBe(firstChar);
+      const midMode = je.getSnapshot().mode;
+      expect(midMode.kind).toBe('jump');
+      if (midMode.kind === 'jump') {
+        expect(midMode.typed).toBe(firstChar);
       }
       je.handleJumpKey('-');
       const afterBack = je.getSnapshot().mode;

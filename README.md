@@ -36,7 +36,7 @@
   - 直接键入 `/` 转分数、`^` / `_` 转上下标、`()` / `[]` / `{}` 自动补全且随高度自适应 `\left...\right`。
   - 独立词识别 `pi → π`、`oo → ∞`、`dx/da/dA → 直立微分`（如 `\,\mathrm{d}x`；`d x` 保留字面量 d 与 x）、`... → ⋯`、`::: → ⋮`、`ddots → ⋱`，绝不误伤 `spin`、`spi`、`foo` 等普通单词。
 - **动态矩阵、增广矩阵 & 键盘全向增删行列**：支持任意 R×C 矩阵、`array {cc|c}` 增广矩阵、`smallmatrix` 及 `cases` / `dcases` / `rcases` 分段函数；内部按 **`Shift + ↑ / ↓ / ← / →`** 四方向增行列，点击悬浮条 **`|线`**（或按 `Alt + \`）一键切换增广矩阵分隔竖线；内置 `Tab m i` 省略矩阵、`Tab m j` 省略行列式、`Tab m k` 增广矩阵。
-- **富文本内嵌数学 & 字体算子结构**：`\text{...}` 文本注释内部按 `$` 可直接嵌入可交互数学槽位（如 `\text{当 $x > 0$ 时}`）；内置 `\mathbf`、`\mathcal`、`\mathbb`、`\mathrm`、`\mathfrak`、`\mathsf`、`\mathtt`、`\boldsymbol`、`\mathscr`、`\operatorname`、`\bigoplus`、`\bigotimes`、`\tag`、多列 `aligned` 及完整否定关系与逻辑推导等 **220 条**结构化命令与 **114 条**预置公式。
+- **富文本内嵌数学 & 字体算子结构**：`\text{...}` 文本注释内部按 `$` 可直接嵌入可交互数学槽位（如 `\text{当 $x > 0$ 时}`）；内置 `\mathbf`、`\mathcal`、`\mathbb`、`\mathrm`、`\mathfrak`、`\mathsf`、`\mathtt`、`\boldsymbol`、`\mathscr`、`\operatorname`、`\bigoplus`、`\bigotimes`、`\bigwedge`、`\ket`、`\bra`、`\braket`、`\xRightarrow`、`\xLeftrightarrow`、`\xmapsto`、`\stackrel`、`\tag`、多列 `aligned` 及完整否定关系与逻辑推导等 **228 条**结构化命令与 **114 条**预置公式。
 - **跨槽选区、矩阵子块与表格粘贴**：支持跨槽拖选 / `Shift+方向键` 自动向上晋升包裹外层结构、矩阵矩形子块选区复制与清除，以及直接粘贴 TSV/Excel 表格数据自动扩阵填充。
 - **结构化草稿、收藏夹 & 无障碍触控**：`PersistedDraftV1` 完整保留光标与空可选槽并在关闭窗口前同步刷盘；Pointer Events 统一鼠标/触控笔/触屏交互，支持 `Ctrl+M` / `F6` 键盘焦点逃逸。
 - **分层 `Esc` 跳转导航**：按 `Esc` 呼出当前层级的字母角标（支持复合结构逐层下钻、普通文本项直接跳转、以及 `Alt+←`/`Alt+→` 跳转历史回溯）。
@@ -94,7 +94,7 @@ npm run build:rpm
 
 ## 仓库结构
 
-- `packages/core` — 纯 TypeScript 同步内核（树状槽位 AST、统一 `EmitIR` 词法与间距管线、单源命令能力注册表 `commandSpecs.ts`、220 条命令、114 条预置公式、跨槽 LCA 选区与矩阵块操作、LaTeX 双向解析与多行 `aligned` 导出、Obsidian `\(...\)`/`\[...\]`/引用块保真识别）
+- `packages/core` — 纯 TypeScript 同步内核（树状槽位 AST、统一 `EmitIR` 词法与间距管线、单源声明式蓝图 `commandSpecs.ts`、双向流编码器 `streamCodec.ts`、228 条命令、114 条预置公式、跨槽 LCA 选区与矩阵块操作、LaTeX 双向解析与多行 `aligned` 导出、Obsidian `\(...\)`/`\[...\]`/引用块保真识别）
 - `packages/ui` — 共享 Svelte 5 + KaTeX 2D 公式工作台（Pointer Events 画布、左侧悬浮编辑栏、层级虚线框、快捷丝带、命令与公式库搜索面板、多行 LaTeX 栏、支持 CSS `transform` 的矢量 SVG / 高清 PNG / Word MathML 导出）
 - `apps/desktop` — Tauri 2 桌面端外壳（零 JSON 二进制 IPC 剪贴板/导出、Linux Wayland 图标集成、原子配置文件读写、跨平台打包）
 - `apps/obsidian` — Obsidian 纯 JS 插件（零 WASM、有界窗口扫描、`\(...\)`/`\[...\]` 原样写回与引用块/Callout 替换）
