@@ -8,6 +8,7 @@ export * from './shorthands';
 export * from './ast';
 export * from './emitIr';
 export * from './streamCodec';
+export * from './inlineExpander';
 export * from './latex';
 export * from './parser';
 export * from './editor';
