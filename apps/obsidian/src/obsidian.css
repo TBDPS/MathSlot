@@ -85,3 +85,147 @@
   box-shadow: none;
   margin: 0;
 }
+
+/* =========================================================================
+   Low-Intrusion Inline Mode: Above-Cursor Capsule & Slot Micro-Decorations
+   ========================================================================= */
+
+.cm-tooltip:has(> .mathslot-inline-capsule) {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin-bottom: 5px !important;
+  z-index: 40;
+}
+
+.mathslot-inline-capsule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(720px, 88vw);
+  padding: 4px 8px;
+  border-radius: 9px;
+  background: var(--background-primary-alt, var(--background-secondary));
+  border: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  font-family: var(--font-interface);
+  font-size: 11.5px;
+  line-height: 1.25;
+  color: var(--text-normal);
+  user-select: none;
+}
+
+.mathslot-inline-capsule .ms-cap-lead {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-family: var(--font-monospace);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
+}
+
+.mathslot-inline-capsule .ms-cap-items {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 5px;
+  max-height: 58px;
+  overflow-y: auto;
+}
+
+.mathslot-inline-capsule .ms-cap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 21px !important;
+  min-height: 0 !important;
+  padding: 1px 5px !important;
+  margin: 0 !important;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 100ms ease, color 100ms ease;
+}
+
+.mathslot-inline-capsule .ms-cap-pill:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.mathslot-inline-capsule .ms-cap-pill.is-default {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  color: var(--text-normal);
+}
+
+.mathslot-inline-capsule .ms-cap-pill.is-workbench {
+  border-color: var(--background-modifier-border);
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.mathslot-inline-capsule .ms-cap-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 3.5px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  font-family: var(--font-monospace);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.mathslot-inline-capsule.mathslot-raw-capsule {
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.mathslot-inline-capsule .ms-cap-raw-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-amber, #d97706);
+  flex-shrink: 0;
+}
+
+.cm-line .mathslot-active-slot {
+  border-bottom: 1.5px dashed color-mix(in srgb, var(--interactive-accent) 65%, transparent);
+  border-radius: 2px;
+}
+
+.cm-line .mathslot-pending-slot {
+  border-bottom: 1px dotted var(--text-faint);
+}
+
+.cm-line .mathslot-slot-placeholder {
+  display: inline-block;
+  margin: 0 1px;
+  font-family: var(--font-monospace);
+  font-size: 0.86em;
+  color: var(--text-faint);
+  opacity: 0.65;
+  pointer-events: none;
+  user-select: none;
+}
+
+.cm-line .mathslot-raw-span {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-amber, #d97706) 12%, transparent);
+  border-bottom: 1.5px dashed color-mix(in srgb, var(--color-amber, #d97706) 55%, transparent);
+  font-family: var(--font-monospace);
+}

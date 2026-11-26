@@ -1,18 +1,35 @@
 import 'katex/dist/katex.min.css';
 import '@mathslot/ui/styles.css';
 import './obsidian.css';
-import { Plugin, type Editor } from 'obsidian';
+import { Notice, Plugin, type Editor, type EditorPosition } from 'obsidian';
+import type { EditorView } from '@codemirror/view';
 import type { PersistedStore } from '@mathslot/ui';
 import {
+  COMMANDS,
+  DEFAULT_INLINE_SETTINGS,
   canonicalBlockquotePrefix,
   detectFormulaInWindow,
   detectWrapperFromRaw,
   extractBlockquotePrefix,
+  mergeCommands,
   stripBlockquoteSelection,
   type DelimiterStyle,
+  type InlineExpanderSettings,
+  type InlineMathSpan,
   type MathWrapperKind,
+  type SlotOrderPreset,
 } from '@mathslot/core';
 import { MathSlotModal } from './MathSlotModal';
+import {
+  DEFAULT_OBSIDIAN_INLINE_PREFS,
+  MathSlotSettingTab,
+  type ObsidianInlinePrefs,
+} from './SettingTab';
+import { createMathSlotInlineExtension } from './inlineExtension';
+
+export interface ObsidianPluginData extends PersistedStore {
+  obsidianInline?: Partial<ObsidianInlinePrefs>;
+}
 
 /**
  * 3-way delta merge for ID-keyed collections so two concurrent Obsidian modals never
@@ -30,12 +47,10 @@ function mergeByIdDelta<T extends { id: string }>(
 
   const out: T[] = [];
   const seen = new Set<string>();
-  // Keep local order/updates first
   for (const item of local) {
     out.push(item);
     seen.add(item.id);
   }
-  // Preserve concurrent disk additions that were not deleted by this modal
   for (const item of disk) {
     if (!seen.has(item.id) && !deleted.has(item.id)) {
       out.push(localById.get(item.id) ?? item);
@@ -71,18 +86,57 @@ function mergeStringSetDelta(
   return maxLen ? out.slice(0, maxLen) : out;
 }
 
+function normalizeInlinePrefs(raw?: Partial<ObsidianInlinePrefs> | null): ObsidianInlinePrefs {
+  return {
+    enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : DEFAULT_OBSIDIAN_INLINE_PREFS.enabled,
+    leaderKey: raw?.leaderKey === '`' ? '`' : 'Tab',
+    naturalFraction:
+      typeof raw?.naturalFraction === 'boolean'
+        ? raw.naturalFraction
+        : DEFAULT_OBSIDIAN_INLINE_PREFS.naturalFraction,
+    naturalScripts:
+      typeof raw?.naturalScripts === 'boolean'
+        ? raw.naturalScripts
+        : DEFAULT_OBSIDIAN_INLINE_PREFS.naturalScripts,
+    punctShorthands:
+      typeof raw?.punctShorthands === 'boolean'
+        ? raw.punctShorthands
+        : DEFAULT_OBSIDIAN_INLINE_PREFS.punctShorthands,
+    wordShorthands:
+      typeof raw?.wordShorthands === 'boolean'
+        ? raw.wordShorthands
+        : DEFAULT_OBSIDIAN_INLINE_PREFS.wordShorthands,
+  };
+}
+
 export default class MathSlotPlugin extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
+  private inlinePrefs: ObsidianInlinePrefs = { ...DEFAULT_OBSIDIAN_INLINE_PREFS };
+  private cachedInlineSettings: InlineExpanderSettings = { ...DEFAULT_INLINE_SETTINGS };
+  private slotOrderPreset: SlotOrderPreset = 'standard';
 
   async onload(): Promise<void> {
-    this.addRibbonIcon('sigma', 'MathSlot 公式编辑器', () => {
+    await this.reloadInlineCacheFromDisk();
+
+    this.registerEditorExtension(
+      createMathSlotInlineExtension({
+        getSettings: () => this.cachedInlineSettings,
+        openWorkbenchAtSpan: (view, span) => {
+          this.openEditorFromInlineSpan(view, span);
+        },
+      }),
+    );
+
+    this.addSettingTab(new MathSlotSettingTab(this.app, this));
+
+    this.addRibbonIcon('sigma', 'MathSlot 公式工作台', () => {
       const editor = this.app.workspace.activeEditor?.editor;
       this.openEditor(editor);
     });
 
     this.addCommand({
       id: 'open-mathslot-editor',
-      name: '打开公式编辑器（自动识别光标处公式）',
+      name: '打开 2D 公式工作台（自动识别光标处公式）',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor);
       },
@@ -95,6 +149,142 @@ export default class MathSlotPlugin extends Plugin {
         this.openEditor(editor, 'block');
       },
     });
+
+    this.addCommand({
+      id: 'toggle-mathslot-inline-mode',
+      name: '切换原位无感流式输入开关',
+      callback: async () => {
+        const next = !this.inlinePrefs.enabled;
+        await this.updateInlinePrefs({ enabled: next });
+        new Notice(next ? 'MathSlot：已开启原位无感流式模式' : 'MathSlot：已暂停原位无感流式模式');
+      },
+    });
+  }
+
+  public getInlinePrefs(): ObsidianInlinePrefs {
+    return { ...this.inlinePrefs };
+  }
+
+  public getSlotOrderPreset(): SlotOrderPreset {
+    return this.slotOrderPreset;
+  }
+
+  public async updateInlinePrefs(patch: Partial<ObsidianInlinePrefs>): Promise<void> {
+    const run = this.saveQueue.then(async () => {
+      const prev = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
+      const nextPrefs = normalizeInlinePrefs({
+        ...(prev.obsidianInline ?? this.inlinePrefs),
+        ...patch,
+      });
+      const merged: Partial<ObsidianPluginData> = {
+        ...prev,
+        obsidianInline: nextPrefs,
+      };
+      await this.saveData(merged);
+      this.syncInlineSettingsFromData(merged);
+      this.app.workspace.updateOptions?.();
+    });
+    this.saveQueue = run.catch(() => {});
+    await run;
+  }
+
+  public async updateSlotOrderPreset(preset: SlotOrderPreset): Promise<void> {
+    const run = this.saveQueue.then(async () => {
+      const prev = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
+      const merged: Partial<ObsidianPluginData> = {
+        ...prev,
+        settings: {
+          ...(prev.settings ?? {}),
+          slotOrderPreset: preset,
+        },
+      };
+      await this.saveData(merged);
+      this.syncInlineSettingsFromData(merged);
+      this.app.workspace.updateOptions?.();
+    });
+    this.saveQueue = run.catch(() => {});
+    await run;
+  }
+
+  public openWorkbenchFromSettings(editor?: Editor): void {
+    this.openEditor(editor);
+  }
+
+  private async reloadInlineCacheFromDisk(): Promise<void> {
+    const data = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
+    this.syncInlineSettingsFromData(data);
+  }
+
+  private syncInlineSettingsFromData(data: Partial<ObsidianPluginData>): void {
+    this.inlinePrefs = normalizeInlinePrefs(data.obsidianInline);
+    const preset: SlotOrderPreset =
+      data.settings?.slotOrderPreset === 'writing_cn' ? 'writing_cn' : 'standard';
+    this.slotOrderPreset = preset;
+    const overrides =
+      data.settings?.slotOrderOverrides && typeof data.settings.slotOrderOverrides === 'object'
+        ? data.settings.slotOrderOverrides
+        : {};
+    const userCmds = Array.isArray(data.userCommands) ? data.userCommands : [];
+    const effectiveCommands = userCmds.length > 0 ? mergeCommands(COMMANDS, userCmds) : COMMANDS;
+
+    this.cachedInlineSettings = {
+      enabled: this.inlinePrefs.enabled,
+      leaderKey: this.inlinePrefs.leaderKey,
+      naturalFraction: this.inlinePrefs.naturalFraction,
+      naturalScripts: this.inlinePrefs.naturalScripts,
+      punctShorthands: this.inlinePrefs.punctShorthands,
+      wordShorthands: this.inlinePrefs.wordShorthands,
+      slotOrderPreset: preset,
+      slotOrderOverrides: overrides,
+      effectiveCommands,
+      customCommands: Array.isArray(data.customCommands) ? data.customCommands : [],
+      snippets: Array.isArray(data.snippets) ? data.snippets : [],
+    };
+  }
+
+  private openEditorFromInlineSpan(view: EditorView, span: InlineMathSpan): void {
+    const editor = this.app.workspace.activeEditor?.editor;
+    const doc = view.state.doc;
+    const rawSlice = doc.sliceString(span.rawFrom, span.rawTo);
+    const stripped = stripBlockquoteSelection(rawSlice);
+    const initialFormula = stripped.clean.trim() || undefined;
+    const wrapper: MathWrapperKind = span.isBlock ? 'dollar_block' : 'dollar_inline';
+    const delimiter: DelimiterStyle = span.isBlock ? 'block' : 'inline';
+
+    const fromLine = doc.lineAt(span.rawFrom);
+    const toLine = doc.lineAt(span.rawTo);
+    const fromPos: EditorPosition = {
+      line: fromLine.number - 1,
+      ch: span.rawFrom - fromLine.from,
+    };
+    const toPos: EditorPosition = {
+      line: toLine.number - 1,
+      ch: span.rawTo - toLine.from,
+    };
+
+    let linePrefix = '';
+    let includeFirstLinePrefix = false;
+    if (stripped.linePrefix) {
+      linePrefix = stripped.linePrefix;
+      includeFirstLinePrefix = true;
+    } else {
+      const split = extractBlockquotePrefix(fromLine.text);
+      if (split.prefix) {
+        linePrefix = canonicalBlockquotePrefix(split.prefix);
+        includeFirstLinePrefix = false;
+      }
+    }
+
+    this.mountModal({
+      editor,
+      initialFormula,
+      replaceRange: editor ? { from: fromPos, to: toPos } : undefined,
+      expectedRangeText: editor ? editor.getRange(fromPos, toPos) : undefined,
+      linePrefix,
+      includeFirstLinePrefix,
+      forceDelimiter: delimiter,
+      initialWrapper: wrapper,
+    });
   }
 
   private openEditor(editor?: Editor, forceDelimiter?: DelimiterStyle): void {
@@ -102,7 +292,7 @@ export default class MathSlotPlugin extends Plugin {
     const trimmedSelected = rawSelected.trim();
 
     let initialFormula: string | undefined;
-    let replaceRange: { from: { line: number; ch: number }; to: { line: number; ch: number } } | undefined;
+    let replaceRange: { from: EditorPosition; to: EditorPosition } | undefined;
     let expectedRangeText: string | undefined;
     let linePrefix = '';
     let includeFirstLinePrefix = false;
@@ -128,7 +318,6 @@ export default class MathSlotPlugin extends Plugin {
         linePrefix = stripped.linePrefix;
         includeFirstLinePrefix = true;
       } else if (editor) {
-        // User selected text inside a blockquote line after `> `
         const cursor = editor.getCursor('from');
         const split = extractBlockquotePrefix(editor.getLine(cursor.line));
         if (split.prefix) {
@@ -138,14 +327,12 @@ export default class MathSlotPlugin extends Plugin {
       }
     } else if (editor) {
       const cursor = editor.getCursor();
-      // Bounded local window [cursor.line - 400, cursor.line + 400] avoids O(N) line reads on 10,000+ line notes!
       const windowStart = Math.max(0, cursor.line - 400);
       const windowEnd = Math.min(editor.lineCount(), cursor.line + 401);
       const windowLines: string[] = [];
       for (let i = windowStart; i < windowEnd; i += 1) {
         windowLines.push(editor.getLine(i));
       }
-      // Best-effort check via Obsidian's CM6 DOM line class when scanning beyond line 400
       let cursorInsideCodeBlock = false;
       if (windowStart > 0) {
         try {
@@ -167,7 +354,6 @@ export default class MathSlotPlugin extends Plugin {
         detectedDelimiter = detected.delimiter;
         detectedWrapper = detected.wrapper;
       } else {
-        // Inserting a brand-new formula on a blockquote / callout line
         const split = extractBlockquotePrefix(editor.getLine(cursor.line));
         if (split.prefix && cursor.ch >= split.prefix.length) {
           linePrefix = canonicalBlockquotePrefix(split.prefix);
@@ -176,8 +362,7 @@ export default class MathSlotPlugin extends Plugin {
       }
     }
 
-    let loadedBase: PersistedStore | null = null;
-    const modal = new MathSlotModal(this.app, {
+    this.mountModal({
       editor,
       initialFormula,
       replaceRange,
@@ -186,8 +371,24 @@ export default class MathSlotPlugin extends Plugin {
       includeFirstLinePrefix,
       forceDelimiter: forceDelimiter ?? detectedDelimiter,
       initialWrapper: forceDelimiter ? undefined : detectedWrapper,
+    });
+  }
+
+  private mountModal(params: {
+    editor?: Editor;
+    initialFormula?: string;
+    replaceRange?: { from: EditorPosition; to: EditorPosition };
+    expectedRangeText?: string;
+    linePrefix?: string;
+    includeFirstLinePrefix?: boolean;
+    forceDelimiter?: DelimiterStyle;
+    initialWrapper?: MathWrapperKind;
+  }): void {
+    let loadedBase: PersistedStore | null = null;
+    const modal = new MathSlotModal(this.app, {
+      ...params,
       loadStore: async () => {
-        const data = (await this.loadData()) as Partial<PersistedStore> | null;
+        const data = (await this.loadData()) as Partial<ObsidianPluginData> | null;
         const normalized: PersistedStore = {
           settings: data?.settings ?? {},
           snippets: Array.isArray(data?.snippets) ? data.snippets : [],
@@ -205,11 +406,12 @@ export default class MathSlotPlugin extends Plugin {
       },
       saveStore: async (store: PersistedStore) => {
         const run = this.saveQueue.then(async () => {
-          const prev = ((await this.loadData()) as Partial<PersistedStore> | null) ?? {};
+          const prev = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
           const base = loadedBase;
-          const merged: PersistedStore = {
+          const merged: ObsidianPluginData = {
             ...prev,
             ...store,
+            obsidianInline: prev.obsidianInline,
             settings: { ...(prev.settings ?? {}), ...(store.settings ?? {}) },
             snippets: base
               ? mergeByIdDelta(base.snippets ?? [], prev.snippets ?? [], store.snippets ?? [])
@@ -239,6 +441,7 @@ export default class MathSlotPlugin extends Plugin {
           };
           loadedBase = merged;
           await this.saveData(merged);
+          this.syncInlineSettingsFromData(merged);
         });
         this.saveQueue = run.catch(() => {});
         await run;

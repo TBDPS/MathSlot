@@ -15,7 +15,7 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: ['obsidian'],
+      external: ['obsidian', '@codemirror/view', '@codemirror/state'],
       output: {
         exports: 'default',
         assetFileNames: (assetInfo) => {
