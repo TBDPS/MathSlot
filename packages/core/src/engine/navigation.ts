@@ -5,7 +5,7 @@ import {
   getGridMeta,
   isSlotVisibleInteractive,
 } from '../ast';
-import { getVerticalNavTarget } from '../commandSpecs';
+import { getVerticalNavTarget, isRenderableRawLatex, sanitizeLatexTemplate } from '../commandSpecs';
 import { getSlotOrder } from '../slotOrder';
 import type { Cursor, TreePoint } from '../types';
 import { jumpToCursor } from './jumpMode';
@@ -181,6 +181,13 @@ export function nextSlot(state: EngineState): void {
   const cur = path[path.length - 1];
   const parentStruct = cur.parentStruct!;
   const parentSlot = cur.parentSlot!;
+  if (parentStruct.commandId === 'raw_latex' && cur.slot.children.length === 0) {
+    pushHistory(state);
+    parentSlot.children.splice(cur.nodeIndexInParent, 1);
+    state.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+    emitChange(state);
+    return;
+  }
   const order =
     parentStruct.fillOrder ??
     getSlotOrder(parentStruct.commandId, state.settings, parentStruct.slots.length);
@@ -205,6 +212,13 @@ export function prevSlot(state: EngineState): void {
   const cur = path[path.length - 1];
   const parentStruct = cur.parentStruct!;
   const parentSlot = cur.parentSlot!;
+  if (parentStruct.commandId === 'raw_latex' && cur.slot.children.length === 0) {
+    pushHistory(state);
+    parentSlot.children.splice(cur.nodeIndexInParent, 1);
+    state.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+    emitChange(state);
+    return;
+  }
   const order =
     parentStruct.fillOrder ??
     getSlotOrder(parentStruct.commandId, state.settings, parentStruct.slots.length);
@@ -227,6 +241,13 @@ export function escapeLevel(state: EngineState): boolean {
   if (!path || path.length <= 1) return false;
   const cur = path[path.length - 1];
   if (!cur.parentSlot) return false;
+  if (cur.parentStruct?.commandId === 'raw_latex' && cur.slot.children.length === 0) {
+    pushHistory(state);
+    cur.parentSlot.children.splice(cur.nodeIndexInParent, 1);
+    state.cursor = { slotId: cur.parentSlot.id, offset: cur.nodeIndexInParent };
+    emitChange(state);
+    return true;
+  }
   state.cursor = { slotId: cur.parentSlot.id, offset: cur.nodeIndexInParent + 1 };
   emitChange(state);
   return true;
@@ -369,6 +390,23 @@ export function moveRight(state: EngineState, extendSelection = false): void {
   const cur = path[path.length - 1];
   const parentStruct = cur.parentStruct!;
   const parentSlot = cur.parentSlot!;
+  if (parentStruct.commandId === 'raw_latex') {
+    if (cur.slot.children.length === 0) {
+      pushHistory(state);
+      parentSlot.children.splice(cur.nodeIndexInParent, 1);
+      state.cursor = { slotId: parentSlot.id, offset: cur.nodeIndexInParent };
+      emitChange(state);
+      return;
+    }
+    const rawText = sanitizeLatexTemplate(
+      cur.slot.children
+        .map((n) => (n.type === 'char' ? n.value : n.type === 'symbol' || n.type === 'raw' ? n.latex : ''))
+        .join(''),
+    );
+    if (!isRenderableRawLatex(rawText)) {
+      return;
+    }
+  }
   for (let idx = cur.slotIndexInStruct + 1; idx < parentStruct.slots.length; idx += 1) {
     if (isSlotVisibleInteractive(parentStruct, idx, state.cursor.slotId)) {
       const nextSibling = parentStruct.slots[idx];

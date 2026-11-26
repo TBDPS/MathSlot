@@ -244,6 +244,16 @@ function tokenizeSlotForCanonical(
       continue;
     }
 
+    if (node.commandId === 'raw_latex') {
+      tokens.push({
+        text: emitStructCanonical(node, level, autoShorthands),
+        kind: 'raw',
+        structCmdId: node.commandId,
+      });
+      i += 1;
+      continue;
+    }
+
     const isBigOp = PREFIX_BIGOPS.has(node.commandId);
     const isFuncStruct = node.commandId === 'operatorname';
     const isDiffStruct = node.commandId === 'diff';
@@ -537,6 +547,13 @@ export function emitStructCanonical(
   autoShorthands: boolean,
 ): string {
   if (!node.customLatex) {
+    if (node.commandId === 'raw_latex' && node.slots.length === 1) {
+      return sanitizeLatexTemplate(
+        node.slots[0].children
+          .map((n) => (n.type === 'char' ? n.value : n.type === 'symbol' || n.type === 'raw' ? n.latex : ''))
+          .join(''),
+      );
+    }
     if (node.commandId === 'inline_math' && node.slots.length === 1) {
       return emitSlotCanonical(node.slots[0], parentLevel, autoShorthands);
     }

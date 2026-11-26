@@ -225,6 +225,7 @@ export function getInputContext(state: EngineState): InputContextKind {
   for (let i = path.length - 1; i >= 1; i -= 1) {
     const parent = path[i].parentStruct;
     if (!parent) continue;
+    if (parent.commandId === 'raw_latex') return 'raw';
     if (parent.commandId === 'inline_math') return 'math-slot';
     if (parent.commandId === 'text_box') return 'text';
     if (getGridMeta(parent)) return 'math-grid';

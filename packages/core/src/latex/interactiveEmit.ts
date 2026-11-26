@@ -5,6 +5,7 @@ import {
   INTEGRAL_OPS,
   PREFIX_BIGOPS,
   hasCustomColSpec,
+  isRenderableRawLatex,
   sanitizeLatexTemplate,
 } from '../commandSpecs';
 import {
@@ -277,6 +278,104 @@ function emitSlotInteractive(
   return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${parts.join('')}}}`;
 }
 
+function escapeCodeCapsuleGlyph(ch: string): string {
+  switch (ch) {
+    case '\\':
+      return '\\text{\\texttt{\\textbackslash}}';
+    case '{':
+      return '\\text{\\texttt{\\{}}';
+    case '}':
+      return '\\text{\\texttt{\\}}}';
+    case '^':
+      return '\\text{\\texttt{\\textasciicircum}}';
+    case '~':
+      return '\\text{\\texttt{\\textasciitilde}}';
+    case '_':
+    case '%':
+    case '#':
+    case '&':
+    case '$':
+      return `\\text{\\texttt{\\${ch}}}`;
+    case ' ':
+      return '\\text{\\texttt{\\ }}';
+    default:
+      return `\\text{\\texttt{${ch}}}`;
+  }
+}
+
+function extractRawSlotText(slot: SlotNode): string {
+  return sanitizeLatexTemplate(
+    slot.children
+      .map((n) => (n.type === 'char' ? n.value : n.type === 'symbol' || n.type === 'raw' ? n.latex : ''))
+      .join(''),
+  );
+}
+
+function emitRawLatexInteractive(
+  node: StructNode,
+  cursor: Cursor,
+  selection: Selection | null,
+  focused: boolean,
+): string {
+  const slot = node.slots[0];
+  const isActive = cursor.slotId === slot.id;
+  const selForSlot = selection && selection.slotId === slot.id ? selection : null;
+
+  if (slot.children.length === 0) {
+    const emptyBox = isActive
+      ? '\\htmlClass{ms-empty-box ms-empty-box-active}{\\square}'
+      : '\\htmlClass{ms-empty-box}{\\square}';
+    const content = isActive && focused ? `${wrapCaret()}${emptyBox}` : emptyBox;
+    const cls = isActive
+      ? 'ms-slot ms-raw-slot ms-raw-slot-editing ms-slot-active ms-slot-empty'
+      : 'ms-slot ms-raw-slot ms-slot-empty';
+    return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${cls}}{${content}}}`;
+  }
+
+  const rawText = extractRawSlotText(slot);
+  const validWhenExited = !isActive && isRenderableRawLatex(rawText);
+
+  if (validWhenExited) {
+    const safeDisplay = rawText
+      .replace(/\\begin\{align\*?\}/g, '\\begin{aligned}')
+      .replace(/\\end\{align\*?\}/g, '\\end{aligned}')
+      .replace(/\\tag\*\{([^}]*)\}/g, '\\qquad\\text{$1}')
+      .replace(/\\tag\{([^}]*)\}/g, '\\qquad\\text{($1)}');
+    return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{ms-slot ms-raw-slot}{${safeDisplay}}}`;
+  }
+
+  // Active editing OR exited with incomplete/invalid TeX -> render crash-proof monospace capsule!
+  const slotClasses = ['ms-slot', 'ms-raw-slot'];
+  if (isActive) {
+    slotClasses.push('ms-raw-slot-editing');
+    if (focused) slotClasses.push('ms-slot-active');
+  } else {
+    slotClasses.push('ms-raw-slot-invalid');
+  }
+
+  const parts: string[] = [];
+  for (let i = 0; i < slot.children.length; i += 1) {
+    if (isActive && focused && cursor.offset === i && !selForSlot) {
+      parts.push(wrapCaret());
+    }
+    const chNode = slot.children[i];
+    const chText =
+      chNode.type === 'char'
+        ? chNode.value
+        : chNode.type === 'symbol' || chNode.type === 'raw'
+          ? chNode.latex
+          : '';
+    const glyph = Array.from(chText).map(escapeCodeCapsuleGlyph).join('');
+    const isSel = selForSlot !== null && i >= selForSlot.start && i < selForSlot.end;
+    const atomCls = isSel ? 'ms-atom ms-raw-atom ms-selected' : 'ms-atom ms-raw-atom';
+    parts.push(`\\htmlData{atom-slot=${slot.id},offset=${i}}{\\htmlClass{${atomCls}}{${glyph}}}`);
+  }
+  if (isActive && focused && cursor.offset === slot.children.length && !selForSlot) {
+    parts.push(wrapCaret());
+  }
+  return `\\htmlData{slot-id=${slot.id}}{\\htmlClass{${slotClasses.join(' ')}}{${parts.join('')}}}`;
+}
+
 function emitTextBoxInteractive(
   node: StructNode,
   cursor: Cursor,
@@ -368,7 +467,9 @@ function emitNodeInteractive(
           : null);
 
       let rendered: string;
-      if (node.commandId === 'text_box' && !node.customLatex && node.slots.length === 1) {
+      if (node.commandId === 'raw_latex' && !node.customLatex && node.slots.length === 1) {
+        rendered = emitRawLatexInteractive(node, cursor, selection, focused);
+      } else if (node.commandId === 'text_box' && !node.customLatex && node.slots.length === 1) {
         rendered = emitTextBoxInteractive(node, cursor, selection, focused, autoShorthands, structDepth);
       } else if (dynGrid) {
         rendered = projectGridEnvironment(dynGrid, node.slots, (slot) =>

@@ -138,6 +138,23 @@ export function insertText(state: EngineState, text: string): void {
     return;
   }
 
+  if (getInputContext(state) === 'raw') {
+    const normalized = text.replace(/\r?\n/g, ' ');
+    if (!normalized) return;
+    const slot = currentSlot(state);
+    if (normalized.length === 1 && !state.selection) {
+      pushTypingHistory(state, slot.id, state.cursor.offset);
+    } else {
+      pushHistory(state);
+    }
+    deleteSelectionInternal(state);
+    const nodes = textToCharNodes(normalized, true);
+    slot.children.splice(state.cursor.offset, 0, ...nodes);
+    state.cursor.offset += nodes.length;
+    emitChange(state);
+    return;
+  }
+
   if (getInputContext(state) === 'text') {
     if (text === '}' && !isEscapedBeforeCursor(state) && tryCloseLatexArg(state, '}')) {
       emitChange(state);
@@ -249,12 +266,14 @@ export function insertText(state: EngineState, text: string): void {
       if (ch === '\\') {
         pushHistory(state);
         const slot = currentSlot(state);
-        const isRootSlot = slot.id === state.doc.root.id;
-        slot.children.splice(
-          state.cursor.offset - 1,
-          1,
-          createRawNode(isRootSlot ? '\\\\' : '\\backslash'),
-        );
+        slot.children.splice(state.cursor.offset - 1, 1);
+        state.cursor.offset -= 1;
+        const rawCmd = COMMANDS_BY_ID.get('raw_latex');
+        if (rawCmd) {
+          const struct = createStructNode(rawCmd, [[]]);
+          slot.children.splice(state.cursor.offset, 0, struct);
+          state.cursor = { slotId: struct.slots[0].id, offset: 0 };
+        }
         emitChange(state);
         return;
       }

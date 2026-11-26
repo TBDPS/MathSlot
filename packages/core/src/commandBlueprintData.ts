@@ -492,6 +492,7 @@ export const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, '
     mathbb: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['mathbb'] },
     operatorname: { isSelfDelimited: true, inlineMacros: ['operatorname'] },
     text_box: { isSelfDelimited: true, inlineMacros: ['text'] },
+    raw_latex: { isSelfDelimited: true },
     pmod: {
       isBinaryRelation: true,
       inlineMacros: ['pmod'],

@@ -335,7 +335,14 @@ export function parseStreamCode(source: string): ImportResult {
         } else {
           const slotContents: MathNode[][] = [];
           for (let s = 0; s < cmd.slots.length; s += 1) {
-            slotContents.push(parseNodes(true));
+            const parsedSlot = parseNodes(true);
+            if (cmd.id === 'raw_latex') {
+              slotContents.push(
+                parsedSlot.map((n) => (n.type === 'char' ? createCharNode(n.value, true) : n)),
+              );
+            } else {
+              slotContents.push(parsedSlot);
+            }
           }
           out.push(createStructNode(cmd, slotContents));
         }
@@ -404,7 +411,8 @@ function serializeGridTag(node: StructNode, grid: GridMeta): string {
 }
 
 function serializeStructStream(node: StructNode): string {
-  const slotParts = node.slots.map((s) => serializeSlotStream(s, true)).join('');
+  const isRawSlot = node.commandId === 'raw_latex';
+  const slotParts = node.slots.map((s) => serializeSlotStream(s, true, isRawSlot)).join('');
 
   if (node.customLatex) {
     return `▸[custom:${encodeBracketPayload(node.commandId)}:${node.slots.length}:${encodeBracketPayload(node.customLatex)}]${slotParts}`;
@@ -437,7 +445,7 @@ function serializeStructStream(node: StructNode): string {
   return `▸[struct:${node.commandId}:${node.slots.length}]${slotParts}`;
 }
 
-function serializeSlotStream(slot: SlotNode, appendTerminator: boolean): string {
+function serializeSlotStream(slot: SlotNode, appendTerminator: boolean, isRawSlot = false): string {
   let out = '';
   let i = 0;
   while (i < slot.children.length) {
@@ -450,6 +458,11 @@ function serializeSlotStream(slot: SlotNode, appendTerminator: boolean): string 
       }
       if (child.value === '▸') {
         out += '▸▸';
+        i += 1;
+        continue;
+      }
+      if (isRawSlot) {
+        out += child.value;
         i += 1;
         continue;
       }

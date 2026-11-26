@@ -6,11 +6,13 @@ import {
 } from '../catalog';
 import type { Snippet } from '../types';
 import { enterJumpMode } from './jumpMode';
+import { escapeLevel } from './navigation';
 import {
   type EngineState,
   cancelLeader,
   commitLeaderDefault,
   emitChange,
+  getInputContext,
   restoreLeaderMorphBackup,
 } from './state';
 import { insertText } from './inputFlow';
@@ -18,6 +20,10 @@ import { insertCommand, insertSnippetAtCursor } from './structuralEdit';
 
 export function triggerLeader(state: EngineState): void {
   state.lastTypingMeta = null;
+  if (getInputContext(state) === 'raw') {
+    escapeLevel(state);
+    return;
+  }
   if (state.mode.kind === 'leader') {
     if (state.mode.prefix !== '' && state.leaderMorphBackup) {
       commitLeaderDefault(state);

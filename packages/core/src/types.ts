@@ -215,7 +215,7 @@ export interface HistoryFormula {
   timestamp: number;
 }
 
-export type InputContextKind = 'math-root' | 'math-slot' | 'math-grid' | 'text';
+export type InputContextKind = 'math-root' | 'math-slot' | 'math-grid' | 'text' | 'raw';
 
 export interface ActiveGridInfo {
   structId: string;

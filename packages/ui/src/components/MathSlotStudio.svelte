@@ -1100,6 +1100,12 @@
               {crumb.commandLabel}·{crumb.slotLabel}
             </button>
           {/each}
+          {#if snapshot.inputContext === 'raw'}
+            <span class="crumb-sep">·</span>
+            <span class="crumb-btn" style="color: var(--ms-accent); font-weight: 600;">
+              原生 TeX（Enter / Tab 跳出）
+            </span>
+          {/if}
           <button
             type="button"
             class="crumb-up"

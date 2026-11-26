@@ -54,6 +54,8 @@ export function sanitizeLatexTemplate(template: string): string {
           i = first.nextPos;
           continue;
         }
+        i = end;
+        continue;
       }
       if (macro === '\\url' || macro === '\\includegraphics') {
         let scan = end;
@@ -100,4 +102,162 @@ export function normalizeSettings(raw?: Partial<AppSettings> | null): AppSetting
     merged.slotOrderOverrides = {};
   }
   return merged;
+}
+
+let externalRawLatexValidator: ((latex: string) => boolean) | null = null;
+
+/**
+ * Allows `@mathslot/ui` (which bundles KaTeX) to register a strict `katex.renderToString`
+ * syntax check for exited `raw_latex` passthrough slots while keeping `@mathslot/core` dependency-free.
+ */
+export function registerRawLatexValidator(validator: ((latex: string) => boolean) | null): void {
+  externalRawLatexValidator = validator;
+}
+
+const TWO_ARG_MACROS = new Set([
+  '\\frac',
+  '\\dfrac',
+  '\\tfrac',
+  '\\binom',
+  '\\overset',
+  '\\underset',
+  '\\stackrel',
+  '\\braket',
+]);
+
+const ONE_ARG_MACROS = new Set([
+  '\\sqrt',
+  '\\hat',
+  '\\bar',
+  '\\vec',
+  '\\tilde',
+  '\\dot',
+  '\\ddot',
+  '\\overline',
+  '\\underline',
+  '\\widehat',
+  '\\widetilde',
+  '\\overrightarrow',
+  '\\overleftarrow',
+  '\\overleftrightarrow',
+  '\\mathbf',
+  '\\mathcal',
+  '\\mathbb',
+  '\\mathrm',
+  '\\mathfrak',
+  '\\mathsf',
+  '\\mathtt',
+  '\\boldsymbol',
+  '\\mathscr',
+  '\\operatorname',
+  '\\text',
+  '\\boxed',
+  '\\cancel',
+  '\\bcancel',
+  '\\xcancel',
+  '\\ket',
+  '\\bra',
+]);
+
+/**
+ * Checks whether a raw TeX snippet is structurally balanced and safe to embed directly
+ * inside an outer KaTeX formula without crashing the enclosing expression.
+ */
+export function isRenderableRawLatex(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+
+  let braceDepth = 0;
+  let lrDepth = 0;
+  const envStack: string[] = [];
+  let i = 0;
+
+  while (i < trimmed.length) {
+    const ch = trimmed[i];
+    if (ch === '\\') {
+      if (i + 1 >= trimmed.length) return false;
+      const next = trimmed[i + 1];
+      if (!/[a-zA-Z]/.test(next)) {
+        i += 2;
+        continue;
+      }
+      let end = i + 1;
+      while (end < trimmed.length && /[a-zA-Z]/.test(trimmed[end])) end += 1;
+      const macro = trimmed.slice(i, end);
+      i = end;
+      if (trimmed[i] === '*') i += 1;
+
+      if (macro === '\\left') {
+        lrDepth += 1;
+        while (i < trimmed.length && /\s/.test(trimmed[i])) i += 1;
+        if (i >= trimmed.length) return false;
+      } else if (macro === '\\right') {
+        if (lrDepth <= 0) return false;
+        lrDepth -= 1;
+        while (i < trimmed.length && /\s/.test(trimmed[i])) i += 1;
+        if (i >= trimmed.length) return false;
+      } else if (macro === '\\begin' || macro === '\\end') {
+        while (i < trimmed.length && /\s/.test(trimmed[i])) i += 1;
+        if (trimmed[i] !== '{') return false;
+        const closeIdx = trimmed.indexOf('}', i + 1);
+        if (closeIdx === -1) return false;
+        const envName = trimmed.slice(i + 1, closeIdx).trim();
+        if (!envName) return false;
+        if (macro === '\\begin') {
+          envStack.push(envName);
+        } else {
+          if (envStack.length === 0 || envStack[envStack.length - 1] !== envName) return false;
+          envStack.pop();
+        }
+        i = closeIdx + 1;
+      } else if (TWO_ARG_MACROS.has(macro) || ONE_ARG_MACROS.has(macro)) {
+        const needed = TWO_ARG_MACROS.has(macro) ? 2 : 1;
+        let scan = i;
+        while (scan < trimmed.length && /\s/.test(trimmed[scan])) scan += 1;
+        if (macro === '\\sqrt' && trimmed[scan] === '[') {
+          const closeB = trimmed.indexOf(']', scan + 1);
+          if (closeB === -1) return false;
+          scan = closeB + 1;
+        }
+        for (let a = 0; a < needed; a += 1) {
+          while (scan < trimmed.length && /\s/.test(trimmed[scan])) scan += 1;
+          if (scan >= trimmed.length || trimmed[scan] === '}') return false;
+          if (trimmed[scan] === '{') {
+            const grp = readBracedAt(trimmed, scan);
+            if (!grp || trimmed[grp.nextPos - 1] !== '}') return false;
+            scan = grp.nextPos;
+          } else if (trimmed[scan] === '\\') {
+            scan += 2;
+            while (scan < trimmed.length && /[a-zA-Z]/.test(trimmed[scan])) scan += 1;
+          } else {
+            scan += 1;
+          }
+        }
+      }
+      continue;
+    }
+
+    if (ch === '{') {
+      braceDepth += 1;
+    } else if (ch === '}') {
+      braceDepth -= 1;
+      if (braceDepth < 0) return false;
+    } else if (ch === '^' || ch === '_') {
+      let scan = i + 1;
+      while (scan < trimmed.length && /\s/.test(trimmed[scan])) scan += 1;
+      if (scan >= trimmed.length || trimmed[scan] === '}' || trimmed[scan] === '^' || trimmed[scan] === '_') {
+        return false;
+      }
+    }
+    i += 1;
+  }
+
+  if (braceDepth !== 0 || lrDepth !== 0 || envStack.length !== 0) {
+    return false;
+  }
+
+  if (externalRawLatexValidator) {
+    return externalRawLatexValidator(trimmed);
+  }
+  return true;
 }

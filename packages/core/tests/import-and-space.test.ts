@@ -193,6 +193,8 @@ describe('native LaTeX live typing compatibility', () => {
     expect(typeLatex('\\left\\{x\\right\\}').latex).toBe('\\left\\{x\\right\\}');
     expect(typeLatex('\\{x\\}').latex).toBe('\\{x\\}');
     expect(typeLatex('50\\%').latex).toBe('50\\%');
-    expect(typeLatex('a\\\\b').latex).toBe('\\begin{gathered} a\\\\b \\end{gathered}');
+    // Double backslash `\\` interactively opens a verbatim `raw_latex` passthrough slot, while `importFormula('a\\\\b')` preserves multiline breaks
+    expect(typeLatex('a+\\\\G/H;pi').latex).toBe('a + G/H;pi');
+    expect(toLatex(importFormula('a\\\\b').doc)).toBe('\\begin{gathered} a\\\\b \\end{gathered}');
   });
 });

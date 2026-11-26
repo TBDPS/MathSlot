@@ -61,7 +61,8 @@ export function pasteText(state: EngineState, text: string): void {
   const trimmed = text.trim();
   if (!trimmed) return;
   if (tryPasteTsvIntoGrid(state, text)) return;
-  if (getInputContext(state) === 'text' || isInsideOperatorName(state)) {
+  const inputCtx = getInputContext(state);
+  if (inputCtx === 'text' || inputCtx === 'raw' || isInsideOperatorName(state)) {
     pasteLiteralText(state, trimmed);
     return;
   }
@@ -176,6 +177,12 @@ export function insertCommand(
   }
   if (commandId === 'nth_root' && !state.commandsById.has('nth_root')) {
     commandId = 'sqrt';
+  }
+
+  if (getInputContext(state) === 'raw') {
+    state.mode = { kind: 'edit' };
+    emitChange(state);
+    return false;
   }
 
   if (getInputContext(state) === 'text') {

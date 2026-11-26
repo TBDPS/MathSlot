@@ -1,5 +1,21 @@
 import katex from 'katex';
-import { normalizePreviewLatex } from '@mathslot/core';
+import { normalizePreviewLatex, registerRawLatexValidator } from '@mathslot/core';
+
+registerRawLatexValidator((tex) => {
+  try {
+    const safe = normalizePreviewLatex(tex, true);
+    katex.renderToString(safe, {
+      displayMode: true,
+      throwOnError: true,
+      strict: false,
+      trust: false,
+      output: 'html',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+});
 
 export interface RenderResult {
   html: string;
