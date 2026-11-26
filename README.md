@@ -1,4 +1,4 @@
-# MathSlot v3.0.0
+# MathSlot v3.1.0-beta.2
 
 **视觉直觉优先、键盘流全控、出版级 LaTeX 排版的数学公式工作台。**  
 桌面端（原生 Tauri 2，提供 Linux `.rpm`/`.deb`/`.AppImage`、Windows `.exe`/`.msi`、macOS `.dmg`）与 Obsidian 插件（零 WASM，纯 JS/CSS）双端同源。
@@ -36,12 +36,12 @@
   - 直接键入 `/` 转分数、`^` / `_` 转上下标、`()` / `[]` / `{}` 自动补全且随高度自适应 `\left...\right`。
   - 独立词识别 `pi → π`、`oo → ∞`、`dx/da/dA → 直立微分`（如 `\,\mathrm{d}x`；`d x` 保留字面量 d 与 x）、`... → ⋯`、`::: → ⋮`、`ddots → ⋱`，绝不误伤 `spin`、`spi`、`foo` 等普通单词。
 - **动态矩阵、增广矩阵 & 键盘全向增删行列**：支持任意 R×C 矩阵、`array {cc|c}` 增广矩阵、`smallmatrix` 及 `cases` / `dcases` / `rcases` 分段函数；内部按 **`Shift + ↑ / ↓ / ← / →`** 四方向增行列，点击悬浮条 **`|线`**（或按 `Alt + \`）一键切换增广矩阵分隔竖线；内置 `Tab m i` 省略矩阵、`Tab m j` 省略行列式、`Tab m k` 增广矩阵。
-- **富文本内嵌数学 & 字体算子结构**：`\text{...}` 文本注释内部按 `$` 可直接嵌入可交互数学槽位（如 `\text{当 $x > 0$ 时}`）；内置 `\mathbf`、`\mathcal`、`\mathbb`、`\mathrm`、`\mathfrak`、`\mathsf`、`\mathtt`、`\boldsymbol`、`\mathscr`、`\operatorname`、`\bigoplus`、`\bigotimes`、`\bigwedge`、`\ket`、`\bra`、`\braket`、`\xRightarrow`、`\xLeftrightarrow`、`\xmapsto`、`\stackrel`、`\tag`、多列 `aligned` 及完整否定关系与逻辑推导等 **228 条**结构化命令与 **114 条**预置公式。
+- **富文本内嵌数学、字体算子与 `\\` 原生透传槽**：`\text{...}` 文本注释内部按 `$` 可直接嵌入可交互数学槽位（如 `\text{当 $x > 0$ 时}`）；任意槽位连敲两次反斜杠 `\\` 即开原生 LaTeX 透传胶囊（内部语法糖静默、编辑态防崩隔离、跳出后自动安全渲染 2D 公式）；内置 `\mathbf`、`\mathcal`、`\mathbb`、`\mathrm`、`\mathfrak`、`\mathsf`、`\mathtt`、`\boldsymbol`、`\mathscr`、`\operatorname`、`\bigoplus`、`\bigotimes`、`\bigwedge`、`\ket`、`\bra`、`\braket`、`\xRightarrow`、`\xLeftrightarrow`、`\xmapsto`、`\stackrel`、`\tag`、多列 `aligned` 及完整否定关系与逻辑推导等 **229 条**结构化命令与 **114 条**预置公式。
 - **跨槽选区、矩阵子块与表格粘贴**：支持跨槽拖选 / `Shift+方向键` 自动向上晋升包裹外层结构、矩阵矩形子块选区复制与清除，以及直接粘贴 TSV/Excel 表格数据自动扩阵填充。
 - **结构化草稿、收藏夹 & 无障碍触控**：`PersistedDraftV1` 完整保留光标与空可选槽并在关闭窗口前同步刷盘；Pointer Events 统一鼠标/触控笔/触屏交互，支持 `Ctrl+M` / `F6` 键盘焦点逃逸。
 - **分层 `Esc` 跳转导航**：按 `Esc` 呼出当前层级的字母角标（支持复合结构逐层下钻、普通文本项直接跳转、以及 `Alt+←`/`Alt+→` 跳转历史回溯）。
 - **开放外部公式库 & 命令库**：支持软件内直接增改删，也支持直接编辑配置目录中的 `presets.json` 与 `commands.json` 并一键热重载，无需改代码或重新编译。
-- **Obsidian 深度集成**：光标位于行内 `$...$`、块级 `$$...$$` 乃至引用块 / Callout（`> $$`、`> > $$`、`> [!note]`）内时，自动剥离 `> ` 载入并在写回时完整保留引用前缀。
+- **Obsidian 原位无感流式 + 2D 工作台双模集成**：在笔记原生 `$...$` 与 `$$...$$` 中直接按 `Tab` 在光标正上方浮现单行横向胶囊（零遮挡下方实时预览），支持 `;` 动态跳槽与空可选括号自洁、`\\` 原生透传区间、细粒度语法糖设置页，以及按 `Tab w` 一键将当前公式（含 Callout 引用块）升维载入 2D 画布精修写回。
 - **多格式一键导出**：纯 LaTeX / `$…$` / `$$…$$` / ` ```latex `、**Word 公式（MathML）**、**3× 高清 PNG 图片**，以及多行推导自动对齐 `\begin{aligned}`。
 
 ---
@@ -94,9 +94,9 @@ npm run build:rpm
 
 ## 仓库结构
 
-- `packages/core` — 纯 TypeScript 同步内核（树状槽位 AST、统一 `EmitIR` 词法与间距管线、单源声明式蓝图 `commandSpecs.ts`、双向流编码器 `streamCodec.ts`、228 条命令、114 条预置公式、跨槽 LCA 选区与矩阵块操作、LaTeX 双向解析与多行 `aligned` 导出、Obsidian `\(...\)`/`\[...\]`/引用块保真识别）
+- `packages/core` — 纯 TypeScript 同步内核（树状槽位 AST、统一 `EmitIR` 词法与间距管线、单源声明式蓝图 `commandSpecs.ts`、双向流编码器 `streamCodec.ts`、无头原位流式引擎 `inlineExpander.ts`、229 条命令、114 条预置公式、跨槽 LCA 选区与矩阵块操作、LaTeX 双向解析与多行 `aligned` 导出、Obsidian `\(...\)`/`\[...\]`/引用块保真识别）
 - `packages/ui` — 共享 Svelte 5 + KaTeX 2D 公式工作台（Pointer Events 画布、左侧悬浮编辑栏、层级虚线框、快捷丝带、命令与公式库搜索面板、多行 LaTeX 栏、支持 CSS `transform` 的矢量 SVG / 高清 PNG / Word MathML 导出）
 - `apps/desktop` — Tauri 2 桌面端外壳（零 JSON 二进制 IPC 剪贴板/导出、Linux Wayland 图标集成、原子配置文件读写、跨平台打包）
-- `apps/obsidian` — Obsidian 纯 JS 插件（零 WASM、有界窗口扫描、`\(...\)`/`\[...\]` 原样写回与引用块/Callout 替换）
+- `apps/obsidian` — Obsidian 纯 JS 插件（零 WASM、CM6 原位无感流式展开与上方紧凑胶囊、`Tab w` 一键升维 2D 画布、`\(...\)`/`\[...\]` 原样写回与引用块/Callout 替换）
 - `apps/web` — 零安装离线 PWA 在线工作台（共享同源 `@mathslot/core` 与 `@mathslot/ui`）
 - `docs/` — [快速开始](docs/QUICKSTART.md)、[详细帮助手册](docs/GUIDE.md)、[源码深度审计](docs/AUDIT.md)、[演进路线图](docs/ROADMAP.md) 与 [界面截图](docs/images/)
