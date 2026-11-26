@@ -293,7 +293,9 @@ export function tryExpandInlineMacro(
     slot.children.splice(start, state.cursor.offset - start);
     state.cursor.offset = start;
     const undoBeforeInsert = state.undoStack.length;
-    const ok = insertCommand(state, structCmdId);
+    const ok = insertCommand(state, structCmdId, {
+      disableAutoWrap: trigger === '{' || trigger === '[' || trigger === '_' || trigger === '^',
+    });
     if (ok && state.undoStack.length > undoBeforeInsert) {
       state.undoStack.pop();
     }

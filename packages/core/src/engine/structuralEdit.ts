@@ -164,7 +164,11 @@ export function insertSnippetAtCursor(state: EngineState, snippet: Pick<Snippet,
   return true;
 }
 
-export function insertCommand(state: EngineState, commandId: string): boolean {
+export function insertCommand(
+  state: EngineState,
+  commandId: string,
+  options: { disableAutoWrap?: boolean } = {},
+): boolean {
   if (state.mode.kind === 'leader' && state.leaderMorphBackup) {
     restoreLeaderMorphBackup(state);
   } else {
@@ -234,14 +238,19 @@ export function insertCommand(state: EngineState, commandId: string): boolean {
   const slotContents: MathNode[][] = cmd.slots.map(() => []);
   let wrappedSlotIdx: number | null = null;
 
-  if (state.selection && state.selection.slotId === slot.id) {
+  if (!options.disableAutoWrap && state.selection && state.selection.slotId === slot.id) {
     const selected = deleteSelectionInternal(state);
     const targetIdx = cmd.wrapSlot ?? 0;
     if (targetIdx >= 0 && targetIdx < slotContents.length) {
       slotContents[targetIdx] = selected;
       wrappedSlotIdx = targetIdx;
     }
-  } else if (BACKWARD_WRAP_CMDS.has(cmd.id) && state.cursor.offset > 0 && cmd.wrapSlot === 0) {
+  } else if (
+    !options.disableAutoWrap &&
+    BACKWARD_WRAP_CMDS.has(cmd.id) &&
+    state.cursor.offset > 0 &&
+    cmd.wrapSlot === 0
+  ) {
     const prev = slot.children[state.cursor.offset - 1];
     const isWrappable =
       prev.type === 'symbol' ||
@@ -267,6 +276,7 @@ export function insertCommand(state: EngineState, commandId: string): boolean {
       wrappedSlotIdx = 0;
     }
   } else if (
+    !options.disableAutoWrap &&
     cmd.wrapSlot !== null &&
     cmd.wrapSlot > 0 &&
     state.cursor.offset < slot.children.length

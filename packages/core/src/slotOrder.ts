@@ -1,5 +1,5 @@
 import { COMMANDS, COMMANDS_BY_ID } from './catalog';
-import { PREFIX_BIGOPS } from './commandSpecs';
+import { PREFIX_BIGOPS, getOptionalSlots } from './commandSpecs';
 import type { AppSettings, SlotOrderOverrides, SlotOrderPreset } from './types';
 
 const DERIVED_BIGOP_IDS: readonly string[] = COMMANDS.filter(
@@ -85,24 +85,12 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
   },
 ];
 
-const STANDARD_DEFAULT_ORDERS: Readonly<Record<string, readonly number[]>> = {
-  // Unified root & differential start in main variable slot; Enter hops to optional index/order!
-  sqrt: [1, 0],
-  diff: [1, 0],
-  xrightarrow: [1, 0],
-  xleftarrow: [1, 0],
-};
-
 const WRITING_CN_ORDERS: Readonly<Record<string, readonly number[]>> = {
   frac: [1, 0],
   partial_frac: [1, 0],
   total_frac: [1, 0],
-  sqrt: [1, 0],
   nth_root: [1, 0],
-  diff: [1, 0],
   binom: [1, 0],
-  xrightarrow: [1, 0],
-  xleftarrow: [1, 0],
 };
 
 function isValidPermutation(order: readonly number[] | undefined, slotCount: number): boolean {
@@ -122,15 +110,16 @@ export function getPresetOrderForCommand(
   preset: SlotOrderPreset,
   slotCount: number,
 ): number[] {
+  // Any 2-slot structure whose first slot (0) is optional and second slot (1) is required
+  // (`sqrt`, `diff`, `xrightarrow`, `xleftarrow`, `xRightarrow`, etc.) naturally starts at slot 1!
+  const optSlots = getOptionalSlots(commandId);
+  if (slotCount === 2 && optSlots.length === 1 && optSlots[0] === 0) {
+    return [1, 0];
+  }
   if (preset === 'writing_cn') {
     const custom = WRITING_CN_ORDERS[commandId];
     if (isValidPermutation(custom, slotCount)) {
       return [...custom];
-    }
-  } else {
-    const std = STANDARD_DEFAULT_ORDERS[commandId];
-    if (isValidPermutation(std, slotCount)) {
-      return [...std];
     }
   }
   return Array.from({ length: slotCount }, (_, i) => i);

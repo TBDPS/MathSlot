@@ -247,10 +247,7 @@ function tokenizeSlotForCanonical(
     const isBigOp = PREFIX_BIGOPS.has(node.commandId);
     const isFuncStruct = node.commandId === 'operatorname';
     const isDiffStruct = node.commandId === 'diff';
-    const isBinOpStruct =
-      node.commandId === 'xrightarrow' ||
-      node.commandId === 'xleftarrow' ||
-      node.commandId === 'pmod';
+    const isBinOpStruct = BINARY_RELATION_SYMBOLS.has(node.commandId);
     tokens.push({
       text: emitStructCanonical(node, level, autoShorthands),
       kind: isBigOp

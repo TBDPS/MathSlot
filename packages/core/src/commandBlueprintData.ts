@@ -341,6 +341,14 @@ export const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, '
       inlineMacros: ['bigotimes'],
       bigopMacro: '\\bigotimes',
     },
+    bigwedge: {
+      tightSlots: [0, 1],
+      bottomSlots: [0],
+      isTall: true,
+      isPrefixBigOp: true,
+      inlineMacros: ['bigwedge'],
+      bigopMacro: '\\bigwedge',
+    },
     limit: {
       tightSlots: [0, 1],
       bottomSlots: [0, 1],
@@ -559,6 +567,7 @@ export const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, '
     },
     xrightarrow: {
       tightSlots: [0],
+      isBinaryRelation: true,
       nextBraceSlot: 1,
       inlineMacros: ['xrightarrow'],
       verticalNav: REVERSE_TWO_SLOT_VERTICAL,
@@ -576,6 +585,7 @@ export const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, '
     },
     xleftarrow: {
       tightSlots: [0],
+      isBinaryRelation: true,
       nextBraceSlot: 1,
       inlineMacros: ['xleftarrow'],
       verticalNav: REVERSE_TWO_SLOT_VERTICAL,
@@ -585,6 +595,107 @@ export const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, '
       ],
       parseRule: {
         macros: ['\\xleftarrow'],
+        signature: [
+          { kind: 'bracket_opt', slot: 0 },
+          { kind: 'brace', slot: 1 },
+        ],
+      },
+    },
+    ket: {
+      isSelfDelimited: true,
+      isDelimiter: true,
+      backwardWrap: true,
+      inlineMacros: ['ket'],
+      parseRule: {
+        macros: ['\\ket'],
+        signature: [{ kind: 'brace', slot: 0 }],
+      },
+    },
+    bra: {
+      isSelfDelimited: true,
+      isDelimiter: true,
+      backwardWrap: true,
+      inlineMacros: ['bra'],
+      parseRule: {
+        macros: ['\\bra'],
+        signature: [{ kind: 'brace', slot: 0 }],
+      },
+    },
+    braket: {
+      isSelfDelimited: true,
+      isDelimiter: true,
+      nextBraceSlot: 1,
+      inlineMacros: ['braket'],
+      parseRule: {
+        macros: ['\\braket'],
+        signature: [
+          { kind: 'brace', slot: 0 },
+          { kind: 'brace', slot: 1 },
+        ],
+      },
+    },
+    stackrel: {
+      tightSlots: [0],
+      isBinaryRelation: true,
+      nextBraceSlot: 1,
+      inlineMacros: ['stackrel'],
+      verticalNav: TWO_SLOT_VERTICAL,
+      parseRule: {
+        macros: ['\\stackrel'],
+        signature: [
+          { kind: 'brace', slot: 0 },
+          { kind: 'brace', slot: 1 },
+        ],
+      },
+    },
+    xRightarrow: {
+      tightSlots: [0],
+      isBinaryRelation: true,
+      nextBraceSlot: 1,
+      inlineMacros: ['xRightarrow'],
+      verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+      adaptiveTemplates: [
+        { slotCount: 2, filled: [0], latex: '\\xRightarrow[$1]{$2}' },
+        { slotCount: 2, filled: [], latex: '\\xRightarrow{$2}' },
+      ],
+      parseRule: {
+        macros: ['\\xRightarrow'],
+        signature: [
+          { kind: 'bracket_opt', slot: 0 },
+          { kind: 'brace', slot: 1 },
+        ],
+      },
+    },
+    xLeftrightarrow: {
+      tightSlots: [0],
+      isBinaryRelation: true,
+      nextBraceSlot: 1,
+      inlineMacros: ['xLeftrightarrow'],
+      verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+      adaptiveTemplates: [
+        { slotCount: 2, filled: [0], latex: '\\xLeftrightarrow[$1]{$2}' },
+        { slotCount: 2, filled: [], latex: '\\xLeftrightarrow{$2}' },
+      ],
+      parseRule: {
+        macros: ['\\xLeftrightarrow'],
+        signature: [
+          { kind: 'bracket_opt', slot: 0 },
+          { kind: 'brace', slot: 1 },
+        ],
+      },
+    },
+    xmapsto: {
+      tightSlots: [0],
+      isBinaryRelation: true,
+      nextBraceSlot: 1,
+      inlineMacros: ['xmapsto'],
+      verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+      adaptiveTemplates: [
+        { slotCount: 2, filled: [0], latex: '\\xmapsto[$1]{$2}' },
+        { slotCount: 2, filled: [], latex: '\\xmapsto{$2}' },
+      ],
+      parseRule: {
+        macros: ['\\xmapsto'],
         signature: [
           { kind: 'bracket_opt', slot: 0 },
           { kind: 'brace', slot: 1 },
