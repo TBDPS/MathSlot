@@ -74,6 +74,13 @@ declare module 'obsidian' {
     addButton(cb: (component: ButtonComponent) => unknown): this;
   }
 
+  export type Modifier = 'Mod' | 'Ctrl' | 'Meta' | 'Shift' | 'Alt';
+
+  export interface Hotkey {
+    modifiers: Modifier[];
+    key: string;
+  }
+
   export class Plugin {
     app: App;
     onload(): void | Promise<void>;
@@ -82,6 +89,7 @@ declare module 'obsidian' {
     addCommand(command: {
       id: string;
       name: string;
+      hotkeys?: Hotkey[];
       editorCallback?: (editor: Editor) => void;
       callback?: () => void;
     }): void;
@@ -231,9 +239,16 @@ declare module '@codemirror/view' {
         create: (state: EditorState) => DecorationSet,
       ): Extension;
     };
+    static editorAttributes: {
+      compute(
+        deps: readonly StateField<unknown>[],
+        create: (state: EditorState) => Record<string, string> | null,
+      ): Extension;
+    };
     static domEventHandlers(
       handlers: Partial<{
         keydown: (event: KeyboardEvent, view: EditorView) => boolean | void;
+        focus: (event: FocusEvent, view: EditorView) => boolean | void;
       }>,
     ): Extension;
   }

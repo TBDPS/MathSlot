@@ -4,6 +4,7 @@ import type MathSlotPlugin from './main';
 
 export interface ObsidianInlinePrefs {
   enabled: boolean;
+  autoActivateOnClick: boolean;
   leaderKey: 'Tab' | '`';
   naturalFraction: boolean;
   naturalScripts: boolean;
@@ -13,6 +14,7 @@ export interface ObsidianInlinePrefs {
 
 export const DEFAULT_OBSIDIAN_INLINE_PREFS: ObsidianInlinePrefs = {
   enabled: true,
+  autoActivateOnClick: false,
   leaderKey: 'Tab',
   naturalFraction: true,
   naturalScripts: true,
@@ -35,12 +37,12 @@ export class MathSlotSettingTab extends PluginSettingTab {
     const prefs = this.plugin.getInlinePrefs();
     const slotPreset = this.plugin.getSlotOrderPreset();
 
-    new Setting(containerEl).setName('原位无感流式输入（推荐）').setHeading();
+    new Setting(containerEl).setName('快捷键呼出双栏流式模式').setHeading();
 
     new Setting(containerEl)
-      .setName('启用原位流式模式')
+      .setName('启用原位双栏专注模式')
       .setDesc(
-        '在笔记原生 $...$ 与 $$...$$ 中按引导键在光标正上方浮现单行紧凑胶囊（零遮挡下方实时预览），按 ; 跳槽并自动清理空可选括号，连敲 \\\\ 进入原生 TeX 透传区间。',
+        '默认按 Alt+M 呼出（可在 Obsidian「快捷键」搜索 MathSlot 自定义）：不在公式内自动包裹 $...$（再按一次升级为 $$...$$），行上方常驻 KaTeX 实时预览，行下方常驻呼吸提示栏；最外层按 Enter / Esc / ; 自动跳到 $ 右侧收起。',
       )
       .addToggle((toggle) =>
         toggle.setValue(prefs.enabled).onChange(async (value) => {
@@ -49,12 +51,21 @@ export class MathSlotSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName('原位引导键（Leader Key）')
-      .setDesc('在公式内部呼出上方横向结构胶囊的触发键；在胶囊内按 w 可一键升维至 2D 画布工作台。')
+      .setName('光标进入已有公式时自动弹出双栏')
+      .setDesc('默认关闭（推荐仅由快捷键显式呼出，彻底零打扰）；开启后鼠标点入已有 $...$ 也会自动唤起上下双栏。')
+      .addToggle((toggle) =>
+        toggle.setValue(prefs.autoActivateOnClick).onChange(async (value) => {
+          await this.plugin.updateInlinePrefs({ autoActivateOnClick: value });
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('结构菜单触发键（Leader Key）')
+      .setDesc('在公式专注态中展开下方结构键位条的按键；按 w 可一键升维至 2D 画布工作台。')
       .addDropdown((dd) =>
         dd
           .addOption('Tab', 'Tab（默认，推荐）')
-          .addOption('`', '反引号 `（避免与其它 Tab 插件冲突）')
+          .addOption('`', '反引号 `')
           .setValue(prefs.leaderKey)
           .onChange(async (value) => {
             await this.plugin.updateInlinePrefs({
@@ -63,11 +74,11 @@ export class MathSlotSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl).setName('原位语法糖细粒度开关').setHeading();
+    new Setting(containerEl).setName('语法糖细粒度开关').setHeading();
 
     new Setting(containerEl)
       .setName('自然分式（/ 自动包分母）')
-      .setDesc('在公式内输入 a/b 自动展开为 \\frac{a}{b}，按 ; 跳出分母（在 \\\\ 原生透传区间内自动静默）。')
+      .setDesc('输入 a/b 自动展开为 \\frac{a}{b}，按 ; 跳出分母（在 \\\\ 原生透传区间内自动静默）。')
       .addToggle((toggle) =>
         toggle.setValue(prefs.naturalFraction).onChange(async (value) => {
           await this.plugin.updateInlinePrefs({ naturalFraction: value });
@@ -76,7 +87,7 @@ export class MathSlotSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('自然上下标（^ 与 _ 自动花括号）')
-      .setDesc('在公式内输入 x^2; 自动写入 x^{2} 并支持按 ; 跳出上下标。')
+      .setDesc('输入 x^2; 自动写入 x^{2} 并支持按 ; 跳出上下标。')
       .addToggle((toggle) =>
         toggle.setValue(prefs.naturalScripts).onChange(async (value) => {
           await this.plugin.updateInlinePrefs({ naturalScripts: value });
@@ -94,9 +105,7 @@ export class MathSlotSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('英文词边界简写')
-      .setDesc(
-        '自动将独立英文词 pi (\\pi)、oo (\\infty)、dx (\\mathrm{d}x)、alpha (\\alpha)、sin (\\sin) 等展开为标准 TeX 宏，绝不误伤 spin 等连续单词或 \\pi 等原生宏。',
-      )
+      .setDesc('自动识别独立词 pi (\\pi)、oo (\\infty)、dx (\\mathrm{d}x)、alpha (\\alpha)、sin (\\sin) 等。')
       .addToggle((toggle) =>
         toggle.setValue(prefs.wordShorthands).onChange(async (value) => {
           await this.plugin.updateInlinePrefs({ wordShorthands: value });
@@ -107,7 +116,7 @@ export class MathSlotSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('槽位填充顺序预设')
-      .setDesc('同时作用于原位流式模式与 2D 画布工作台（如定积分、求和的上下限跳转顺序）。')
+      .setDesc('同时作用于原位专注模式与 2D 画布工作台。')
       .addDropdown((dd) =>
         dd
           .addOption('standard', '标准顺序（先下限、后上限、再被积式）')

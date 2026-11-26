@@ -14,7 +14,6 @@ import {
   mergeCommands,
   stripBlockquoteSelection,
   type DelimiterStyle,
-  type InlineExpanderSettings,
   type InlineMathSpan,
   type MathWrapperKind,
   type SlotOrderPreset,
@@ -25,16 +24,16 @@ import {
   MathSlotSettingTab,
   type ObsidianInlinePrefs,
 } from './SettingTab';
-import { createMathSlotInlineExtension } from './inlineExtension';
+import {
+  createMathSlotInlineController,
+  type MathSlotInlineController,
+  type MathSlotInlineRuntimeSettings,
+} from './inlineExtension';
 
 export interface ObsidianPluginData extends PersistedStore {
   obsidianInline?: Partial<ObsidianInlinePrefs>;
 }
 
-/**
- * 3-way delta merge for ID-keyed collections so two concurrent Obsidian modals never
- * overwrite each other's newly added snippets, history entries, or custom commands.
- */
 function mergeByIdDelta<T extends { id: string }>(
   base: readonly T[],
   disk: readonly T[],
@@ -89,6 +88,10 @@ function mergeStringSetDelta(
 function normalizeInlinePrefs(raw?: Partial<ObsidianInlinePrefs> | null): ObsidianInlinePrefs {
   return {
     enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : DEFAULT_OBSIDIAN_INLINE_PREFS.enabled,
+    autoActivateOnClick:
+      typeof raw?.autoActivateOnClick === 'boolean'
+        ? raw.autoActivateOnClick
+        : DEFAULT_OBSIDIAN_INLINE_PREFS.autoActivateOnClick,
     leaderKey: raw?.leaderKey === '`' ? '`' : 'Tab',
     naturalFraction:
       typeof raw?.naturalFraction === 'boolean'
@@ -112,21 +115,24 @@ function normalizeInlinePrefs(raw?: Partial<ObsidianInlinePrefs> | null): Obsidi
 export default class MathSlotPlugin extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
   private inlinePrefs: ObsidianInlinePrefs = { ...DEFAULT_OBSIDIAN_INLINE_PREFS };
-  private cachedInlineSettings: InlineExpanderSettings = { ...DEFAULT_INLINE_SETTINGS };
+  private cachedInlineSettings: MathSlotInlineRuntimeSettings = {
+    ...DEFAULT_INLINE_SETTINGS,
+    autoActivateOnClick: false,
+  };
   private slotOrderPreset: SlotOrderPreset = 'standard';
+  private inlineController: MathSlotInlineController | null = null;
 
   async onload(): Promise<void> {
     await this.reloadInlineCacheFromDisk();
 
-    this.registerEditorExtension(
-      createMathSlotInlineExtension({
-        getSettings: () => this.cachedInlineSettings,
-        openWorkbenchAtSpan: (view, span) => {
-          this.openEditorFromInlineSpan(view, span);
-        },
-      }),
-    );
+    this.inlineController = createMathSlotInlineController({
+      getSettings: () => this.cachedInlineSettings,
+      openWorkbenchAtSpan: (view, span) => {
+        this.openEditorFromInlineSpan(view, span);
+      },
+    });
 
+    this.registerEditorExtension(this.inlineController.extension);
     this.addSettingTab(new MathSlotSettingTab(this.app, this));
 
     this.addRibbonIcon('sigma', 'MathSlot 公式工作台', () => {
@@ -135,8 +141,24 @@ export default class MathSlotPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: 'summon-mathslot-inline',
+      name: '进入公式流式编辑模式（自动插入 $...$ / 再按升级 $$...$$）',
+      hotkeys: [{ modifiers: ['Alt'], key: 'm' }],
+      editorCallback: (editor: Editor) => {
+        const cmView = (editor as unknown as { cm?: EditorView })?.cm ?? null;
+        if (!this.inlinePrefs.enabled) {
+          void this.updateInlinePrefs({ enabled: true }).then(() => {
+            this.inlineController?.summonOrUpgrade(cmView);
+          });
+          return;
+        }
+        this.inlineController?.summonOrUpgrade(cmView);
+      },
+    });
+
+    this.addCommand({
       id: 'open-mathslot-editor',
-      name: '打开 2D 公式工作台（自动识别光标处公式）',
+      name: '打开 2D 公式工作台弹窗（复杂矩阵 / 公式库 / MathML 导出）',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor);
       },
@@ -144,7 +166,7 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'open-mathslot-block',
-      name: '插入块级公式 ($$...$$)',
+      name: '在 2D 工作台中插入块级公式 ($$...$$)',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor, 'block');
       },
@@ -152,11 +174,11 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'toggle-mathslot-inline-mode',
-      name: '切换原位无感流式输入开关',
+      name: '切换原位双栏流式模式总开关',
       callback: async () => {
         const next = !this.inlinePrefs.enabled;
         await this.updateInlinePrefs({ enabled: next });
-        new Notice(next ? 'MathSlot：已开启原位无感流式模式' : 'MathSlot：已暂停原位无感流式模式');
+        new Notice(next ? 'MathSlot：已启用原位双栏模式（按 Alt+M 呼出）' : 'MathSlot：已关闭原位双栏模式');
       },
     });
   }
@@ -229,6 +251,7 @@ export default class MathSlotPlugin extends Plugin {
 
     this.cachedInlineSettings = {
       enabled: this.inlinePrefs.enabled,
+      autoActivateOnClick: this.inlinePrefs.autoActivateOnClick,
       leaderKey: this.inlinePrefs.leaderKey,
       naturalFraction: this.inlinePrefs.naturalFraction,
       naturalScripts: this.inlinePrefs.naturalScripts,

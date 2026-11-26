@@ -1,5 +1,4 @@
 import { COMMANDS, COMMANDS_BY_ID, SUBMENU_KEYS } from '../catalog';
-import { isRenderableRawLatex } from '../commandSpecs';
 import { MATH_FUNCTIONS, OPERATORNAME_FUNCTIONS } from '../emitIr';
 import {
   AUTO_SHORTHANDS,
@@ -15,6 +14,7 @@ import {
   type InlineSessionState,
   type InlineTabstop,
   applyExpandedCommand,
+  createEmptyInlineSession,
   DEFAULT_INLINE_SETTINGS,
   mapInlineSessionThroughChange,
   resolveSubmenuDefaultCmd,
@@ -131,6 +131,7 @@ export function handleInlineLeaderTrigger(state: InlineSessionState): InlineActi
       return {
         kind: 'handled',
         state: {
+          active: state.active,
           currentSlot: b.prevCurrentSlot,
           queue: b.prevQueue,
           visited: b.prevVisited,
@@ -165,6 +166,7 @@ export function handleInlineLeaderKey(
       return {
         kind: 'handled',
         state: {
+          active: state.active,
           currentSlot: morphBackup.prevCurrentSlot,
           queue: morphBackup.prevQueue,
           visited: morphBackup.prevVisited,
@@ -183,6 +185,7 @@ export function handleInlineLeaderKey(
       return {
         kind: 'handled',
         state: {
+          active: state.active,
           currentSlot: morphBackup.prevCurrentSlot,
           queue: morphBackup.prevQueue,
           visited: morphBackup.prevVisited,
@@ -220,6 +223,7 @@ export function handleInlineLeaderKey(
         return {
           kind: 'handled',
           state: {
+            active: state.active,
             currentSlot: applied.currentSlot,
             queue: applied.queue,
             visited: prevVisited,
@@ -257,6 +261,7 @@ export function handleInlineLeaderKey(
       return {
         kind: 'handled',
         state: {
+          active: state.active,
           currentSlot: applied.currentSlot,
           queue: applied.queue,
           visited: state.visited,
@@ -290,6 +295,7 @@ export function handleInlineLeaderKey(
         return {
           kind: 'handled',
           state: {
+            active: state.active,
             currentSlot: morphBackup ? morphBackup.prevCurrentSlot : state.currentSlot,
             queue: morphBackup ? morphBackup.prevQueue : state.queue,
             visited: morphBackup ? morphBackup.prevVisited : state.visited,
@@ -314,6 +320,7 @@ export function handleInlineLeaderKey(
     return {
       kind: 'handled',
       state: {
+        active: state.active,
         currentSlot: applied.currentSlot,
         queue: applied.queue,
         visited: baseVisited,
@@ -334,6 +341,20 @@ export function handleInlineLeaderKey(
   return { kind: 'handled', state: { ...state, leader: null } };
 }
 
+function isBalancedInlineTopLevel(slice: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < slice.length; i += 1) {
+    if (slice[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    const c = slice[i];
+    if (c === '(' || c === '[' || c === '{') depth += 1;
+    else if (c === ')' || c === ']' || c === '}') depth = Math.max(0, depth - 1);
+  }
+  return depth === 0;
+}
+
 export function handleInlineSemicolon(
   docText: string,
   cursorPos: number,
@@ -343,7 +364,27 @@ export function handleInlineSemicolon(
 ): InlineActionResult {
   if (state.rawSpan) return { kind: 'noop' };
   if (cursorPos > 0 && docText[cursorPos - 1] === '\\') return { kind: 'noop' };
-  if (!state.currentSlot && state.queue.length === 0) return { kind: 'noop' };
+  if (!state.currentSlot && state.queue.length === 0) {
+    if (state.active && mathSpan) {
+      const fullBefore = docText.slice(mathSpan.contentFrom, cursorPos);
+      if (!isInsideVerbatimTexMacro(fullBefore) && isBalancedInlineTopLevel(fullBefore)) {
+        const spanStart = Math.max(mathSpan.contentFrom, state.rawProtectedUpTo ?? 0);
+        const hit = resolveBareWordReplacement(docText.slice(spanStart, cursorPos), settings);
+        const changes = hit
+          ? { from: cursorPos - hit.word.length, to: cursorPos, insert: hit.replacement }
+          : undefined;
+        const delta = hit ? hit.replacement.length - hit.word.length : 0;
+        return {
+          kind: 'handled',
+          state: createEmptyInlineSession(),
+          changes,
+          selection: mathSpan.rawTo + delta,
+          exitSession: true,
+        };
+      }
+    }
+    return { kind: 'noop' };
+  }
 
   let changes: { from: number; to: number; insert: string } | undefined;
   let queue = [...state.queue];
@@ -389,7 +430,7 @@ export function handleInlineSemicolon(
   if (!next) {
     return {
       kind: 'handled',
-      state: { currentSlot: null, queue: [], visited, leader: null, rawSpan: null },
+      state: { active: state.active, currentSlot: null, queue: [], visited, leader: null, rawSpan: null },
       changes,
       selection: changes ? changes.from + changes.insert.length : cursorPos,
     };
@@ -399,6 +440,7 @@ export function handleInlineSemicolon(
     return {
       kind: 'handled',
       state: {
+        active: state.active,
         currentSlot: queue.length > 0 ? { from: next.to, to: next.to, label: '' } : null,
         queue,
         visited,
@@ -413,6 +455,7 @@ export function handleInlineSemicolon(
   return {
     kind: 'handled',
     state: {
+      active: state.active,
       currentSlot: next,
       queue,
       visited,
@@ -422,67 +465,6 @@ export function handleInlineSemicolon(
     changes,
     selection: next.to,
   };
-}
-
-export function handleInlinePrevSlot(
-  cursorPos: number,
-  state: InlineSessionState,
-  mathSpan: InlineMathSpan | null,
-): InlineActionResult {
-  if (state.rawSpan || state.visited.length === 0 || !mathSpan) {
-    return { kind: 'noop' };
-  }
-  const visited = [...state.visited];
-  const prev = visited.pop()!;
-  if (prev.from < mathSpan.contentFrom || prev.to > mathSpan.contentTo) {
-    return { kind: 'noop' };
-  }
-  const nextQueue = [...state.queue];
-  if (state.currentSlot && state.currentSlot.label !== '') {
-    nextQueue.unshift(state.currentSlot);
-  } else if (nextQueue.length === 0) {
-    nextQueue.unshift({ from: cursorPos, to: cursorPos, label: '跳出', isExit: true });
-  }
-  return {
-    kind: 'handled',
-    state: {
-      currentSlot: prev,
-      queue: nextQueue,
-      visited,
-      leader: null,
-      rawSpan: null,
-    },
-    selection: prev.to,
-  };
-}
-
-export function handleInlineSpecialKey(
-  docText: string,
-  cursorPos: number,
-  key: 'Enter' | 'ArrowRight',
-  state: InlineSessionState,
-): InlineActionResult {
-  if (!state.rawSpan) return { kind: 'noop' };
-  const rawContent = docText.slice(state.rawSpan.from, state.rawSpan.to);
-  if (key === 'Enter') {
-    return {
-      kind: 'handled',
-      state: { ...state, rawSpan: null, rawProtectedUpTo: state.rawSpan.to },
-      selection: state.rawSpan.to,
-    };
-  }
-  if (
-    key === 'ArrowRight' &&
-    cursorPos === state.rawSpan.to &&
-    (rawContent === '' || isRenderableRawLatex(rawContent))
-  ) {
-    return {
-      kind: 'handled',
-      state: { ...state, rawSpan: null, rawProtectedUpTo: state.rawSpan.to },
-      selection: state.rawSpan.to,
-    };
-  }
-  return { kind: 'noop' };
 }
 
 export function handleInlineCharTyped(
@@ -553,6 +535,7 @@ export function handleInlineCharTyped(
     return {
       kind: 'handled',
       state: {
+        active: state.active,
         currentSlot: scriptSlot,
         queue: [exitStop, ...shifted.queue],
         visited: shifted.visited,
@@ -605,6 +588,7 @@ export function handleInlineCharTyped(
     return {
       kind: 'handled',
       state: {
+        active: state.active,
         currentSlot: numRaw
           ? { from: denPos, to: denPos, label: '分母' }
           : { from: repFrom + 6, to: repFrom + 6, label: '分子' },

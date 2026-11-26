@@ -87,128 +87,310 @@
 }
 
 /* =========================================================================
-   Low-Intrusion Inline Mode: Above-Cursor Capsule & Slot Micro-Decorations
+   Dual-Panel Stationary HUD: Top Adaptive KaTeX Preview + Bottom Hint Bar
+   High-contrast crisp tokens for Light & Dark themes (zero cursor jitter)
    ========================================================================= */
 
-.cm-tooltip:has(> .mathslot-inline-capsule) {
+body {
+  --ms-hud-bg: #ffffff;
+  --ms-hud-border: rgba(15, 23, 42, 0.13);
+  --ms-hud-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.11), 0 2px 6px -1px rgba(15, 23, 42, 0.06);
+  --ms-hud-text: #0f172a;
+  --ms-hud-sub: #475569;
+  --ms-hud-key-bg: #f1f5f9;
+  --ms-hud-key-border: #cbd5e1;
+  --ms-hud-key-bezel: #cbd5e1;
+  --ms-hud-key-text: #0f172a;
+  --ms-hud-pill-hover: #f1f5f9;
+  --ms-hud-accent: #2563eb;
+  --ms-hud-accent-soft: rgba(37, 99, 235, 0.10);
+  --ms-hud-accent-border: rgba(37, 99, 235, 0.35);
+  --ms-hud-amber: #d97706;
+  --ms-hud-amber-soft: rgba(217, 119, 6, 0.12);
+}
+
+body.theme-dark {
+  --ms-hud-bg: #1c212b;
+  --ms-hud-border: rgba(255, 255, 255, 0.13);
+  --ms-hud-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --ms-hud-text: #f1f5f9;
+  --ms-hud-sub: #94a3b8;
+  --ms-hud-key-bg: #293040;
+  --ms-hud-key-border: rgba(255, 255, 255, 0.16);
+  --ms-hud-key-bezel: rgba(0, 0, 0, 0.5);
+  --ms-hud-key-text: #f8fafc;
+  --ms-hud-pill-hover: rgba(255, 255, 255, 0.08);
+  --ms-hud-accent: #60a5fa;
+  --ms-hud-accent-soft: rgba(96, 165, 250, 0.16);
+  --ms-hud-accent-border: rgba(96, 165, 250, 0.42);
+  --ms-hud-amber: #fbbf24;
+  --ms-hud-amber-soft: rgba(251, 191, 36, 0.15);
+}
+
+/* Hide Obsidian's redundant bottom block preview while MathSlot's live HUD is editing $$...$$ */
+.cm-editor.mathslot-inline-block-active .cm-embed-block.math {
+  display: none !important;
+}
+
+.cm-editor.mathslot-inline-active .cm-scroller {
+  scroll-padding-top: 68px;
+  scroll-padding-bottom: 56px;
+}
+
+/* Strip Obsidian's default tooltip chrome around our HUD cards */
+.cm-tooltip:has(> .mathslot-hud-card) {
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
-  margin-bottom: 5px !important;
-  z-index: 40;
+  z-index: 45;
 }
 
-.mathslot-inline-capsule {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: min(720px, 88vw);
-  padding: 4px 8px;
-  border-radius: 9px;
-  background: var(--background-primary-alt, var(--background-secondary));
-  border: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border));
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+.cm-tooltip.cm-tooltip-above:has(> .mathslot-hud-preview) {
+  margin-bottom: 6px !important;
+}
+
+.cm-tooltip.cm-tooltip-below:has(> .mathslot-hud-bar) {
+  margin-top: 6px !important;
+}
+
+.mathslot-hud-card {
+  background: var(--ms-hud-bg);
+  border: 1px solid var(--ms-hud-border);
+  box-shadow: var(--ms-hud-shadow);
+  color: var(--ms-hud-text);
   font-family: var(--font-interface);
-  font-size: 11.5px;
-  line-height: 1.25;
-  color: var(--text-normal);
   user-select: none;
 }
 
-.mathslot-inline-capsule .ms-cap-lead {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border-radius: 5px;
-  font-family: var(--font-monospace);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
+/* --- TOP CARD: Adaptive Live KaTeX Preview --- */
+.mathslot-hud-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  min-width: 72px;
+  max-width: min(680px, 86vw);
+  padding: 7px 14px;
+  border-radius: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-.mathslot-inline-capsule .ms-cap-items {
+.mathslot-hud-preview .ms-hud-math {
+  color: var(--ms-hud-text);
+  font-size: 1.06em;
+  line-height: 1.25;
+}
+
+.mathslot-hud-preview .ms-hud-math .katex-display {
+  margin: 0 !important;
+  text-align: left !important;
+}
+
+.mathslot-hud-preview .ms-hud-math .katex-display > .katex {
+  text-align: left !important;
+}
+
+/* Active & pending slot indicators inside the live KaTeX preview */
+.mathslot-hud-preview .ms-hud-slot-active {
+  display: inline-block;
+  padding: 0 2px;
+  border-radius: 3px;
+  color: var(--ms-hud-accent);
+  background: var(--ms-hud-accent-soft);
+}
+
+.mathslot-hud-preview .ms-hud-slot-filled {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--ms-hud-accent-soft);
+  border-bottom: 1.5px solid var(--ms-hud-accent);
+}
+
+.mathslot-hud-preview .ms-hud-slot-pending {
+  color: var(--ms-hud-sub);
+  opacity: 0.72;
+}
+
+.mathslot-hud-preview .ms-hud-raw-chip {
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--ms-hud-amber);
+  background: var(--ms-hud-amber-soft);
+}
+
+.mathslot-hud-preview .ms-hud-empty-caption {
+  font-size: 12px;
+  color: var(--ms-hud-sub);
+  white-space: nowrap;
+}
+
+.mathslot-hud-preview .ms-hud-mode-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ms-hud-accent);
+  background: var(--ms-hud-accent-soft);
+}
+
+.mathslot-hud-preview .ms-hud-mode-tag.is-raw {
+  color: var(--ms-hud-amber);
+  background: var(--ms-hud-amber-soft);
+}
+
+.mathslot-hud-preview .ms-hud-fallback-code {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  color: var(--ms-hud-text);
+}
+
+/* --- BOTTOM CARD: Breathing Status & Crisp Command Keycaps --- */
+.mathslot-hud-bar {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  max-width: min(680px, 86vw);
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  line-height: 1.25;
+}
+
+.mathslot-hud-bar .ms-bar-status {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 3px 5px;
-  max-height: 58px;
-  overflow-y: auto;
+  gap: 6px 10px;
 }
 
-.mathslot-inline-capsule .ms-cap-pill {
+.mathslot-hud-bar .ms-bar-slot-pill {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 21px !important;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ms-hud-accent);
+  background: var(--ms-hud-accent-soft);
+}
+
+.mathslot-hud-bar .ms-bar-slot-pill.is-raw {
+  color: var(--ms-hud-amber);
+  background: var(--ms-hud-amber-soft);
+}
+
+.mathslot-hud-bar .ms-bar-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ms-hud-text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mathslot-hud-bar .ms-bar-sep {
+  color: var(--ms-hud-sub);
+  font-size: 10px;
+}
+
+.mathslot-hud-bar .ms-bar-workbench-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 20px !important;
   min-height: 0 !important;
-  padding: 1px 5px !important;
+  padding: 0 7px !important;
+  margin: 0 0 0 2px !important;
+  border-radius: 5px;
+  border: 1px solid var(--ms-hud-accent-border);
+  background: var(--ms-hud-accent-soft);
+  box-shadow: none !important;
+  color: var(--ms-hud-accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 140ms ease-out;
+}
+
+.mathslot-hud-bar .ms-bar-workbench-btn:active {
+  transform: scale(0.97);
+}
+
+/* Command Keycaps Strip (when Tab is pressed — NO redundant left Tab label) */
+.mathslot-hud-bar .ms-cap-items {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+}
+
+.mathslot-hud-bar .ms-cap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px !important;
+  min-height: 0 !important;
+  padding: 1px 6px 1px 4px !important;
   margin: 0 !important;
   border-radius: 5px;
   border: 1px solid transparent;
   background: transparent;
   box-shadow: none !important;
-  color: var(--text-muted);
-  font-size: 11px;
+  color: var(--ms-hud-text);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 100ms ease, color 100ms ease;
+  transition: transform 140ms ease-out, background-color 120ms ease;
 }
 
-.mathslot-inline-capsule .ms-cap-pill:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+@media (hover: hover) and (pointer: fine) {
+  .mathslot-hud-bar .ms-cap-pill:hover {
+    background: var(--ms-hud-pill-hover);
+  }
 }
 
-.mathslot-inline-capsule .ms-cap-pill.is-default {
-  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
-  color: var(--text-normal);
+.mathslot-hud-bar .ms-cap-pill:active {
+  transform: scale(0.97);
 }
 
-.mathslot-inline-capsule .ms-cap-pill.is-workbench {
-  border-color: var(--background-modifier-border);
-  color: var(--interactive-accent);
+.mathslot-hud-bar .ms-cap-pill.is-default {
+  border-color: var(--ms-hud-accent-border);
+  background: var(--ms-hud-accent-soft);
+}
+
+.mathslot-hud-bar .ms-cap-pill.is-workbench {
+  border-color: var(--ms-hud-accent-border);
+  color: var(--ms-hud-accent);
   font-weight: 600;
 }
 
-.mathslot-inline-capsule .ms-cap-key {
+.mathslot-hud-bar .ms-cap-key {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 3.5px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ms-hud-key-bg);
+  border: 1px solid var(--ms-hud-key-border);
+  box-shadow: 0 1px 0 var(--ms-hud-key-bezel);
   font-family: var(--font-monospace);
   font-size: 10.5px;
-  font-weight: 600;
-  color: var(--text-normal);
+  font-weight: 700;
+  color: var(--ms-hud-key-text);
 }
 
-.mathslot-inline-capsule.mathslot-raw-capsule {
-  gap: 6px;
-  padding: 3px 9px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.mathslot-inline-capsule .ms-cap-raw-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-amber, #d97706);
-  flex-shrink: 0;
-}
-
+/* Source-line subtle slot indicators */
 .cm-line .mathslot-active-slot {
-  border-bottom: 1.5px dashed color-mix(in srgb, var(--interactive-accent) 65%, transparent);
+  border-bottom: 1.5px dashed var(--ms-hud-accent);
   border-radius: 2px;
 }
 
 .cm-line .mathslot-pending-slot {
-  border-bottom: 1px dotted var(--text-faint);
+  border-bottom: 1px dotted var(--ms-hud-sub);
 }
 
 .cm-line .mathslot-slot-placeholder {
@@ -216,8 +398,8 @@
   margin: 0 1px;
   font-family: var(--font-monospace);
   font-size: 0.86em;
-  color: var(--text-faint);
-  opacity: 0.65;
+  color: var(--ms-hud-sub);
+  opacity: 0.72;
   pointer-events: none;
   user-select: none;
 }
@@ -225,7 +407,7 @@
 .cm-line .mathslot-raw-span {
   padding: 0 2px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--color-amber, #d97706) 12%, transparent);
-  border-bottom: 1.5px dashed color-mix(in srgb, var(--color-amber, #d97706) 55%, transparent);
+  background: var(--ms-hud-amber-soft);
+  border-bottom: 1.5px dashed var(--ms-hud-amber);
   font-family: var(--font-monospace);
 }

@@ -56,6 +56,8 @@ export interface InlineRawSpan {
 }
 
 export interface InlineSessionState {
+  /** True when the user is in an active focused inline math editing session */
+  active: boolean;
   currentSlot: InlineTabstop | null;
   queue: InlineTabstop[];
   visited: InlineTabstop[];
@@ -106,6 +108,7 @@ export type InlineActionResult =
       state: InlineSessionState;
       changes?: { from: number; to: number; insert: string };
       selection?: number;
+      exitSession?: boolean;
     }
   | {
       kind: 'commit_and_fallthrough';
@@ -118,11 +121,19 @@ export type InlineActionResult =
 
 export function createEmptyInlineSession(): InlineSessionState {
   return {
+    active: false,
     currentSlot: null,
     queue: [],
     visited: [],
     leader: null,
     rawSpan: null,
+  };
+}
+
+export function createActiveInlineSession(): InlineSessionState {
+  return {
+    ...createEmptyInlineSession(),
+    active: true,
   };
 }
 
@@ -205,6 +216,7 @@ export function mapInlineSessionThroughChange(
   }
 
   return {
+    active: state.active,
     currentSlot,
     queue,
     visited,
