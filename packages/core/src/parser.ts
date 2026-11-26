@@ -11,9 +11,6 @@ import {
 import {
   COMMANDS,
   COMMANDS_BY_ID,
-  COMMANDS_BY_KEYS,
-  SUBMENU_KEYS,
-  getSubmenuDefaultCommandId,
 } from './catalog';
 import {
   ACCENT_MACRO_MAP,
@@ -24,7 +21,10 @@ import {
 } from './commandSpecs';
 import { MATH_FUNCTIONS } from './emitIr';
 import { DIFFERENTIAL_WORDS } from './shorthands';
+import { parseStreamCode } from './streamCodec';
 import type { CommandDef, Diagnostic, Document, ImportResult, MathNode } from './types';
+
+export { parseStreamCode } from './streamCodec';
 
 // Build reverse lookup from normalized LaTeX macro -> atomic Symbol CommandDef
 const SYMBOL_BY_LATEX = new Map<string, CommandDef>();
@@ -112,130 +112,6 @@ function lookupSymbol(macro: string): CommandDef | undefined {
   if (direct) return direct;
   const aliasId = SYMBOL_ALIASES[macro];
   return aliasId ? COMMANDS_BY_ID.get(aliasId) : undefined;
-}
-
-/**
- * Parse MathSlot stream code (e.g. `▸lx;0;▸fsin x;x;;`, `▸ue;i▸gp;; + 1 = 0`)
- * directly into our clean Document AST.
- */
-export function parseStreamCode(source: string): ImportResult {
-  const chars = Array.from(source);
-  let pos = 0;
-  const diagnostics: Diagnostic[] = [];
-
-  const parseNodes = (stopAtSemicolon: boolean): MathNode[] => {
-    const out: MathNode[] = [];
-    while (pos < chars.length) {
-      const ch = chars[pos];
-      if (stopAtSemicolon && ch === ';') {
-        pos += 1;
-        return out;
-      }
-      if (ch === '▸') {
-        pos += 1;
-        if (pos >= chars.length) break;
-        const k1 = chars[pos];
-        pos += 1;
-        let cmd: CommandDef | undefined;
-        let legacySingleSqrt = false;
-        if (k1 === 'n') {
-          // Legacy `▸n3;8;` maps cleanly to unified 2-slot `sqrt`
-          cmd = COMMANDS_BY_ID.get('sqrt');
-        } else if (SUBMENU_KEYS.has(k1)) {
-          if (pos < chars.length) {
-            const k2 = chars[pos];
-            cmd = COMMANDS_BY_KEYS.get(k1 + k2);
-            if (cmd) {
-              pos += 1;
-            }
-          }
-          if (!cmd) {
-            const defId = getSubmenuDefaultCommandId(k1);
-            if (defId) cmd = COMMANDS_BY_ID.get(defId);
-          }
-        }
-        if (!cmd) {
-          if (k1 === 'u') cmd = COMMANDS_BY_ID.get('sup');
-          else if (k1 === 'd') cmd = COMMANDS_BY_ID.get('sub');
-          else if (k1 === 'b') cmd = COMMANDS_BY_ID.get('subsup');
-          else cmd = COMMANDS_BY_KEYS.get(k1);
-          if (k1 === 'r' && cmd?.id === 'sqrt') {
-            legacySingleSqrt = true;
-          }
-        }
-        if (!cmd) {
-          diagnostics.push({ severity: 'warning', message: `未识别简码 ▸${k1}` });
-          continue;
-        }
-        if (cmd.slots.length === 0) {
-          out.push(createSymbolNode(cmd));
-        } else if (legacySingleSqrt) {
-          // Support both legacy 1-slot `▸rx;` and unified 2-slot `▸r3;8;`
-          const first = parseNodes(true);
-          const rest = chars.slice(pos).join('');
-          const semiIdx = rest.indexOf(';');
-          const nextCmdIdx = rest.indexOf('▸');
-          if (semiIdx !== -1 && (nextCmdIdx === -1 || semiIdx < nextCmdIdx)) {
-            const second = parseNodes(true);
-            out.push(createStructNode(cmd, [first, second]));
-          } else {
-            out.push(createStructNode(cmd, [[], first]));
-          }
-        } else {
-          const slotContents: MathNode[][] = [];
-          for (let s = 0; s < cmd.slots.length; s += 1) {
-            slotContents.push(parseNodes(true));
-          }
-          out.push(createStructNode(cmd, slotContents));
-        }
-      } else if (ch === '\\') {
-        const start = pos;
-        pos += 1;
-        let name = '';
-        while (pos < chars.length && /[a-zA-Z]/.test(chars[pos])) {
-          name += chars[pos];
-          pos += 1;
-        }
-        if (name.length > 0) {
-          const macro = `\\${name}`;
-          const sym = lookupSymbol(macro);
-          if (sym) {
-            out.push(createSymbolNode(sym));
-          } else if (MATH_FUNCTIONS.has(name)) {
-            out.push(...textToCharNodes(name));
-          } else if (name === 'mathrm' && chars[pos] === '{') {
-            pos += 1;
-            let inner = '';
-            let depth = 1;
-            while (pos < chars.length && depth > 0) {
-              if (chars[pos] === '{') depth += 1;
-              else if (chars[pos] === '}') depth -= 1;
-              if (depth > 0) inner += chars[pos];
-              pos += 1;
-            }
-            out.push(createRawNode(`\\mathrm{${inner}}`));
-          } else {
-            out.push(createRawNode(macro));
-          }
-        } else {
-          out.push(createCharNode(chars[start]));
-        }
-      } else {
-        out.push(createCharNode(ch));
-        pos += 1;
-      }
-    }
-    return out;
-  };
-
-  const doc = createEmptyDocument();
-  doc.root.children = parseNodes(false);
-  return {
-    doc,
-    diagnostics,
-    lossless: diagnostics.length === 0,
-    hasRawNodes: slotHasRawNodes(doc.root),
-  };
 }
 
 function isEscapedAt(text: string, idx: number): boolean {
