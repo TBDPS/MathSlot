@@ -1,6 +1,44 @@
 import { COMMANDS, COMMANDS_BY_ID } from './catalog';
-import { DEFAULT_SETTINGS } from './types';
-import type { AppSettings, GridMeta, LeaderKey, SlotOrderPreset, ThemeMode } from './types';
+import type { GridMeta, StructNode } from './types';
+
+export * from './gridSpec';
+export * from './sanitize';
+
+export interface AdaptiveTemplateRule {
+  readonly slotCount?: number;
+  readonly filled: readonly number[];
+  readonly latex: string;
+}
+
+export type MacroArgToken =
+  | { readonly kind: 'brace'; readonly slot: number }
+  | { readonly kind: 'bracket_opt'; readonly slot: number }
+  | { readonly kind: 'sub'; readonly slot: number }
+  | { readonly kind: 'sup'; readonly slot: number }
+  | {
+      readonly kind: 'bigop';
+      readonly subSlot: number;
+      readonly supSlot: number;
+      readonly bodySlot: number;
+      readonly integralStyle: boolean;
+    };
+
+export interface MacroParseRule {
+  readonly macros: readonly string[];
+  readonly signature: readonly MacroArgToken[];
+}
+
+export type VerticalSlotNav = Readonly<Record<number, { readonly up?: number; readonly down?: number }>>;
+
+export interface InlineArgOpenSpec {
+  /** Target slot when typing `[` immediately after `\macro` (e.g. `\sqrt[3]{8}`, `\xrightarrow[下]{上}`) */
+  readonly bracketSlot?: number;
+  /** Target slot when typing `{` immediately after `\macro` (e.g. slot 1 for `\sqrt{x}`, slot 0 for `\frac{1}{2}`) */
+  readonly firstBraceSlot?: number;
+  /** Fill order override when opened via `[` vs `{` */
+  readonly bracketFillOrder?: readonly number[];
+  readonly braceFillOrder?: readonly number[];
+}
 
 export interface CommandCapabilities {
   /** Slot indices that collapse cleanly when empty (derived from CommandDef.optionalSlots) */
@@ -31,23 +69,107 @@ export interface CommandCapabilities {
   readonly inlineMacros?: readonly string[];
   /** LaTeX accent/font 1-arg macro (with leading `\`) that parses directly into this 1-slot command */
   readonly accentMacro?: string;
-  /** Declarative next slot index when closing native LaTeX `{...}` / `[...]` on slot 0 (e.g. `\frac{1}{2}`) */
+  /** Declarative next slot index when closing native LaTeX `{...}` / `[...]` on an earlier slot */
   readonly nextBraceSlot?: number;
+  /** Declarative optional-slot adaptive export rules (`__LIMITS__` expands `\limits`/`\nolimits` when present) */
+  readonly adaptiveTemplates?: readonly AdaptiveTemplateRule[];
+  /** Shorthand family macro for 3-slot big operators (`\int`, `\sum`, `\bigoplus`, ...): auto-derives adaptive template, parseRule & verticalNav */
+  readonly bigopMacro?: string;
+  /** Shorthand family macro for 4-slot higher-order derivatives (`\partial` | `\mathrm{d}`) */
+  readonly derivMacro?: '\\partial' | '\\mathrm{d}';
+  /** Declarative spatial ArrowUp / ArrowDown slot transition graph */
+  readonly verticalNav?: VerticalSlotNav;
+  /** Pre-populated symbol command IDs by slot index on fresh insertion (e.g. ellipsis matrices) */
+  readonly initialSlotSymbols?: Readonly<Record<number, string>>;
+  /** Copy static `gridMeta` onto `StructNode.grid` upon command insertion */
+  readonly instantiateGrid?: boolean;
+  /** Exit right after struct when wrapping a selection leaves only optional empty slots (e.g. `sqrt`) */
+  readonly exitAfterWrapIfRestOptional?: boolean;
+  /** Declarative reverse LaTeX macro parsing rule */
+  readonly parseRule?: MacroParseRule;
 }
 
+const TWO_SLOT_VERTICAL: VerticalSlotNav = { 0: { down: 1 }, 1: { up: 0 } };
+const REVERSE_TWO_SLOT_VERTICAL: VerticalSlotNav = { 0: { up: 1 }, 1: { down: 0 } };
+const BIGOP_VERTICAL: VerticalSlotNav = { 0: { up: 1 }, 1: { down: 0 }, 2: { up: 1, down: 0 } };
+const ELLIPSIS_PREFILL: Readonly<Record<number, string>> = {
+  2: 'cdots',
+  6: 'cdots',
+  8: 'vdots',
+  9: 'vdots',
+  10: 'ddots',
+  11: 'vdots',
+  14: 'cdots',
+};
+
 const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optionalSlots'>>> = {
-  frac: { bottomSlots: [1], isTall: true, inlineMacros: ['frac', 'dfrac', 'tfrac'], nextBraceSlot: 1 },
-  partial_frac: { bottomSlots: [1], isTall: true },
-  total_frac: { bottomSlots: [1], isTall: true },
-  nth_partial: { tightSlots: [0, 3], bottomSlots: [2, 3], isTall: true },
-  nth_deriv: { tightSlots: [0, 3], bottomSlots: [2, 3], isTall: true },
-  diff: { tightSlots: [0], isSelfDelimited: true, inlineMacros: ['diff'] },
-  binom: { bottomSlots: [1], isTall: true, inlineMacros: ['binom'], nextBraceSlot: 1 },
-  sqrt: { tightSlots: [0], isTall: true, inlineMacros: ['sqrt'], nextBraceSlot: 1 },
-  nth_root: { tightSlots: [0], isTall: true },
-  sup: { tightSlots: [1], backwardWrap: true },
-  sub: { tightSlots: [1], bottomSlots: [1], backwardWrap: true },
-  subsup: { tightSlots: [1, 2], bottomSlots: [1], backwardWrap: true },
+  frac: {
+    bottomSlots: [1],
+    isTall: true,
+    inlineMacros: ['frac', 'dfrac', 'tfrac'],
+    nextBraceSlot: 1,
+    verticalNav: TWO_SLOT_VERTICAL,
+  },
+  partial_frac: { bottomSlots: [1], isTall: true, verticalNav: TWO_SLOT_VERTICAL },
+  total_frac: { bottomSlots: [1], isTall: true, verticalNav: TWO_SLOT_VERTICAL },
+  nth_partial: { tightSlots: [0, 3], bottomSlots: [2, 3], isTall: true, derivMacro: '\\partial' },
+  nth_deriv: { tightSlots: [0, 3], bottomSlots: [2, 3], isTall: true, derivMacro: '\\mathrm{d}' },
+  diff: {
+    tightSlots: [0],
+    isSelfDelimited: true,
+    inlineMacros: ['diff'],
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [0], latex: '\\mathrm{d}^{$1}$2' },
+      { slotCount: 2, filled: [], latex: '\\mathrm{d}$2' },
+    ],
+  },
+  binom: {
+    bottomSlots: [1],
+    isTall: true,
+    inlineMacros: ['binom'],
+    nextBraceSlot: 1,
+    verticalNav: TWO_SLOT_VERTICAL,
+    parseRule: { macros: ['\\binom'], signature: [{ kind: 'brace', slot: 0 }, { kind: 'brace', slot: 1 }] },
+  },
+  sqrt: {
+    tightSlots: [0],
+    isTall: true,
+    inlineMacros: ['sqrt'],
+    nextBraceSlot: 1,
+    verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+    exitAfterWrapIfRestOptional: true,
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [0], latex: '\\sqrt[$1]{$2}' },
+      { slotCount: 2, filled: [], latex: '\\sqrt{$2}' },
+    ],
+    parseRule: {
+      macros: ['\\sqrt'],
+      signature: [{ kind: 'bracket_opt', slot: 0 }, { kind: 'brace', slot: 1 }],
+    },
+  },
+  nth_root: {
+    tightSlots: [0],
+    isTall: true,
+    verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [0], latex: '\\sqrt[$1]{$2}' },
+      { slotCount: 2, filled: [], latex: '\\sqrt{$2}' },
+    ],
+  },
+  sup: { tightSlots: [1], backwardWrap: true, verticalNav: REVERSE_TWO_SLOT_VERTICAL },
+  sub: { tightSlots: [1], bottomSlots: [1], backwardWrap: true, verticalNav: TWO_SLOT_VERTICAL },
+  subsup: {
+    tightSlots: [1, 2],
+    bottomSlots: [1],
+    backwardWrap: true,
+    verticalNav: { 0: { up: 2, down: 1 }, 1: { up: 2 }, 2: { down: 1 } },
+    adaptiveTemplates: [
+      { slotCount: 3, filled: [1, 2], latex: '{$1}_{$2}^{$3}' },
+      { slotCount: 3, filled: [1], latex: '{$1}_{$2}' },
+      { slotCount: 3, filled: [2], latex: '{$1}^{$3}' },
+      { slotCount: 3, filled: [], latex: '$1' },
+    ],
+  },
 
   paren: { isSelfDelimited: true, isDelimiter: true },
   bracket: { isSelfDelimited: true, isDelimiter: true },
@@ -60,7 +182,11 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   interval_oc: { isSelfDelimited: true, isDelimiter: true },
   interval_co: { isSelfDelimited: true, isDelimiter: true },
   set_builder: { isSelfDelimited: true, isDelimiter: true },
-  boxed: { isSelfDelimited: true, inlineMacros: ['boxed'] },
+  boxed: {
+    isSelfDelimited: true,
+    inlineMacros: ['boxed'],
+    parseRule: { macros: ['\\boxed'], signature: [{ kind: 'brace', slot: 0 }] },
+  },
   cancel: { isSelfDelimited: true, inlineMacros: ['cancel'], accentMacro: '\\cancel' },
   bcancel: { isSelfDelimited: true, inlineMacros: ['bcancel'], accentMacro: '\\bcancel' },
   xcancel: { isSelfDelimited: true, inlineMacros: ['xcancel'], accentMacro: '\\xcancel' },
@@ -69,7 +195,12 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   mathfrak: { isSelfDelimited: true, inlineMacros: ['mathfrak'], accentMacro: '\\mathfrak' },
   mathsf: { isSelfDelimited: true, inlineMacros: ['mathsf'], accentMacro: '\\mathsf' },
   mathtt: { isSelfDelimited: true, inlineMacros: ['mathtt'], accentMacro: '\\mathtt' },
-  boldsymbol: { isSelfDelimited: true, inlineMacros: ['boldsymbol', 'bm'], accentMacro: '\\boldsymbol' },
+  boldsymbol: {
+    isSelfDelimited: true,
+    inlineMacros: ['boldsymbol', 'bm'],
+    accentMacro: '\\boldsymbol',
+    parseRule: { macros: ['\\boldsymbol', '\\bm'], signature: [{ kind: 'brace', slot: 0 }] },
+  },
   mathscr: { isSelfDelimited: true, inlineMacros: ['mathscr'], accentMacro: '\\mathscr' },
   overleftarrow: { isSelfDelimited: true, inlineMacros: ['overleftarrow'], accentMacro: '\\overleftarrow' },
   overleftrightarrow: {
@@ -92,6 +223,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isPrefixBigOp: true,
     isIntegralOp: true,
     inlineMacros: ['int'],
+    bigopMacro: '\\int',
   },
   indef_integral: {
     integralBodySlots: [0],
@@ -106,6 +238,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isPrefixBigOp: true,
     isIntegralOp: true,
     inlineMacros: ['iint'],
+    bigopMacro: '\\iint',
   },
   contour_integral: {
     tightSlots: [0, 1],
@@ -115,6 +248,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isPrefixBigOp: true,
     isIntegralOp: true,
     inlineMacros: ['oint'],
+    bigopMacro: '\\oint',
   },
   triple_integral: {
     tightSlots: [0, 1],
@@ -124,6 +258,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isPrefixBigOp: true,
     isIntegralOp: true,
     inlineMacros: ['iiint'],
+    bigopMacro: '\\iiint',
   },
   sum: {
     tightSlots: [0, 1],
@@ -131,6 +266,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['sum'],
+    bigopMacro: '\\sum',
   },
   product: {
     tightSlots: [0, 1],
@@ -138,6 +274,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['prod'],
+    bigopMacro: '\\prod',
   },
   bigcup: {
     tightSlots: [0, 1],
@@ -145,6 +282,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['bigcup'],
+    bigopMacro: '\\bigcup',
   },
   bigcap: {
     tightSlots: [0, 1],
@@ -152,6 +290,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['bigcap'],
+    bigopMacro: '\\bigcap',
   },
   coprod: {
     tightSlots: [0, 1],
@@ -159,6 +298,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['coprod'],
+    bigopMacro: '\\coprod',
   },
   bigoplus: {
     tightSlots: [0, 1],
@@ -166,6 +306,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['bigoplus'],
+    bigopMacro: '\\bigoplus',
   },
   bigotimes: {
     tightSlots: [0, 1],
@@ -173,6 +314,7 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['bigotimes'],
+    bigopMacro: '\\bigotimes',
   },
   limit: {
     tightSlots: [0, 1],
@@ -180,85 +322,46 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
     isTall: true,
     isPrefixBigOp: true,
     inlineMacros: ['lim'],
+    verticalNav: { 0: { up: 2 }, 1: { up: 2 }, 2: { down: 0 } },
+    adaptiveTemplates: [
+      { slotCount: 3, filled: [0, 1], latex: '\\lim__LIMITS___{$1 \\to $2} $3' },
+      { slotCount: 3, filled: [0], latex: '\\lim__LIMITS___{$1} $3' },
+      { slotCount: 3, filled: [1], latex: '\\lim__LIMITS___{\\to $2} $3' },
+      { slotCount: 3, filled: [], latex: '\\lim__LIMITS__ $3' },
+    ],
   },
 
-  matrix_2x2: {
-    isTall: true,
-    gridMeta: { env: 'pmatrix', rows: 2, cols: 2 },
-    inlineMacros: ['pmatrix'],
-  },
-  matrix_3x3: {
-    isTall: true,
-    gridMeta: { env: 'pmatrix', rows: 3, cols: 3 },
-  },
-  bmatrix_2x2: {
-    isTall: true,
-    gridMeta: { env: 'bmatrix', rows: 2, cols: 2 },
-    inlineMacros: ['bmatrix'],
-  },
-  bmatrix_3x3: {
-    isTall: true,
-    gridMeta: { env: 'bmatrix', rows: 3, cols: 3 },
-  },
-  det_2x2: {
-    isTall: true,
-    gridMeta: { env: 'vmatrix', rows: 2, cols: 2 },
-    inlineMacros: ['vmatrix'],
-  },
-  det_3x3: {
-    isTall: true,
-    gridMeta: { env: 'vmatrix', rows: 3, cols: 3 },
-  },
+  matrix_2x2: { isTall: true, gridMeta: { env: 'pmatrix', rows: 2, cols: 2 }, inlineMacros: ['pmatrix'] },
+  matrix_3x3: { isTall: true, gridMeta: { env: 'pmatrix', rows: 3, cols: 3 } },
+  bmatrix_2x2: { isTall: true, gridMeta: { env: 'bmatrix', rows: 2, cols: 2 }, inlineMacros: ['bmatrix'] },
+  bmatrix_3x3: { isTall: true, gridMeta: { env: 'bmatrix', rows: 3, cols: 3 } },
+  det_2x2: { isTall: true, gridMeta: { env: 'vmatrix', rows: 2, cols: 2 }, inlineMacros: ['vmatrix'] },
+  det_3x3: { isTall: true, gridMeta: { env: 'vmatrix', rows: 3, cols: 3 } },
   matrix_ellipsis: {
     isTall: true,
     gridMeta: { env: 'pmatrix', rows: 4, cols: 4 },
+    initialSlotSymbols: ELLIPSIS_PREFILL,
+    instantiateGrid: true,
   },
   det_ellipsis: {
     isTall: true,
     gridMeta: { env: 'vmatrix', rows: 4, cols: 4 },
+    initialSlotSymbols: ELLIPSIS_PREFILL,
+    instantiateGrid: true,
   },
   aug_matrix: {
     isTall: true,
     gridMeta: { env: 'bmatrix', rows: 2, cols: 3, colSpec: 'cc|c' },
+    instantiateGrid: true,
   },
-  smallmatrix: {
-    gridMeta: { env: 'smallmatrix', rows: 2, cols: 2 },
-    inlineMacros: ['smallmatrix'],
-  },
-  cases_2: {
-    isTall: true,
-    gridMeta: { env: 'cases', rows: 2, cols: 2 },
-    inlineMacros: ['cases'],
-  },
-  cases_3: {
-    isTall: true,
-    gridMeta: { env: 'cases', rows: 3, cols: 2 },
-  },
-  dcases_2: {
-    isTall: true,
-    gridMeta: { env: 'dcases', rows: 2, cols: 2 },
-    inlineMacros: ['dcases'],
-  },
-  rcases_2: {
-    isTall: true,
-    gridMeta: { env: 'rcases', rows: 2, cols: 2 },
-    inlineMacros: ['rcases'],
-  },
-  aligned_2: {
-    isTall: true,
-    gridMeta: { env: 'aligned', rows: 2, cols: 2 },
-    inlineMacros: ['aligned', 'align'],
-  },
-  Bmatrix_2x2: {
-    isTall: true,
-    gridMeta: { env: 'Bmatrix', rows: 2, cols: 2 },
-    inlineMacros: ['Bmatrix'],
-  },
-  Vmatrix_2x2: {
-    isTall: true,
-    gridMeta: { env: 'Vmatrix', rows: 2, cols: 2 },
-    inlineMacros: ['Vmatrix'],
-  },
+  smallmatrix: { gridMeta: { env: 'smallmatrix', rows: 2, cols: 2 }, inlineMacros: ['smallmatrix'] },
+  cases_2: { isTall: true, gridMeta: { env: 'cases', rows: 2, cols: 2 }, inlineMacros: ['cases'] },
+  cases_3: { isTall: true, gridMeta: { env: 'cases', rows: 3, cols: 2 } },
+  dcases_2: { isTall: true, gridMeta: { env: 'dcases', rows: 2, cols: 2 }, inlineMacros: ['dcases'] },
+  rcases_2: { isTall: true, gridMeta: { env: 'rcases', rows: 2, cols: 2 }, inlineMacros: ['rcases'] },
+  aligned_2: { isTall: true, gridMeta: { env: 'aligned', rows: 2, cols: 2 }, inlineMacros: ['aligned', 'align'] },
+  Bmatrix_2x2: { isTall: true, gridMeta: { env: 'Bmatrix', rows: 2, cols: 2 }, inlineMacros: ['Bmatrix'] },
+  Vmatrix_2x2: { isTall: true, gridMeta: { env: 'Vmatrix', rows: 2, cols: 2 }, inlineMacros: ['Vmatrix'] },
 
   hat: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['hat'], accentMacro: '\\hat' },
   bar: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['bar'], accentMacro: '\\bar' },
@@ -271,17 +374,98 @@ const SPEC_OVERRIDES: Readonly<Record<string, Omit<CommandCapabilities, 'optiona
   widehat: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['widehat'], accentMacro: '\\widehat' },
   widetilde: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['widetilde'], accentMacro: '\\widetilde' },
   overrightarrow: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['overrightarrow'], accentMacro: '\\overrightarrow' },
-  mathbf: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['mathbf'] },
-  mathcal: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['mathcal'] },
+  mathbf: {
+    isSelfDelimited: true,
+    backwardWrap: true,
+    inlineMacros: ['mathbf'],
+    parseRule: { macros: ['\\mathbf'], signature: [{ kind: 'brace', slot: 0 }] },
+  },
+  mathcal: {
+    isSelfDelimited: true,
+    backwardWrap: true,
+    inlineMacros: ['mathcal'],
+    parseRule: { macros: ['\\mathcal'], signature: [{ kind: 'brace', slot: 0 }] },
+  },
   mathbb: { isSelfDelimited: true, backwardWrap: true, inlineMacros: ['mathbb'] },
   operatorname: { isSelfDelimited: true, inlineMacros: ['operatorname'] },
   text_box: { isSelfDelimited: true, inlineMacros: ['text'] },
+  pmod: {
+    isBinaryRelation: true,
+    inlineMacros: ['pmod'],
+    parseRule: { macros: ['\\pmod'], signature: [{ kind: 'brace', slot: 0 }] },
+  },
 
-  eval_bar: { tightSlots: [1, 2], isTall: true },
-  overbrace: { isTall: true, inlineMacros: ['overbrace'] },
-  underbrace: { isTall: true, inlineMacros: ['underbrace'] },
-  overset: { nextBraceSlot: 1, inlineMacros: ['overset'] },
-  underset: { nextBraceSlot: 1, inlineMacros: ['underset'] },
+  eval_bar: {
+    tightSlots: [1, 2],
+    isTall: true,
+    verticalNav: { 0: { up: 2, down: 1 }, 1: { up: 2 }, 2: { down: 1 } },
+    adaptiveTemplates: [
+      { slotCount: 3, filled: [1, 2], latex: '\\left. $1\\right|_{$2}^{$3}' },
+      { slotCount: 3, filled: [1], latex: '\\left. $1\\right|_{$2}' },
+      { slotCount: 3, filled: [2], latex: '\\left. $1\\right|^{$3}' },
+      { slotCount: 3, filled: [], latex: '\\left. $1\\right|' },
+    ],
+  },
+  overbrace: {
+    isTall: true,
+    inlineMacros: ['overbrace'],
+    verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [1], latex: '\\overbrace{$1}^{$2}' },
+      { slotCount: 2, filled: [], latex: '\\overbrace{$1}' },
+    ],
+    parseRule: { macros: ['\\overbrace'], signature: [{ kind: 'brace', slot: 0 }, { kind: 'sup', slot: 1 }] },
+  },
+  underbrace: {
+    isTall: true,
+    inlineMacros: ['underbrace'],
+    verticalNav: TWO_SLOT_VERTICAL,
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [1], latex: '\\underbrace{$1}_{$2}' },
+      { slotCount: 2, filled: [], latex: '\\underbrace{$1}' },
+    ],
+    parseRule: { macros: ['\\underbrace'], signature: [{ kind: 'brace', slot: 0 }, { kind: 'sub', slot: 1 }] },
+  },
+  overset: {
+    nextBraceSlot: 1,
+    inlineMacros: ['overset'],
+    verticalNav: TWO_SLOT_VERTICAL,
+    parseRule: { macros: ['\\overset'], signature: [{ kind: 'brace', slot: 0 }, { kind: 'brace', slot: 1 }] },
+  },
+  underset: {
+    nextBraceSlot: 1,
+    inlineMacros: ['underset'],
+    verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+    parseRule: { macros: ['\\underset'], signature: [{ kind: 'brace', slot: 0 }, { kind: 'brace', slot: 1 }] },
+  },
+  xrightarrow: {
+    tightSlots: [0],
+    nextBraceSlot: 1,
+    inlineMacros: ['xrightarrow'],
+    verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [0], latex: '\\xrightarrow[$1]{$2}' },
+      { slotCount: 2, filled: [], latex: '\\xrightarrow{$2}' },
+    ],
+    parseRule: {
+      macros: ['\\xrightarrow'],
+      signature: [{ kind: 'bracket_opt', slot: 0 }, { kind: 'brace', slot: 1 }],
+    },
+  },
+  xleftarrow: {
+    tightSlots: [0],
+    nextBraceSlot: 1,
+    inlineMacros: ['xleftarrow'],
+    verticalNav: REVERSE_TWO_SLOT_VERTICAL,
+    adaptiveTemplates: [
+      { slotCount: 2, filled: [0], latex: '\\xleftarrow[$1]{$2}' },
+      { slotCount: 2, filled: [], latex: '\\xleftarrow{$2}' },
+    ],
+    parseRule: {
+      macros: ['\\xleftarrow'],
+      signature: [{ kind: 'bracket_opt', slot: 0 }, { kind: 'brace', slot: 1 }],
+    },
+  },
 
   // Binary relation / operator 0-slot symbols
   to: { isBinaryRelation: true },
@@ -354,21 +538,50 @@ const LEGACY_OPTIONAL_SLOTS: Readonly<Record<string, readonly number[]>> = {
   nth_root: [0],
 };
 
+function enrichCapabilities(
+  optionalSlots: readonly number[],
+  raw?: Omit<CommandCapabilities, 'optionalSlots'>,
+): CommandCapabilities {
+  if (!raw) return { optionalSlots };
+  const verticalNav = raw.verticalNav ?? (raw.bigopMacro ? BIGOP_VERTICAL : undefined);
+  let parseRule = raw.parseRule;
+  if (!parseRule) {
+    if (raw.bigopMacro) {
+      parseRule = {
+        macros: [raw.bigopMacro],
+        signature: [
+          {
+            kind: 'bigop',
+            subSlot: 0,
+            supSlot: 1,
+            bodySlot: 2,
+            integralStyle: Boolean(raw.isIntegralOp),
+          },
+        ],
+      };
+    } else if (raw.accentMacro) {
+      parseRule = {
+        macros: [raw.accentMacro],
+        signature: [{ kind: 'brace', slot: 0 }],
+      };
+    }
+  }
+  return {
+    optionalSlots,
+    ...raw,
+    ...(verticalNav ? { verticalNav } : {}),
+    ...(parseRule ? { parseRule } : {}),
+  };
+}
+
 export const COMMAND_CAPABILITIES: ReadonlyMap<string, CommandCapabilities> = (() => {
   const map = new Map<string, CommandCapabilities>();
   for (const cmd of COMMANDS) {
-    const ov = SPEC_OVERRIDES[cmd.id];
-    map.set(cmd.id, {
-      optionalSlots: cmd.optionalSlots ?? [],
-      ...(ov ?? {}),
-    });
+    map.set(cmd.id, enrichCapabilities(cmd.optionalSlots ?? [], SPEC_OVERRIDES[cmd.id]));
   }
   for (const [id, ov] of Object.entries(SPEC_OVERRIDES)) {
     if (!map.has(id)) {
-      map.set(id, {
-        optionalSlots: LEGACY_OPTIONAL_SLOTS[id] ?? [],
-        ...ov,
-      });
+      map.set(id, enrichCapabilities(LEGACY_OPTIONAL_SLOTS[id] ?? [], ov));
     }
   }
   return map;
@@ -394,6 +607,67 @@ export function getSlotPlacement(commandId: string, slotIndex: number): 'top' | 
 
 export function isIntegralBodySlot(commandId: string, slotIndex: number): boolean {
   return getCommandCapabilities(commandId).integralBodySlots?.includes(slotIndex) ?? false;
+}
+
+/**
+ * Declaratively resolves the LaTeX template for `node` based on which optional slots are filled
+ * and any modifiers (`limitsMode`), replacing the legacy 130-line hardcoded `switch`.
+ */
+export function resolveCommandTemplate(
+  node: StructNode,
+  hasSlot: (idx: number) => boolean,
+): string | null {
+  if (node.customLatex) return null;
+  const caps = getCommandCapabilities(node.commandId);
+
+  if (caps.bigopMacro) {
+    const macro = node.limitsMode ? `${caps.bigopMacro}\\${node.limitsMode}` : caps.bigopMacro;
+    if (node.slots.length === 3) {
+      const hasLo = hasSlot(0);
+      const hasHi = hasSlot(1);
+      if (hasLo && hasHi) return `${macro}_{$1}^{$2} $3`;
+      if (hasLo) return `${macro}_{$1} $3`;
+      if (hasHi) return `${macro}^{$2} $3`;
+      return `${macro} $3`;
+    }
+    if (node.slots.length === 2) {
+      return hasSlot(0) ? `${macro}_{$1} $2` : `${macro} $2`;
+    }
+    return null;
+  }
+
+  if (caps.derivMacro && node.slots.length === 4) {
+    const d = caps.derivMacro;
+    const numOrder = hasSlot(0) ? `${d}^{$1}` : d;
+    const denOrder = hasSlot(3) ? '$3^{$4}' : '$3';
+    return `\\frac{${numOrder} $2}{${d} ${denOrder}}`;
+  }
+
+  if (caps.adaptiveTemplates) {
+    const limitsToken = node.limitsMode ? `\\${node.limitsMode}` : '';
+    for (const rule of caps.adaptiveTemplates) {
+      if (rule.slotCount !== undefined && rule.slotCount !== node.slots.length) continue;
+      if (rule.filled.every((idx) => hasSlot(idx))) {
+        return rule.latex.replace('__LIMITS__', limitsToken);
+      }
+    }
+  }
+
+  return null;
+}
+
+export function getVerticalNavTarget(
+  commandId: string,
+  slotIndex: number,
+  direction: 'up' | 'down',
+  slotCount: number,
+): number | undefined {
+  const nav = getCommandCapabilities(commandId).verticalNav?.[slotIndex];
+  const target = direction === 'up' ? nav?.up : nav?.down;
+  if (target !== undefined && target >= 0 && target < slotCount) {
+    return target;
+  }
+  return undefined;
 }
 
 export const BINARY_RELATION_SYMBOLS: ReadonlySet<string> = new Set(
@@ -470,297 +744,48 @@ export const NEXT_BRACE_SLOT_MAP: Readonly<Record<string, number>> = (() => {
   for (const [id, caps] of COMMAND_CAPABILITIES.entries()) {
     if (typeof caps.nextBraceSlot === 'number') {
       rec[id] = caps.nextBraceSlot;
+    } else if (caps.parseRule) {
+      const braceSlots = caps.parseRule.signature
+        .filter((t) => t.kind === 'brace' || t.kind === 'bracket_opt')
+        .map((t) => t.slot);
+      if (braceSlots.length === 2 && braceSlots[0] === 0 && braceSlots[1] === 1) {
+        rec[id] = 1;
+      }
     }
   }
   return rec;
 })();
 
-export const CASES_ENVS = new Set(['cases', 'dcases', 'rcases']);
-export const SUPPORTED_MATRIX_ENVS = new Set([
-  'pmatrix',
-  'bmatrix',
-  'vmatrix',
-  'Bmatrix',
-  'Vmatrix',
-  'matrix',
-  'smallmatrix',
-]);
-
-export function isCasesEnv(env: string): boolean {
-  return CASES_ENVS.has(env);
-}
-
-// ============================================================================
-// Matrix / Array Column Spec (`{cc|c}`) Pure Helpers
-// ============================================================================
-
-export interface ParsedColSpec {
-  leadingBar: string;
-  aligns: ('l' | 'c' | 'r')[];
-  rightBars: string[];
-}
-
-export function isSupportedColSpec(raw: string): boolean {
-  const clean = raw.replace(/\s+/g, '');
-  return clean.length > 0 && /^[lcr|]+$/.test(clean) && /[lcr]/.test(clean);
-}
-
-export function parseColSpec(spec: string | undefined, cols: number): ParsedColSpec {
-  const safeCols = Math.max(1, cols);
-  if (!spec || !isSupportedColSpec(spec)) {
-    return {
-      leadingBar: '',
-      aligns: Array.from({ length: safeCols }, () => 'c'),
-      rightBars: Array.from({ length: safeCols }, () => ''),
-    };
-  }
-  const clean = spec.replace(/\s+/g, '');
-  let i = 0;
-  let leadingBar = '';
-  while (i < clean.length && clean[i] === '|') {
-    leadingBar += '|';
-    i += 1;
-  }
-  const aligns: ('l' | 'c' | 'r')[] = [];
-  const rightBars: string[] = [];
-  while (i < clean.length) {
-    const ch = clean[i];
-    if (ch === 'l' || ch === 'c' || ch === 'r') {
-      aligns.push(ch);
-      i += 1;
-      let bars = '';
-      while (i < clean.length && clean[i] === '|') {
-        bars += '|';
-        i += 1;
-      }
-      rightBars.push(bars);
+export const INLINE_OPEN_SPEC_MAP: Readonly<Record<string, InlineArgOpenSpec>> = (() => {
+  const rec: Record<string, InlineArgOpenSpec> = {};
+  for (const [id, caps] of COMMAND_CAPABILITIES.entries()) {
+    const cmd = COMMANDS_BY_ID.get(id);
+    if (!cmd || cmd.slots.length === 0) continue;
+    const sig = caps.parseRule?.signature;
+    if (sig && sig[0]?.kind === 'bracket_opt' && sig[1]?.kind === 'brace' && cmd.slots.length === 2) {
+      rec[id] = {
+        bracketSlot: sig[0].slot,
+        firstBraceSlot: sig[1].slot,
+        bracketFillOrder: [sig[0].slot, sig[1].slot],
+        braceFillOrder: [sig[1].slot, sig[0].slot],
+      };
     } else {
-      i += 1;
+      rec[id] = {
+        firstBraceSlot: 0,
+        ...(cmd.slots.length === 2 ? { braceFillOrder: [0, 1] } : {}),
+      };
     }
   }
-  while (aligns.length < safeCols) {
-    aligns.push('c');
-    rightBars.push('');
-  }
-  if (aligns.length > safeCols) {
-    aligns.length = safeCols;
-    rightBars.length = safeCols;
-  }
-  return { leadingBar, aligns, rightBars };
-}
+  return rec;
+})();
 
-export function serializeColSpec(parsed: ParsedColSpec): string {
-  let out = parsed.leadingBar;
-  for (let i = 0; i < parsed.aligns.length; i += 1) {
-    out += parsed.aligns[i] + (parsed.rightBars[i] ?? '');
-  }
-  return out;
-}
-
-export function hasCustomColSpec(colSpec: string | undefined, cols: number): boolean {
-  if (!colSpec) return false;
-  const parsed = parseColSpec(colSpec, cols);
-  return (
-    parsed.leadingBar.length > 0 ||
-    parsed.aligns.some((a) => a !== 'c') ||
-    parsed.rightBars.some((b) => b.length > 0)
-  );
-}
-
-export function hasColRightBar(colSpec: string | undefined, cols: number, col: number): boolean {
-  if (!colSpec || col < 0 || col >= cols - 1) return false;
-  const parsed = parseColSpec(colSpec, cols);
-  return (parsed.rightBars[col]?.length ?? 0) > 0;
-}
-
-export function insertColIntoSpec(
-  colSpec: string | undefined,
-  cols: number,
-  insertAt: number,
-  env: string,
-): string | undefined {
-  if (!colSpec && env !== 'array') return undefined;
-  const parsed = parseColSpec(colSpec, cols);
-  const idx = Math.max(0, Math.min(insertAt, parsed.aligns.length));
-  parsed.aligns.splice(idx, 0, 'c');
-  parsed.rightBars.splice(idx, 0, '');
-  const next = serializeColSpec(parsed);
-  return env === 'array' || hasCustomColSpec(next, cols + 1) ? next : undefined;
-}
-
-export function removeColFromSpec(
-  colSpec: string | undefined,
-  cols: number,
-  removeAt: number,
-  env: string,
-): string | undefined {
-  if (!colSpec && env !== 'array') return undefined;
-  if (cols <= 1) return env === 'array' ? 'c' : undefined;
-  const parsed = parseColSpec(colSpec, cols);
-  const idx = Math.max(0, Math.min(removeAt, parsed.aligns.length - 1));
-  const removedBar = parsed.rightBars[idx] ?? '';
-  parsed.aligns.splice(idx, 1);
-  parsed.rightBars.splice(idx, 1);
-  // If removed column carried an interior separator bar and had a left neighbor without one, preserve separator
-  if (removedBar && idx > 0 && idx <= parsed.rightBars.length && !parsed.rightBars[idx - 1]) {
-    parsed.rightBars[idx - 1] = removedBar;
-  }
-  if (parsed.rightBars.length > 0 && env !== 'array') {
-    // Strip trailing right-edge bar on plain matrix wrappers unless array
-    parsed.rightBars[parsed.rightBars.length - 1] = parsed.rightBars[parsed.rightBars.length - 1] ?? '';
-  }
-  const next = serializeColSpec(parsed);
-  return env === 'array' || hasCustomColSpec(next, cols - 1) ? next : undefined;
-}
-
-export function toggleColRightBar(
-  colSpec: string | undefined,
-  cols: number,
-  col: number,
-  env: string,
-): string | undefined {
-  if (col < 0 || col >= cols - 1) return colSpec;
-  const parsed = parseColSpec(colSpec, cols);
-  parsed.rightBars[col] = parsed.rightBars[col] ? '' : '|';
-  const next = serializeColSpec(parsed);
-  return env === 'array' || hasCustomColSpec(next, cols) ? next : undefined;
-}
-
-export function formatGridEnvironment(
-  env: string,
-  colSpec: string | undefined,
-  cols: number,
-  body: string,
-): string {
-  if (env === 'substack') {
-    return `\\substack{${body}}`;
-  }
-  if (env === 'array') {
-    const spec = colSpec && isSupportedColSpec(colSpec) ? colSpec.replace(/\s+/g, '') : 'c'.repeat(Math.max(1, cols));
-    return `\\begin{array}{${spec}} ${body} \\end{array}`;
-  }
-  if (colSpec && hasCustomColSpec(colSpec, cols)) {
-    const spec = serializeColSpec(parseColSpec(colSpec, cols));
-    switch (env) {
-      case 'pmatrix':
-        return `\\left(\\begin{array}{${spec}} ${body} \\end{array}\\right)`;
-      case 'bmatrix':
-        return `\\left[\\begin{array}{${spec}} ${body} \\end{array}\\right]`;
-      case 'Bmatrix':
-        return `\\left\\{\\begin{array}{${spec}} ${body} \\end{array}\\right\\}`;
-      case 'vmatrix':
-        return `\\left|\\begin{array}{${spec}} ${body} \\end{array}\\right|`;
-      case 'Vmatrix':
-        return `\\left\\Vert\\begin{array}{${spec}} ${body} \\end{array}\\right\\Vert`;
-      case 'matrix':
-        return `\\begin{array}{${spec}} ${body} \\end{array}`;
+export const MACRO_PARSE_TABLE: ReadonlyMap<string, { commandId: string; rule: MacroParseRule }> = (() => {
+  const map = new Map<string, { commandId: string; rule: MacroParseRule }>();
+  for (const [id, caps] of COMMAND_CAPABILITIES.entries()) {
+    if (!COMMANDS_BY_ID.has(id) || !caps.parseRule) continue;
+    for (const macro of caps.parseRule.macros) {
+      map.set(macro, { commandId: id, rule: caps.parseRule });
     }
   }
-  return `\\begin{${env}} ${body} \\end{${env}}`;
-}
-
-// ============================================================================
-// Template Sanitization & Persisted Settings Schema Normalization
-// ============================================================================
-
-function readBracedAt(src: string, startBraceIdx: number): { content: string; nextPos: number } | null {
-  if (src[startBraceIdx] !== '{') return null;
-  let pos = startBraceIdx + 1;
-  let depth = 1;
-  while (pos < src.length && depth > 0) {
-    if (src[pos] === '\\') {
-      pos += 2;
-      continue;
-    }
-    if (src[pos] === '{') depth += 1;
-    else if (src[pos] === '}') depth -= 1;
-    if (depth > 0) pos += 1;
-  }
-  const content = src.slice(startBraceIdx + 1, pos);
-  return { content, nextPos: src[pos] === '}' ? pos + 1 : pos };
-}
-
-/**
- * Strips untrusted KaTeX HTML/link/image extension macros (`\htmlData`, `\htmlClass`,
- * `\htmlId`, `\htmlStyle`, `\href`, `\url`, `\includegraphics`) from user-defined templates
- * so custom structures or external `commands.json` can never spoof interactive DOM attributes.
- */
-export function sanitizeLatexTemplate(template: string): string {
-  if (!template || !template.includes('\\')) return template;
-  let out = '';
-  let i = 0;
-  while (i < template.length) {
-    if (template[i] === '\\') {
-      let end = i + 1;
-      while (end < template.length && /[a-zA-Z]/.test(template[end])) end += 1;
-      const macro = template.slice(i, end);
-      if (
-        macro === '\\htmlData' ||
-        macro === '\\htmlClass' ||
-        macro === '\\htmlId' ||
-        macro === '\\htmlStyle' ||
-        macro === '\\href'
-      ) {
-        let scan = end;
-        while (scan < template.length && /\s/.test(template[scan])) scan += 1;
-        const first = readBracedAt(template, scan);
-        if (first) {
-          scan = first.nextPos;
-          while (scan < template.length && /\s/.test(template[scan])) scan += 1;
-          const second = readBracedAt(template, scan);
-          if (second) {
-            out += sanitizeLatexTemplate(second.content);
-            i = second.nextPos;
-            continue;
-          }
-          i = first.nextPos;
-          continue;
-        }
-      }
-      if (macro === '\\url' || macro === '\\includegraphics') {
-        let scan = end;
-        while (scan < template.length && /\s/.test(template[scan])) scan += 1;
-        if (template[scan] === '[') {
-          const closeB = template.indexOf(']', scan + 1);
-          if (closeB !== -1) scan = closeB + 1;
-        }
-        while (scan < template.length && /\s/.test(template[scan])) scan += 1;
-        const arg = readBracedAt(template, scan);
-        i = arg ? arg.nextPos : end;
-        continue;
-      }
-    }
-    out += template[i];
-    i += 1;
-  }
-  return out;
-}
-
-const VALID_THEMES = new Set<ThemeMode>(['system', 'light', 'dark']);
-const VALID_LEADERS = new Set<LeaderKey>(['Tab', '/']);
-const VALID_DELIMITERS = new Set(['none', 'inline', 'block', 'codeblock']);
-const VALID_PRESET_ORDERS = new Set<SlotOrderPreset>(['standard', 'writing_cn']);
-
-/**
- * Normalizes and migrates persisted `AppSettings` (e.g. automatically migrating legacy
- * `leaderKey: '\\'` to `'Tab'` so inline `\int`/`\alpha`/`\,` macros work seamlessly).
- */
-export function normalizeSettings(raw?: Partial<AppSettings> | null): AppSettings {
-  if (!raw) return { ...DEFAULT_SETTINGS };
-  const merged: AppSettings = { ...DEFAULT_SETTINGS, ...raw };
-  if (!VALID_THEMES.has(merged.theme)) merged.theme = DEFAULT_SETTINGS.theme;
-  // Migrate legacy `\` leader key -> `'Tab'`
-  if (!VALID_LEADERS.has(merged.leaderKey)) {
-    merged.leaderKey = 'Tab';
-  }
-  if (!VALID_DELIMITERS.has(merged.delimiter)) {
-    merged.delimiter = DEFAULT_SETTINGS.delimiter;
-  }
-  if (!VALID_PRESET_ORDERS.has(merged.slotOrderPreset)) {
-    merged.slotOrderPreset = DEFAULT_SETTINGS.slotOrderPreset;
-  }
-  if (!merged.slotOrderOverrides || typeof merged.slotOrderOverrides !== 'object') {
-    merged.slotOrderOverrides = {};
-  }
-  return merged;
-}
+  return map;
+})();

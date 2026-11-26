@@ -1,5 +1,10 @@
-import { COMMANDS_BY_ID } from './catalog';
+import { COMMANDS, COMMANDS_BY_ID } from './catalog';
+import { PREFIX_BIGOPS } from './commandSpecs';
 import type { AppSettings, SlotOrderOverrides, SlotOrderPreset } from './types';
+
+const DERIVED_BIGOP_IDS: readonly string[] = COMMANDS.filter(
+  (c) => PREFIX_BIGOPS.has(c.id) && c.slots.length === 3 && c.id !== 'limit',
+).map((c) => c.id);
 
 export interface SlotOrderOption {
   readonly label: string;
@@ -35,19 +40,7 @@ export const SLOT_ORDER_GROUPS: readonly SlotOrderGroup[] = [
   {
     id: 'bigop',
     label: '积分 / 求和 / 并交',
-    commandIds: [
-      'integral',
-      'sum',
-      'product',
-      'bigcup',
-      'bigcap',
-      'double_integral',
-      'contour_integral',
-      'triple_integral',
-      'coprod',
-      'bigoplus',
-      'bigotimes',
-    ],
+    commandIds: DERIVED_BIGOP_IDS,
     options: [
       { label: '下限 → 上限 → 主体', order: [0, 1, 2] },
       { label: '上限 → 下限 → 主体', order: [1, 0, 2] },
