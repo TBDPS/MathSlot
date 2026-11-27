@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   detectFormulaInLines,
   extractBlockquotePrefix,
+  formatDockedFormulaText,
   formatFormulaForEditorInsertion,
   stripBlockquoteSelection,
+  toggleFormulaWrapperStyle,
 } from '../src/obsidianMath';
 import { MathSlotEngine } from '../src/editor';
 
@@ -139,5 +141,45 @@ describe('Obsidian blockquote & callout math detection/replacement', () => {
     expect(hitMultiBlock!.delimiter).toBe('block');
     expect(hitMultiBlock!.linePrefix).toBe('> ');
     expect(hitMultiBlock!.raw).toBe('\\[\n\\frac{a}{b}\n\\]');
+  });
+
+  it('supports strictInterior boundary checks, empty $$, and docked empty-shell formatting', () => {
+    const inlineLine = ['已知 $x^2$ 成立'];
+    const dollarStart = inlineLine[0].indexOf('$x^2$');
+    const dollarEnd = dollarStart + '$x^2$'.length;
+
+    // Non-strict hits outside boundary (for Alt+M command), strictInterior only hits strictly inside
+    expect(detectFormulaInLines(inlineLine, { line: 0, ch: dollarStart }, false)).not.toBeNull();
+    expect(detectFormulaInLines(inlineLine, { line: 0, ch: dollarEnd }, false)).not.toBeNull();
+    expect(detectFormulaInLines(inlineLine, { line: 0, ch: dollarStart }, true)).toBeNull();
+    expect(detectFormulaInLines(inlineLine, { line: 0, ch: dollarEnd }, true)).toBeNull();
+    expect(detectFormulaInLines(inlineLine, { line: 0, ch: dollarStart + 2 }, true)?.raw).toBe('$x^2$');
+
+    // Empty `$|$` created on summon
+    const emptyInline = ['正文 $$ 后面'];
+    const emptyStart = emptyInline[0].indexOf('$$');
+    const emptyHit = detectFormulaInLines(emptyInline, { line: 0, ch: emptyStart + 1 }, true);
+    expect(emptyHit?.raw).toBe('$$');
+    expect(emptyHit?.wrapper).toBe('dollar_inline');
+    expect(emptyHit?.delimiter).toBe('inline');
+    // Cursor outside empty `$$|` does not trigger
+    expect(detectFormulaInLines(emptyInline, { line: 0, ch: emptyStart + 2 }, true)).toBeNull();
+
+    // Multi-line block strictInterior excludes before opening `$$` and after closing `$$`
+    const blockLines = ['> $$', '> x + y', '> $$'];
+    expect(detectFormulaInLines(blockLines, { line: 0, ch: 1 }, true)).toBeNull();
+    expect(detectFormulaInLines(blockLines, { line: 0, ch: 4 }, true)?.wrapper).toBe('dollar_block');
+    expect(detectFormulaInLines(blockLines, { line: 2, ch: 4 }, true)).toBeNull();
+
+    // Docked empty-shell preservation & cleanup + wrapper toggle
+    expect(toggleFormulaWrapperStyle('dollar_inline')).toBe('dollar_block');
+    expect(toggleFormulaWrapperStyle('dollar_block')).toBe('dollar_inline');
+    expect(toggleFormulaWrapperStyle('paren_inline')).toBe('bracket_block');
+    expect(formatDockedFormulaText('', 'dollar_inline', '', false, true)).toBe('$$');
+    expect(formatDockedFormulaText('', 'dollar_inline', '', false, false)).toBe('');
+    expect(formatDockedFormulaText('', 'dollar_block', '> ', true, true)).toBe('> $$\n> \n> $$');
+    expect(formatDockedFormulaText('\\frac{1}{2}', 'dollar_block', '> ', false, true)).toBe(
+      '$$\n> \\frac{1}{2}\n> $$',
+    );
   });
 });

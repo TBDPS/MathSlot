@@ -1,3 +1,4 @@
+import { formatFormulaWithWrapper } from './latex';
 import type { DelimiterStyle, MathWrapperKind } from './types';
 
 export interface EditorPos {
@@ -159,6 +160,7 @@ function isEscapedAt(text: string, idx: number): boolean {
 function findInlineFormulaOnLine(
   content: string,
   cursorOffset: number,
+  strictInterior = false,
 ): { start: number; end: number; raw: string; delimiter: DelimiterStyle; wrapper: MathWrapperKind } | null {
   let i = 0;
   const n = content.length;
@@ -220,9 +222,12 @@ function findInlineFormulaOnLine(
           }
           scan += 1;
         }
-        if (closeIdx > i + 2) {
+        if (closeIdx >= i + 2) {
           const end = closeIdx + 2;
-          if (cursorOffset >= i && cursorOffset <= end) {
+          const hit = strictInterior
+            ? cursorOffset >= i + 2 && cursorOffset <= closeIdx
+            : cursorOffset >= i && cursorOffset <= end;
+          if (hit) {
             return {
               start: i,
               end,
@@ -233,6 +238,16 @@ function findInlineFormulaOnLine(
           }
           i = end;
           continue;
+        }
+        // Empty inline `$|$` (two adjacent `$` with no closing `$$` on this line and cursor strictly between them)
+        if (cursorOffset === i + 1) {
+          return {
+            start: i,
+            end: i + 2,
+            raw: '$$',
+            delimiter: 'inline',
+            wrapper: 'dollar_inline',
+          };
         }
         i += 2;
         continue;
@@ -260,7 +275,10 @@ function findInlineFormulaOnLine(
       }
       if (closeIdx > i + 1) {
         const end = closeIdx + 1;
-        if (cursorOffset >= i && cursorOffset <= end) {
+        const hit = strictInterior
+          ? cursorOffset > i && cursorOffset < end
+          : cursorOffset >= i && cursorOffset <= end;
+        if (hit) {
           return {
             start: i,
             end,
@@ -299,9 +317,12 @@ function findInlineFormulaOnLine(
           }
           scan += 1;
         }
-        if (closeIdx > i + 2) {
+        if (closeIdx >= i + 2) {
           const end = closeIdx + 2;
-          if (cursorOffset >= i && cursorOffset <= end) {
+          const hit = strictInterior
+            ? cursorOffset >= i + 2 && cursorOffset <= closeIdx
+            : cursorOffset >= i && cursorOffset <= end;
+          if (hit) {
             return {
               start: i,
               end,
@@ -346,6 +367,7 @@ function stripNBlockquoteMarkers(line: string, count: number): string {
 export function detectFormulaInLines(
   lines: string[],
   cursor: EditorPos,
+  strictInterior = false,
 ): DetectedEditorFormula | null {
   if (cursor.line < 0 || cursor.line >= lines.length) return null;
 
@@ -429,6 +451,10 @@ export function detectFormulaInLines(
 
     if (insideBlock && blockKind === '\\[' && isBracketCloseLine(trimmed)) {
       if (l === cursor.line) {
+        if (strictInterior) {
+          const closeIdx = lines[l].lastIndexOf('\\]');
+          if (closeIdx !== -1 && cursor.ch > closeIdx) return null;
+        }
         const stripped: string[] = [];
         for (let k = openLine; k <= l; k += 1) {
           stripped.push(extractBlockquotePrefix(lines[k]).content);
@@ -458,6 +484,10 @@ export function detectFormulaInLines(
         openPrefix = canonicalBlockquotePrefix(split.prefix);
       } else {
         if (l === cursor.line) {
+          if (strictInterior) {
+            const closeIdx = lines[l].lastIndexOf('$$');
+            if (closeIdx !== -1 && cursor.ch > closeIdx) return null;
+          }
           // Cursor is on the closing `$$` fence of this open block
           const stripped: string[] = [];
           for (let k = openLine; k <= l; k += 1) {
@@ -505,6 +535,14 @@ export function detectFormulaInLines(
       }
     }
     if (closeLine > openLine && cursor.line >= openLine && cursor.line <= closeLine) {
+      if (strictInterior && cursor.line === openLine) {
+        const openToken = blockKind === '\\[' ? '\\[' : '$$';
+        const openSplit = extractBlockquotePrefix(lines[openLine]);
+        const openIdx = lines[openLine].indexOf(openToken, openSplit.prefix.length);
+        if (openIdx !== -1 && cursor.ch < openIdx + openToken.length) {
+          return null;
+        }
+      }
       const stripped: string[] = [];
       for (let l = openLine; l <= closeLine; l += 1) {
         stripped.push(extractBlockquotePrefix(lines[l]).content);
@@ -524,7 +562,7 @@ export function detectFormulaInLines(
   // 3. Check inline `$...$` or single-line `$$...$$` on the current line (outside code spans & escapes)
   const cursorOffset = cursor.ch - cursorPrefixLen;
   if (cursorOffset >= 0) {
-    const inlineHit = findInlineFormulaOnLine(cursorSplit.content, cursorOffset);
+    const inlineHit = findInlineFormulaOnLine(cursorSplit.content, cursorOffset, strictInterior);
     if (inlineHit) {
       return {
         raw: inlineHit.raw,
@@ -550,15 +588,75 @@ export function detectFormulaInWindow(
   windowStartLine: number,
   cursor: EditorPos,
   cursorInsideCodeBlock = false,
+  strictInterior = false,
 ): DetectedEditorFormula | null {
   if (cursorInsideCodeBlock) return null;
   const relLine = cursor.line - windowStartLine;
   if (relLine < 0 || relLine >= windowLines.length) return null;
-  const hit = detectFormulaInLines(windowLines, { line: relLine, ch: cursor.ch });
+  const hit = detectFormulaInLines(windowLines, { line: relLine, ch: cursor.ch }, strictInterior);
   if (!hit) return null;
   return {
     ...hit,
     from: { line: hit.from.line + windowStartLine, ch: hit.from.ch },
     to: { line: hit.to.line + windowStartLine, ch: hit.to.ch },
   };
+}
+
+/**
+ * Toggles between inline (`$...$` / `\(...\)`) and block (`$$...$$` / `\[...\]`) wrapper styles.
+ */
+export function toggleFormulaWrapperStyle(wrapper: MathWrapperKind): MathWrapperKind {
+  switch (wrapper) {
+    case 'dollar_inline':
+      return 'dollar_block';
+    case 'dollar_block':
+      return 'dollar_inline';
+    case 'paren_inline':
+      return 'bracket_block';
+    case 'bracket_block':
+      return 'paren_inline';
+    default:
+      return 'dollar_block';
+  }
+}
+
+/**
+ * Formats a formula (including optional empty delimiter shells while editing) for live
+ * Obsidian editor replacement, faithfully preserving blockquote / callout `> ` line prefixes.
+ */
+export function formatDockedFormulaText(
+  latex: string,
+  wrapper: MathWrapperKind,
+  linePrefix: string,
+  includeFirstLinePrefix: boolean,
+  keepEmptyShell: boolean,
+): string {
+  const clean = latex.trim();
+  if (!clean) {
+    if (!keepEmptyShell) return '';
+    let shell = '';
+    switch (wrapper) {
+      case 'dollar_inline':
+        shell = '$$';
+        break;
+      case 'paren_inline':
+        shell = '\\(\\)';
+        break;
+      case 'dollar_block':
+        shell = '$$\n\n$$';
+        break;
+      case 'bracket_block':
+        shell = '\\[\n\n\\]';
+        break;
+      case 'codeblock':
+        shell = '```latex\n\n```';
+        break;
+      case 'none':
+        shell = '';
+        break;
+    }
+    return formatFormulaForEditorInsertion(shell, linePrefix, includeFirstLinePrefix);
+  }
+  const formatted = formatFormulaWithWrapper(clean, wrapper);
+  return formatFormulaForEditorInsertion(formatted, linePrefix, includeFirstLinePrefix);
 }
