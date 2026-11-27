@@ -145,6 +145,7 @@ function hasSecondSqrtSlot(chars: readonly string[], startPos: number): boolean 
         if (k1 === 'u') cmd = COMMANDS_BY_ID.get('sup');
         else if (k1 === 'd') cmd = COMMANDS_BY_ID.get('sub');
         else if (k1 === 'b') cmd = COMMANDS_BY_ID.get('subsup');
+        else if (k1 === 'p') cmd = COMMANDS_BY_ID.get('paren');
         else cmd = COMMANDS_BY_KEYS.get(k1);
       }
       if (cmd) {
@@ -313,6 +314,7 @@ export function parseStreamCode(source: string): ImportResult {
           if (k1 === 'u') cmd = COMMANDS_BY_ID.get('sup');
           else if (k1 === 'd') cmd = COMMANDS_BY_ID.get('sub');
           else if (k1 === 'b') cmd = COMMANDS_BY_ID.get('subsup');
+          else if (k1 === 'p') cmd = COMMANDS_BY_ID.get('paren');
           else cmd = COMMANDS_BY_KEYS.get(k1);
           if (k1 === 'r' && cmd?.id === 'sqrt') {
             legacySingleSqrt = true;
@@ -435,6 +437,9 @@ function serializeStructStream(node: StructNode): string {
   }
   if (node.commandId === 'sub' && node.slots.length === 2) {
     return `▸d${slotParts}`;
+  }
+  if (node.commandId === 'paren' && node.slots.length === 1) {
+    return `▸p${slotParts}`;
   }
 
   const cmd = COMMANDS_BY_ID.get(node.commandId);

@@ -31,6 +31,8 @@
     onSaveSnippet?: () => void;
     onPopoverChange?: (open: boolean) => void;
     popoverDirection?: 'up' | 'down';
+    submenuMode?: 'popover' | 'inline';
+    compact?: boolean;
   }
 
   let {
@@ -49,13 +51,14 @@
     onSaveSnippet,
     onPopoverChange,
     popoverDirection = 'up',
+    submenuMode = 'popover',
+    compact = false,
   }: Props = $props();
 
   const QUICK_ITEMS: readonly { id: string; key: string; preview: string }[] = [
     { id: 'frac', key: 'f', preview: '\\frac{\\square}{\\square}' },
     { id: 'sqrt', key: 'r', preview: '\\sqrt{\\square}' },
     { id: 'subsup', key: 'b', preview: 'x_{\\square}^{\\square}' },
-    { id: 'paren', key: 'p', preview: '(\\square)' },
     { id: 'abs', key: 'v', preview: '|\\square|' },
     { id: 'integral', key: 'i', preview: '\\int' },
     { id: 'sum', key: 's', preview: '\\sum' },
@@ -142,207 +145,236 @@
     }
     mouseCategory = mouseCategory === grp.category ? null : grp.category;
   }
+
+  function closeSubmenu(): void {
+    if (leaderActive) {
+      onLeaderBack?.();
+    } else {
+      mouseCategory = null;
+    }
+  }
 </script>
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeyDown} />
 
-<div class="ribbon-wrap" bind:this={ribbonEl}>
-  {#if activeCategory && activeGroup}
+{#snippet submenuContent(group: (typeof CATEGORY_GROUPS)[number], category: RibbonCategory)}
+  <div class="cat-head">
+    {#if leaderActive || submenuMode === 'inline'}
+      <button
+        type="button"
+        class="cat-back"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={closeSubmenu}
+        aria-label="返回"
+      >
+        {submenuMode === 'inline' ? '‹ 返回' : '‹'}
+      </button>
+    {/if}
+    <span class="cat-title">{group.label}</span>
+    {#if category === 'custom' && onCreateCustom}
+      <button
+        type="button"
+        class="new-custom-btn"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          mouseCategory = null;
+          onCreateCustom();
+        }}
+      >
+        + 新建结构
+      </button>
+    {:else if category === 'snippets' && onSaveSnippet}
+      <button
+        type="button"
+        class="new-custom-btn"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => {
+          mouseCategory = null;
+          onSaveSnippet();
+        }}
+      >
+        + 存当前式为片段
+      </button>
+    {/if}
+    <span class="cat-chord">
+      <kbd>{leaderKey}</kbd><kbd>{group.key}</kbd>
+    </span>
+  </div>
+
+  {#if category === 'snippets'}
+    {#if snippets.length === 0}
+      <div class="custom-empty">
+        <span>暂无复用片段</span>
+      </div>
+    {:else}
+      <div class="cat-grid">
+        {#each snippets as snip (snip.id)}
+          <button
+            type="button"
+            class="cat-cell"
+            title={snip.name}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => {
+              mouseCategory = null;
+              onInsertSnippet?.(snip);
+            }}
+          >
+            <div class="cell-top">
+              {#if snip.key}
+                <kbd class="cell-key" class:hot={leaderActive}>{snip.key}</kbd>
+              {:else}
+                <span></span>
+              {/if}
+            </div>
+            <span class="cat-math">
+              {@html renderLatexPreview(snip.latex, false)}
+            </span>
+            <span class="cat-label">{snip.name}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+  {:else if category === 'custom'}
+    {#if customCommands.length === 0}
+      <div class="custom-empty">
+        <span>暂无自定义结构</span>
+      </div>
+    {:else}
+      <div class="cat-grid">
+        {#each customCommands as cmd (cmd.id)}
+          <button
+            type="button"
+            class="cat-cell"
+            title={cmd.label}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => pickCommand(cmd.id)}
+          >
+            <div class="cell-top">
+              {#if cmd.key}
+                <kbd class="cell-key" class:hot={leaderActive}>{cmd.key}</kbd>
+              {:else}
+                <span></span>
+              {/if}
+              {#if cmd.shorthand}
+                <span class="cell-short">{cmd.shorthand}</span>
+              {/if}
+            </div>
+            <span class="cat-math">
+              {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+            </span>
+            <span class="cat-label">{cmd.label}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+  {:else}
+    <div class="cat-grid" class:matrix-grid={category === 'matrix'}>
+      {#each popoverCommands as cmd (cmd.id)}
+        {@const shorthand = cmd.shorthand ?? SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
+        {@const isDefault =
+          pendingDefaultId === cmd.id ||
+          SUBMENU_BY_KEY.get(group.key)?.defaultCommandId === cmd.id}
+        <button
+          type="button"
+          class="cat-cell"
+          class:is-default={isDefault}
+          title={`${cmd.label}（${leaderKey} ${cmd.keys.join(' ')}${isDefault ? ` · 单按 ${leaderKey} ${group.key} 默认插入` : ''}${shorthand ? ` · 简写 ${shorthand}` : ''}）`}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => pickCommand(cmd.id)}
+        >
+          <div class="cell-top">
+            <kbd class="cell-key" class:hot={leaderActive}>{cmd.keys[1] ?? cmd.keys[0]}</kbd>
+            {#if isDefault}
+              <span class="cell-default">默认</span>
+            {:else if shorthand}
+              <span class="cell-short">{shorthand}</span>
+            {/if}
+          </div>
+          <span class="cat-math">
+            {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
+          </span>
+          <span class="cat-label">{cmd.label}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+<div
+  class="ribbon-wrap"
+  class:is-inline={submenuMode === 'inline'}
+  class:is-compact={compact}
+  bind:this={ribbonEl}
+>
+  {#if submenuMode === 'inline' && activeCategory && activeGroup}
     <div
-      class="cat-popover"
+      class="cat-inline-panel"
       class:leader-mode={leaderActive}
-      class:pop-down={popoverDirection === 'down'}
       role="menu"
       aria-label={activeGroup.label}
     >
-      <div class="cat-head">
-        {#if leaderActive}
-          <button
-            type="button"
-            class="cat-back"
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => onLeaderBack?.()}
-            aria-label="返回"
-          >
-            ‹
-          </button>
-        {/if}
-        <span class="cat-title">{activeGroup.label}</span>
-        {#if activeCategory === 'custom' && onCreateCustom}
-          <button
-            type="button"
-            class="new-custom-btn"
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => {
-              mouseCategory = null;
-              onCreateCustom();
-            }}
-          >
-            + 新建结构
-          </button>
-        {:else if activeCategory === 'snippets' && onSaveSnippet}
-          <button
-            type="button"
-            class="new-custom-btn"
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => {
-              mouseCategory = null;
-              onSaveSnippet();
-            }}
-          >
-            + 存当前式为片段
-          </button>
-        {/if}
-        <span class="cat-chord">
-          <kbd>{leaderKey}</kbd><kbd>{activeGroup.key}</kbd>
-        </span>
+      {@render submenuContent(activeGroup, activeCategory)}
+    </div>
+  {:else}
+    {#if activeCategory && activeGroup}
+      <div
+        class="cat-popover"
+        class:leader-mode={leaderActive}
+        class:pop-down={popoverDirection === 'down'}
+        role="menu"
+        aria-label={activeGroup.label}
+      >
+        {@render submenuContent(activeGroup, activeCategory)}
       </div>
+    {/if}
 
-      {#if activeCategory === 'snippets'}
-        {#if snippets.length === 0}
-          <div class="custom-empty">
-            <span>暂无复用片段</span>
-          </div>
-        {:else}
-          <div class="cat-grid">
-            {#each snippets as snip (snip.id)}
-              <button
-                type="button"
-                class="cat-cell"
-                title={snip.name}
-                onmousedown={(e) => e.preventDefault()}
-                onclick={() => {
-                  mouseCategory = null;
-                  onInsertSnippet?.(snip);
-                }}
-              >
-                <div class="cell-top">
-                  {#if snip.key}
-                    <kbd class="cell-key" class:hot={leaderActive}>{snip.key}</kbd>
-                  {:else}
-                    <span></span>
-                  {/if}
-                </div>
-                <span class="cat-math">
-                  {@html renderLatexPreview(snip.latex, false)}
-                </span>
-                <span class="cat-label">{snip.name}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      {:else if activeCategory === 'custom'}
-        {#if customCommands.length === 0}
-          <div class="custom-empty">
-            <span>暂无自定义结构</span>
-          </div>
-        {:else}
-          <div class="cat-grid">
-            {#each customCommands as cmd (cmd.id)}
-              <button
-                type="button"
-                class="cat-cell"
-                title={cmd.label}
-                onmousedown={(e) => e.preventDefault()}
-                onclick={() => pickCommand(cmd.id)}
-              >
-                <div class="cell-top">
-                  {#if cmd.key}
-                    <kbd class="cell-key" class:hot={leaderActive}>{cmd.key}</kbd>
-                  {:else}
-                    <span></span>
-                  {/if}
-                  {#if cmd.shorthand}
-                    <span class="cell-short">{cmd.shorthand}</span>
-                  {/if}
-                </div>
-                <span class="cat-math">
-                  {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
-                </span>
-                <span class="cat-label">{cmd.label}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      {:else}
-        <div class="cat-grid" class:matrix-grid={activeCategory === 'matrix'}>
-          {#each popoverCommands as cmd (cmd.id)}
-            {@const shorthand = cmd.shorthand ?? SHORTHAND_BY_COMMAND_ID.get(cmd.id)}
-            {@const isDefault =
-              pendingDefaultId === cmd.id ||
-              (activeGroup ? SUBMENU_BY_KEY.get(activeGroup.key)?.defaultCommandId === cmd.id : false)}
+    <div class="ribbon-bar-host">
+      <div
+        class="ribbon-bar"
+        class:is-compact={compact}
+        class:leader-active={leaderActive}
+        role="toolbar"
+        aria-label="快捷数学符号"
+      >
+        <div class="ribbon-group">
+          {#each QUICK_ITEMS as item (item.id)}
+            {@const cmd = COMMANDS_BY_ID.get(item.id)}
             <button
               type="button"
-              class="cat-cell"
-              class:is-default={isDefault}
-              title={`${cmd.label}（${leaderKey} ${cmd.keys.join(' ')}${isDefault ? ` · 单按 ${leaderKey} ${activeGroup?.key ?? ''} 默认插入` : ''}${shorthand ? ` · 简写 ${shorthand}` : ''}）`}
+              class="ribbon-btn"
+              title={`${cmd?.label ?? item.id}（${leaderKey} ${item.key}）`}
+              aria-label={cmd?.label ?? item.id}
               onmousedown={(e) => e.preventDefault()}
-              onclick={() => pickCommand(cmd.id)}
+              onclick={() => pickCommand(item.id)}
             >
-              <div class="cell-top">
-                <kbd class="cell-key" class:hot={leaderActive}>{cmd.keys[1] ?? cmd.keys[0]}</kbd>
-                {#if isDefault}
-                  <span class="cell-default">默认</span>
-                {:else if shorthand}
-                  <span class="cell-short">{shorthand}</span>
-                {/if}
-              </div>
-              <span class="cat-math">
-                {@html renderLatexPreview(commandPreviewLatex(cmd.latex), false)}
-              </span>
-              <span class="cat-label">{cmd.label}</span>
+              <span class="btn-glyph">{@html renderLatexPreview(item.preview, false)}</span>
+              <kbd class="btn-key" class:hot={leaderActive && !leaderPrefix}>{item.key}</kbd>
             </button>
           {/each}
         </div>
-      {/if}
+
+        <span class="ribbon-sep"></span>
+
+        <div class="ribbon-group">
+          {#each CATEGORY_GROUPS as grp (grp.category)}
+            <button
+              type="button"
+              class="ribbon-btn ribbon-cat"
+              class:active={activeCategory === grp.category}
+              title={`${grp.label}（${leaderKey} ${grp.key}）`}
+              aria-label={grp.label}
+              aria-expanded={activeCategory === grp.category}
+              onmousedown={(e) => e.preventDefault()}
+              onclick={() => clickCategory(grp)}
+            >
+              <span class="btn-glyph">{@html renderLatexPreview(grp.preview, false)}</span>
+              <kbd class="btn-key" class:hot={leaderActive && (!leaderPrefix || leaderPrefix === grp.key)}>{grp.key}</kbd>
+            </button>
+          {/each}
+        </div>
+      </div>
     </div>
   {/if}
-
-  <div class="ribbon-bar-host">
-    <div
-      class="ribbon-bar"
-      class:leader-active={leaderActive}
-      role="toolbar"
-      aria-label="快捷数学符号"
-    >
-      <div class="ribbon-group">
-        {#each QUICK_ITEMS as item (item.id)}
-          {@const cmd = COMMANDS_BY_ID.get(item.id)}
-          <button
-            type="button"
-            class="ribbon-btn"
-            title={`${cmd?.label ?? item.id}（${leaderKey} ${item.key}）`}
-            aria-label={cmd?.label ?? item.id}
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => pickCommand(item.id)}
-          >
-            <span class="btn-glyph">{@html renderLatexPreview(item.preview, false)}</span>
-            <kbd class="btn-key" class:hot={leaderActive && !leaderPrefix}>{item.key}</kbd>
-          </button>
-        {/each}
-      </div>
-
-      <span class="ribbon-sep"></span>
-
-      <div class="ribbon-group">
-        {#each CATEGORY_GROUPS as grp (grp.category)}
-          <button
-            type="button"
-            class="ribbon-btn ribbon-cat"
-            class:active={activeCategory === grp.category}
-            title={`${grp.label}（${leaderKey} ${grp.key}）`}
-            aria-label={grp.label}
-            aria-expanded={activeCategory === grp.category}
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => clickCategory(grp)}
-          >
-            <span class="btn-glyph">{@html renderLatexPreview(grp.preview, false)}</span>
-            <kbd class="btn-key" class:hot={leaderActive && (!leaderPrefix || leaderPrefix === grp.key)}>{grp.key}</kbd>
-          </button>
-        {/each}
-      </div>
-    </div>
-  </div>
 </div>
 
 <style>
@@ -400,27 +432,75 @@
   }
 
   @container (max-width: 860px) {
-    .ribbon-bar {
+    .ribbon-bar:not(.is-compact) {
       flex-direction: column;
       gap: 5px;
       padding: 6px 8px;
       width: 100%;
     }
 
-    .ribbon-sep {
+    .ribbon-bar:not(.is-compact) .ribbon-sep {
       display: none;
     }
 
-    .ribbon-btn {
+    .ribbon-bar:not(.is-compact) .ribbon-btn {
       height: 46px;
       min-width: 38px;
       padding: 4px 5px;
     }
 
-    .btn-glyph {
+    .ribbon-bar:not(.is-compact) .btn-glyph {
       min-height: 20px;
       font-size: 14.5px;
     }
+  }
+
+  @container (max-width: 620px) {
+    .ribbon-bar.is-compact {
+      flex-direction: column;
+      gap: 4px;
+      width: 100%;
+    }
+
+    .ribbon-bar.is-compact .ribbon-sep {
+      display: none;
+    }
+  }
+
+  .ribbon-bar.is-compact {
+    gap: 4px;
+    padding: 4px 6px;
+    border-radius: 10px;
+  }
+
+  .ribbon-bar.is-compact .ribbon-group {
+    gap: 2px;
+  }
+
+  .ribbon-bar.is-compact .ribbon-sep {
+    height: 22px;
+    margin: 0 2px;
+  }
+
+  .ribbon-bar.is-compact .ribbon-btn {
+    height: 36px;
+    min-width: 33px;
+    padding: 3px 4px;
+    gap: 2px;
+    border-radius: 7px;
+  }
+
+  .ribbon-bar.is-compact .btn-glyph {
+    min-height: 17px;
+    font-size: 13px;
+  }
+
+  .ribbon-bar.is-compact .btn-key {
+    min-width: 14px;
+    height: 13px;
+    line-height: 11px;
+    font-size: 9.5px;
+    padding: 0 3px;
   }
 
   .ribbon-btn {
@@ -762,5 +842,102 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Inline bottom-bar submenu (strictly confined inside .ribbon-wrap; never overlays preview) */
+  .cat-inline-panel {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 9px;
+    background: var(--ms-surface);
+    border: 1px solid var(--ms-border);
+    overflow: hidden;
+  }
+
+  .cat-inline-panel.leader-mode {
+    border-color: var(--ms-accent);
+  }
+
+  .cat-inline-panel .cat-head {
+    padding: 4px 8px;
+    gap: 6px;
+    min-height: 26px;
+  }
+
+  .cat-inline-panel .cat-back {
+    width: auto;
+    height: 20px;
+    padding: 0 7px;
+    font-size: 11px;
+    font-weight: 500;
+    gap: 2px;
+  }
+
+  .cat-inline-panel .cat-title {
+    font-size: 11.5px;
+  }
+
+  .cat-inline-panel .cat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+    gap: 4px;
+    padding: 6px 8px;
+    max-height: 116px;
+    overflow-y: auto;
+  }
+
+  .cat-inline-panel .cat-grid.matrix-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    max-height: 144px;
+  }
+
+  .cat-inline-panel .cat-cell {
+    min-height: 46px;
+    padding: 4px 5px;
+    gap: 2px;
+    border-radius: 7px;
+  }
+
+  .cat-inline-panel .cat-grid.matrix-grid .cat-cell {
+    min-height: 64px;
+  }
+
+  .cat-inline-panel .cell-top {
+    min-height: 14px;
+  }
+
+  .cat-inline-panel .cell-key {
+    min-width: 14px;
+    height: 14px;
+    font-size: 9.5px;
+    padding: 0 3px;
+  }
+
+  .cat-inline-panel .cell-default,
+  .cat-inline-panel .cell-short {
+    font-size: 9px;
+    line-height: 13px;
+    padding: 0 3px;
+  }
+
+  .cat-inline-panel .cat-math {
+    font-size: 12.5px;
+    min-height: 18px;
+  }
+
+  .cat-inline-panel .cat-grid.matrix-grid .cat-math {
+    font-size: 9px;
+    min-height: 28px;
+    padding: 1px 0;
+  }
+
+  .cat-inline-panel .cat-label {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+
+  .cat-inline-panel .custom-empty {
+    padding: 14px 12px;
+    font-size: 11.5px;
   }
 </style>

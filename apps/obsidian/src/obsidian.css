@@ -62,9 +62,19 @@
   white-space: normal !important;
 }
 
-.mathslot-obsidian-modal .ms-studio .ribbon-btn,
-.mathslot-dock-panel .ribbon-btn {
+.mathslot-obsidian-modal .ms-studio .ribbon-btn {
   height: 44px !important;
+}
+
+.mathslot-dock-panel .ribbon-btn {
+  height: 36px !important;
+  min-width: 33px !important;
+  padding: 3px 4px !important;
+}
+
+.mathslot-dock-panel .cat-back {
+  height: 20px !important;
+  padding: 0 7px !important;
 }
 
 .mathslot-obsidian-modal .ms-studio .dock-tool-btn {
@@ -73,8 +83,7 @@
   padding: 0 !important;
 }
 
-.mathslot-obsidian-modal .ms-studio .cat-popover,
-.mathslot-dock-panel .cat-popover {
+.mathslot-obsidian-modal .ms-studio .cat-popover {
   max-height: min(290px, 46vh) !important;
 }
 
@@ -109,13 +118,16 @@
 
 .cm-panels.cm-panels-bottom:has(> .mathslot-dock-host) {
   overflow: visible !important;
-  border-top: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  border-top: none;
+  background: transparent;
+  padding: 4px 12px 8px;
   z-index: 32;
 }
 
 .mathslot-dock-host {
   width: 100%;
+  display: flex;
+  justify-content: center;
   overflow: visible;
 }
 
@@ -153,16 +165,21 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
+  width: min(var(--file-line-width, 700px), 100%);
+  max-width: 720px;
+  border: 1px solid var(--ms-border);
+  border-radius: 11px;
   background: var(--ms-chrome);
-  overflow: visible;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.09);
+  overflow: hidden;
+  --ms-canvas-font-size: 1.12rem;
 }
 
 .mathslot-dock-panel .dock-resize-handle {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 7px;
+  height: 6px;
   width: 100%;
   cursor: ns-resize;
   background: var(--ms-chrome);
@@ -188,10 +205,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 2px 12px 5px;
+  padding: 1px 10px 4px;
   border-bottom: 1px solid var(--ms-border-subtle);
   background: var(--ms-chrome);
-  min-height: 28px;
+  min-height: 26px;
 }
 
 .mathslot-dock-panel .dock-status-group {
@@ -348,29 +365,61 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  min-height: 84px;
+  min-height: 56px;
+  overflow: hidden;
   background: var(--ms-bg);
   border-bottom: 1px solid var(--ms-border-subtle);
 }
 
+.mathslot-dock-panel .canvas-stage {
+  min-height: 0 !important;
+  background-size: 18px 18px;
+}
+
 .mathslot-dock-panel .canvas-inner {
-  padding: 12px 24px !important;
+  padding: 14px 18px 8px !important;
 }
 
 .mathslot-dock-panel .formula-center {
-  min-height: 54px !important;
+  min-height: 36px !important;
+  gap: 4px;
+}
+
+.mathslot-dock-panel .active-slot-tag {
+  top: -15px;
+  padding: 0 5px;
+  font-size: 9.5px;
+}
+
+.mathslot-dock-panel .empty-hint {
+  top: calc(50% + 16px);
+  font-size: 11px;
+}
+
+.mathslot-dock-panel .zoom-controls {
+  right: 8px;
+  bottom: 5px;
+  padding: 1px 4px;
+  opacity: 0.65;
+}
+
+.mathslot-dock-panel .zoom-btn {
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+}
+
+.mathslot-dock-panel .zoom-val {
+  min-width: 32px;
+  height: 18px;
+  font-size: 10px;
 }
 
 .mathslot-dock-panel .dock-ribbon-wrap {
-  padding-top: 6px;
+  padding-top: 5px;
   background: var(--ms-chrome);
-  overflow: visible;
 }
 
 .mathslot-dock-panel .ribbon-wrap {
-  padding: 0 10px 8px !important;
-}
-
-.mathslot-dock-panel .cat-popover {
-  z-index: 60 !important;
+  padding: 0 6px 6px !important;
 }

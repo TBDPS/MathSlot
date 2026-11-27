@@ -36,7 +36,7 @@
 - **一级高频结构（按 `Tab` + 1 个字母）**：
   - `Tab f` 分数 · `Tab r` 根号（二次/N次合一） · `Tab b` 上下标
   - `Tab i` 积分（定/不定合一） · `Tab s` 求和 · `Tab l` 极限 · `Tab e` 二项式
-  - `Tab p` 圆括号 · `Tab v` 绝对值
+  - `Tab v` 绝对值（圆括号直接输入 `(` 即可）
 - **二级菜单（按 `Tab` + 1 个分类字母，立即渲染默认结构）**：
   - `Tab m` → 默认 `2×2 矩阵`（再按 `d` 变分段函数、`j` 变省略行列式；或直接打 `1` 开始填矩阵！）
   - `Tab c` → 默认 `偏导分式` $\frac{\partial \square}{\partial \square}$（直接打 `y Enter x` 即得 $\frac{\partial y}{\partial x}$！）

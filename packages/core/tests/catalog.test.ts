@@ -22,15 +22,22 @@ import {
 } from '../src';
 
 describe('MathSlot catalog & presets integrity', () => {
-  it('contains 229 unique commands with unique ids, released u/d keys (b kept for subsup), and curated submenu defaults', () => {
+  it('contains 229 unique commands with unique ids, released u/d/p keys (b kept for subsup), and curated submenu defaults', () => {
     expect(COMMANDS.length).toBe(229);
     expect(COMMANDS_BY_ID.size).toBe(229);
-    expect(COMMANDS_BY_KEYS.size).toBe(226);
-    expect(DIRECT_COMMANDS.length).toBe(9);
+    expect(COMMANDS_BY_KEYS.size).toBe(225);
+    expect(DIRECT_COMMANDS.length).toBe(8);
     expect(COMMANDS_BY_KEYS.has('u')).toBe(false);
     expect(COMMANDS_BY_KEYS.has('d')).toBe(false);
+    expect(COMMANDS_BY_KEYS.has('p')).toBe(false);
     expect(COMMANDS_BY_KEYS.get('b')?.id).toBe('subsup');
     expect(SUBMENUS.length).toBe(7);
+
+    // Legacy ▸px; stream code still decodes cleanly into paren struct
+    const legacyParen = importFormula('▸px;');
+    expect(legacyParen.diagnostics).toEqual([]);
+    expect(legacyParen.doc.root.children.some((n) => n.type === 'struct' && n.commandId === 'paren')).toBe(true);
+    expect(toLatex(legacyParen.doc)).toBe('\\left(x\\right)');
 
     // Every auto-shorthand must resolve to a real command AND actually expand when typed on the canvas!
     for (const rule of AUTO_SHORTHANDS) {

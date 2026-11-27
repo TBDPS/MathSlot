@@ -11,7 +11,7 @@
   let canvasRef = $state<{ focus: () => void } | null>(null);
   let dragging = $state(false);
   let dragStartY = 0;
-  let dragStartHeight = 118;
+  let dragStartHeight = 78;
 
   const isBlockWrapper = $derived(
     store.wrapper === 'dollar_block' || store.wrapper === 'bracket_block',
@@ -38,7 +38,7 @@
   function moveResize(e: PointerEvent): void {
     if (!dragging) return;
     const delta = dragStartY - e.clientY;
-    store.panelHeight = Math.max(84, Math.min(340, dragStartHeight + delta));
+    store.panelHeight = Math.max(56, Math.min(260, dragStartHeight + delta));
   }
 
   function endResize(e: PointerEvent): void {
@@ -149,7 +149,7 @@
         onmousedown={(e) => e.preventDefault()}
         onclick={store.openFullWorkbench}
       >
-        ⤢ 公式库/导出
+        ⤢ 公式库
       </button>
       <button
         type="button"
@@ -227,7 +227,8 @@
       commands={store.effectiveCommands}
       customCommands={store.customCommands}
       snippets={store.snippets}
-      popoverDirection="up"
+      submenuMode="inline"
+      compact={true}
       onPopoverChange={(open) => {
         store.ribbonPopoverOpen = open;
       }}

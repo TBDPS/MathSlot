@@ -47,7 +47,7 @@ export class DockedMathStore {
   public dark = $state<boolean>(
     typeof document !== 'undefined' && document.body.classList.contains('theme-dark'),
   );
-  public panelHeight = $state<number>(118);
+  public panelHeight = $state<number>(78);
   public semicolonExitsAtRoot = $state<boolean>(true);
   public ribbonPopoverOpen = $state<boolean>(false);
 

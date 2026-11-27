@@ -685,7 +685,7 @@
           class="formula-render"
           class:is-empty={snapshot.isEmpty}
           aria-hidden="true"
-          style:font-size={`calc(clamp(1.65rem, 2.9vw, 2.3rem) * ${scale})`}
+          style:font-size={`calc(var(--ms-canvas-font-size, clamp(1.65rem, 2.9vw, 2.3rem)) * ${scale})`}
           bind:this={formulaEl}
         >
           {@html rendered.html}

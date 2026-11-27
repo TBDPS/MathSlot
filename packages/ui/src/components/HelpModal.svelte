@@ -25,7 +25,7 @@
     <div class="modal-head">
       <div class="head-title">
         <span>MathSlot 使用手册</span>
-        <span class="ver-badge">v3.1.0-beta.5 · 229 命令 · 114 预置</span>
+        <span class="ver-badge">v3.1.0-beta.6 · 229 命令 · 114 预置</span>
       </div>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
     </div>
@@ -91,7 +91,6 @@
             <div><kbd>Tab f</kbd> 分数</div>
             <div><kbd>Tab r</kbd> 根号（二次/N次）</div>
             <div><kbd>Tab b</kbd> 上下标（可缺省）</div>
-            <div><kbd>Tab p</kbd> 自适应圆括号</div>
             <div><kbd>Tab v</kbd> 绝对值</div>
             <div><kbd>Tab i</kbd> 积分（定/不定）</div>
             <div><kbd>Tab s</kbd> 求和</div>
