@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["svelte"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"]
 }

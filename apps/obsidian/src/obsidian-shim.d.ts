@@ -210,6 +210,10 @@ declare module '@codemirror/view' {
 
   export interface TooltipView {
     dom: HTMLElement;
+    mount?(view: EditorView): void;
+    update?(update: unknown): void;
+    positioned?(): void;
+    destroy?(): void;
   }
 
   export interface Tooltip {
@@ -231,6 +235,8 @@ declare module '@codemirror/view' {
   export class EditorView {
     readonly state: EditorState;
     readonly dom: HTMLElement;
+    readonly contentDOM: HTMLElement;
+    readonly scrollDOM: HTMLElement;
     dispatch(...specs: readonly TransactionSpec[]): void;
     focus(): void;
     static decorations: {

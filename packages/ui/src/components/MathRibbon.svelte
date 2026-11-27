@@ -30,6 +30,7 @@
     onCreateCustom?: () => void;
     onSaveSnippet?: () => void;
     onPopoverChange?: (open: boolean) => void;
+    popoverDirection?: 'up' | 'down';
   }
 
   let {
@@ -47,6 +48,7 @@
     onCreateCustom,
     onSaveSnippet,
     onPopoverChange,
+    popoverDirection = 'up',
   }: Props = $props();
 
   const QUICK_ITEMS: readonly { id: string; key: string; preview: string }[] = [
@@ -146,7 +148,13 @@
 
 <div class="ribbon-wrap" bind:this={ribbonEl}>
   {#if activeCategory && activeGroup}
-    <div class="cat-popover" class:leader-mode={leaderActive} role="menu" aria-label={activeGroup.label}>
+    <div
+      class="cat-popover"
+      class:leader-mode={leaderActive}
+      class:pop-down={popoverDirection === 'down'}
+      role="menu"
+      aria-label={activeGroup.label}
+    >
       <div class="cat-head">
         {#if leaderActive}
           <button
@@ -504,6 +512,11 @@
     overflow: hidden;
     z-index: 35;
     animation: pop-in 130ms var(--ms-ease-out);
+  }
+
+  .cat-popover.pop-down {
+    bottom: auto;
+    top: calc(100% + 10px);
   }
 
   .cat-popover.leader-mode {

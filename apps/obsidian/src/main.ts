@@ -6,18 +6,20 @@ import type { EditorView } from '@codemirror/view';
 import type { PersistedStore } from '@mathslot/ui';
 import {
   COMMANDS,
-  DEFAULT_INLINE_SETTINGS,
+  DEFAULT_SETTINGS,
   canonicalBlockquotePrefix,
   detectFormulaInWindow,
   detectWrapperFromRaw,
   extractBlockquotePrefix,
   mergeCommands,
+  normalizeSettings,
   stripBlockquoteSelection,
+  type AppSettings,
   type DelimiterStyle,
   type InlineMathSpan,
   type MathWrapperKind,
-  type SlotOrderPreset,
 } from '@mathslot/core';
+import { InlineSplitWorkbenchStore } from './InlineSplitStore.svelte';
 import { MathSlotModal } from './MathSlotModal';
 import {
   DEFAULT_OBSIDIAN_INLINE_PREFS,
@@ -27,7 +29,6 @@ import {
 import {
   createMathSlotInlineController,
   type MathSlotInlineController,
-  type MathSlotInlineRuntimeSettings,
 } from './inlineExtension';
 
 export interface ObsidianPluginData extends PersistedStore {
@@ -92,41 +93,27 @@ function normalizeInlinePrefs(raw?: Partial<ObsidianInlinePrefs> | null): Obsidi
       typeof raw?.autoActivateOnClick === 'boolean'
         ? raw.autoActivateOnClick
         : DEFAULT_OBSIDIAN_INLINE_PREFS.autoActivateOnClick,
-    leaderKey: raw?.leaderKey === '`' ? '`' : 'Tab',
-    naturalFraction:
-      typeof raw?.naturalFraction === 'boolean'
-        ? raw.naturalFraction
-        : DEFAULT_OBSIDIAN_INLINE_PREFS.naturalFraction,
-    naturalScripts:
-      typeof raw?.naturalScripts === 'boolean'
-        ? raw.naturalScripts
-        : DEFAULT_OBSIDIAN_INLINE_PREFS.naturalScripts,
-    punctShorthands:
-      typeof raw?.punctShorthands === 'boolean'
-        ? raw.punctShorthands
-        : DEFAULT_OBSIDIAN_INLINE_PREFS.punctShorthands,
-    wordShorthands:
-      typeof raw?.wordShorthands === 'boolean'
-        ? raw.wordShorthands
-        : DEFAULT_OBSIDIAN_INLINE_PREFS.wordShorthands,
+    semicolonExitsAtRoot:
+      typeof raw?.semicolonExitsAtRoot === 'boolean'
+        ? raw.semicolonExitsAtRoot
+        : DEFAULT_OBSIDIAN_INLINE_PREFS.semicolonExitsAtRoot,
   };
 }
 
 export default class MathSlotPlugin extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
   private inlinePrefs: ObsidianInlinePrefs = { ...DEFAULT_OBSIDIAN_INLINE_PREFS };
-  private cachedInlineSettings: MathSlotInlineRuntimeSettings = {
-    ...DEFAULT_INLINE_SETTINGS,
-    autoActivateOnClick: false,
-  };
-  private slotOrderPreset: SlotOrderPreset = 'standard';
+  private workbenchSettings: AppSettings = { ...DEFAULT_SETTINGS };
+  private splitStore: InlineSplitWorkbenchStore | null = null;
   private inlineController: MathSlotInlineController | null = null;
 
   async onload(): Promise<void> {
+    this.splitStore = new InlineSplitWorkbenchStore();
     await this.reloadInlineCacheFromDisk();
 
     this.inlineController = createMathSlotInlineController({
-      getSettings: () => this.cachedInlineSettings,
+      getPrefs: () => this.inlinePrefs,
+      store: this.splitStore,
       openWorkbenchAtSpan: (view, span) => {
         this.openEditorFromInlineSpan(view, span);
       },
@@ -142,7 +129,7 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'summon-mathslot-inline',
-      name: '进入公式流式编辑模式（自动插入 $...$ / 再按升级 $$...$$）',
+      name: '进入原位分体工作台（自动包裹 $...$ / 再按升级 $$...$$）',
       hotkeys: [{ modifiers: ['Alt'], key: 'm' }],
       editorCallback: (editor: Editor) => {
         const cmView = (editor as unknown as { cm?: EditorView })?.cm ?? null;
@@ -158,7 +145,7 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'open-mathslot-editor',
-      name: '打开 2D 公式工作台弹窗（复杂矩阵 / 公式库 / MathML 导出）',
+      name: '打开独立弹窗工作台（114 条公式库 / 自定义结构 / MathML 导出）',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor);
       },
@@ -166,7 +153,7 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'open-mathslot-block',
-      name: '在 2D 工作台中插入块级公式 ($$...$$)',
+      name: '在独立弹窗工作台中插入块级公式 ($$...$$)',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor, 'block');
       },
@@ -174,21 +161,26 @@ export default class MathSlotPlugin extends Plugin {
 
     this.addCommand({
       id: 'toggle-mathslot-inline-mode',
-      name: '切换原位双栏流式模式总开关',
+      name: '切换原位分体工作台总开关',
       callback: async () => {
         const next = !this.inlinePrefs.enabled;
         await this.updateInlinePrefs({ enabled: next });
-        new Notice(next ? 'MathSlot：已启用原位双栏模式（按 Alt+M 呼出）' : 'MathSlot：已关闭原位双栏模式');
+        new Notice(next ? 'MathSlot：已开启原位分体工作台' : 'MathSlot：已关闭原位分体工作台');
       },
     });
+  }
+
+  override onunload(): void {
+    this.splitStore?.destroy();
+    this.splitStore = null;
   }
 
   public getInlinePrefs(): ObsidianInlinePrefs {
     return { ...this.inlinePrefs };
   }
 
-  public getSlotOrderPreset(): SlotOrderPreset {
-    return this.slotOrderPreset;
+  public getWorkbenchSettings(): AppSettings {
+    return { ...this.workbenchSettings };
   }
 
   public async updateInlinePrefs(patch: Partial<ObsidianInlinePrefs>): Promise<void> {
@@ -203,25 +195,25 @@ export default class MathSlotPlugin extends Plugin {
         obsidianInline: nextPrefs,
       };
       await this.saveData(merged);
-      this.syncInlineSettingsFromData(merged);
+      this.syncStoreFromData(merged);
       this.app.workspace.updateOptions?.();
     });
     this.saveQueue = run.catch(() => {});
     await run;
   }
 
-  public async updateSlotOrderPreset(preset: SlotOrderPreset): Promise<void> {
+  public async updateWorkbenchSettings(patch: Partial<AppSettings>): Promise<void> {
     const run = this.saveQueue.then(async () => {
       const prev = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
       const merged: Partial<ObsidianPluginData> = {
         ...prev,
         settings: {
           ...(prev.settings ?? {}),
-          slotOrderPreset: preset,
+          ...patch,
         },
       };
       await this.saveData(merged);
-      this.syncInlineSettingsFromData(merged);
+      this.syncStoreFromData(merged);
       this.app.workspace.updateOptions?.();
     });
     this.saveQueue = run.catch(() => {});
@@ -234,35 +226,24 @@ export default class MathSlotPlugin extends Plugin {
 
   private async reloadInlineCacheFromDisk(): Promise<void> {
     const data = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
-    this.syncInlineSettingsFromData(data);
+    this.syncStoreFromData(data);
   }
 
-  private syncInlineSettingsFromData(data: Partial<ObsidianPluginData>): void {
+  private syncStoreFromData(data: Partial<ObsidianPluginData>): void {
     this.inlinePrefs = normalizeInlinePrefs(data.obsidianInline);
-    const preset: SlotOrderPreset =
-      data.settings?.slotOrderPreset === 'writing_cn' ? 'writing_cn' : 'standard';
-    this.slotOrderPreset = preset;
-    const overrides =
-      data.settings?.slotOrderOverrides && typeof data.settings.slotOrderOverrides === 'object'
-        ? data.settings.slotOrderOverrides
-        : {};
+    this.workbenchSettings = normalizeSettings(data.settings);
     const userCmds = Array.isArray(data.userCommands) ? data.userCommands : [];
     const effectiveCommands = userCmds.length > 0 ? mergeCommands(COMMANDS, userCmds) : COMMANDS;
 
-    this.cachedInlineSettings = {
-      enabled: this.inlinePrefs.enabled,
-      autoActivateOnClick: this.inlinePrefs.autoActivateOnClick,
-      leaderKey: this.inlinePrefs.leaderKey,
-      naturalFraction: this.inlinePrefs.naturalFraction,
-      naturalScripts: this.inlinePrefs.naturalScripts,
-      punctShorthands: this.inlinePrefs.punctShorthands,
-      wordShorthands: this.inlinePrefs.wordShorthands,
-      slotOrderPreset: preset,
-      slotOrderOverrides: overrides,
-      effectiveCommands,
-      customCommands: Array.isArray(data.customCommands) ? data.customCommands : [],
-      snippets: Array.isArray(data.snippets) ? data.snippets : [],
-    };
+    if (this.splitStore) {
+      this.splitStore.semicolonExitsAtRoot = this.inlinePrefs.semicolonExitsAtRoot;
+      this.splitStore.syncExternalConfig({
+        settings: this.workbenchSettings,
+        effectiveCommands,
+        customCommands: Array.isArray(data.customCommands) ? data.customCommands : [],
+        snippets: Array.isArray(data.snippets) ? data.snippets : [],
+      });
+    }
   }
 
   private openEditorFromInlineSpan(view: EditorView, span: InlineMathSpan): void {
@@ -464,7 +445,7 @@ export default class MathSlotPlugin extends Plugin {
           };
           loadedBase = merged;
           await this.saveData(merged);
-          this.syncInlineSettingsFromData(merged);
+          this.syncStoreFromData(merged);
         });
         this.saveQueue = run.catch(() => {});
         await run;

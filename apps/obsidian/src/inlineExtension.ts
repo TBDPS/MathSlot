@@ -1,4 +1,4 @@
-import katex from 'katex';
+import { mount, unmount } from 'svelte';
 import {
   EditorSelection,
   Prec,
@@ -6,44 +6,27 @@ import {
   StateField,
   type EditorState,
   type Extension,
-  type Range,
 } from '@codemirror/state';
+import { EditorView, showTooltip, type Tooltip, type TooltipView } from '@codemirror/view';
 import {
-  Decoration,
-  EditorView,
-  WidgetType,
-  showTooltip,
-  type DecorationSet,
-  type Tooltip,
-} from '@codemirror/view';
-import {
-  buildInlinePreviewLatex,
-  createActiveInlineSession,
-  createEmptyInlineSession,
   findEnclosingMathSpan,
-  getLeaderCapsuleItems,
-  handleInlineCharTyped,
-  handleInlineLeaderKey,
-  handleInlineLeaderTrigger,
-  handleInlinePrevSlot,
-  handleInlineSemicolon,
-  handleInlineSpecialKey,
   handleInlineSummonOrUpgrade,
-  healIncompleteLatexForPreview,
-  mapInlineSessionThroughChange,
-  normalizePreviewLatex,
-  type InlineActionResult,
-  type InlineExpanderSettings,
+  createEmptyInlineSession,
+  createActiveInlineSession,
   type InlineMathSpan,
-  type InlineSessionState,
 } from '@mathslot/core';
+import InlineBottomPanel from './InlineBottomPanel.svelte';
+import { InlineSplitWorkbenchStore } from './InlineSplitStore.svelte';
+import InlineTopPanel from './InlineTopPanel.svelte';
 
-export interface MathSlotInlineRuntimeSettings extends InlineExpanderSettings {
-  autoActivateOnClick?: boolean;
+export interface SplitExtensionRuntimePrefs {
+  enabled: boolean;
+  autoActivateOnClick: boolean;
 }
 
 export interface MathSlotInlineExtensionOptions {
-  getSettings: () => MathSlotInlineRuntimeSettings;
+  getPrefs: () => SplitExtensionRuntimePrefs;
+  store: InlineSplitWorkbenchStore;
   openWorkbenchAtSpan: (view: EditorView, span: InlineMathSpan) => void;
 }
 
@@ -52,7 +35,13 @@ export interface MathSlotInlineController {
   summonOrUpgrade: (view?: EditorView | null) => boolean;
 }
 
-const setInlineSessionEffect = StateEffect.define<InlineSessionState>();
+interface ActiveSpanState {
+  active: boolean;
+  span: InlineMathSpan | null;
+}
+
+const setActiveSpanEffect = StateEffect.define<ActiveSpanState>();
+const fromEngineSyncEffect = StateEffect.define<InlineMathSpan>();
 
 function getLocalMathSpan(state: EditorState, pos: number): InlineMathSpan | null {
   const radius = 16000;
@@ -70,231 +59,264 @@ function getLocalMathSpan(state: EditorState, pos: number): InlineMathSpan | nul
   };
 }
 
-function getDocThroughSpan(state: EditorState, span: InlineMathSpan): string {
-  return state.doc.sliceString(0, Math.min(state.doc.length, span.rawTo + 4));
-}
-
 /**
- * Computes fixed horizontal anchor positions on the formula's top and bottom lines
- * so neither panel jitters left/right as the user types characters.
+ * Aligns the panel's left edge and width with Obsidian's actual note text column (`view.contentDOM`)
+ * so both bars match the page width cleanly regardless of where `$...$` sits in the sentence.
  */
-function getFixedLineAnchors(
-  state: EditorState,
-  span: InlineMathSpan,
-): { topPos: number; bottomPos: number } {
-  const firstLine = state.doc.lineAt(span.rawFrom);
-  const lastLine = state.doc.lineAt(span.rawTo);
-  // Keep anchored at line start on normal lines; on very long soft-wrapped paragraphs, anchor at formula start
-  const colFromLineStart = span.rawFrom - firstLine.from;
-  const topPos = colFromLineStart <= 42 ? firstLine.from : span.rawFrom;
-  const bottomPos = span.isBlock
-    ? lastLine.from
-    : colFromLineStart <= 42
-      ? firstLine.from
-      : span.rawFrom;
-  return { topPos, bottomPos };
-}
+function alignToNoteColumn(view: EditorView, hostDom: HTMLElement): void {
+  const panelEl = hostDom.firstElementChild as HTMLElement | null;
+  const tipParent = hostDom.parentElement;
+  if (!panelEl || !tipParent) return;
+  const contentRect = view.contentDOM.getBoundingClientRect();
+  if (contentRect.width < 120) return;
 
-function renderHudKatexHtml(latex: string): string {
-  const trustHudOnly = (ctx: { command: string }): boolean => ctx.command === '\\htmlClass';
-  try {
-    const normalized = normalizePreviewLatex(latex, true);
-    return katex.renderToString(normalized, {
-      displayMode: true,
-      throwOnError: true,
-      strict: false,
-      trust: trustHudOnly,
-      output: 'html',
-    });
-  } catch {
-    const healed = normalizePreviewLatex(healIncompleteLatexForPreview(latex), true);
-    try {
-      return katex.renderToString(healed, {
-        displayMode: true,
-        throwOnError: false,
-        strict: false,
-        trust: trustHudOnly,
-        output: 'html',
-      });
-    } catch {
-      const safeEsc = latex
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      return `<code class="ms-hud-fallback-code">${safeEsc}</code>`;
-    }
-  }
-}
+  // Measure actual inner text column width excluding horizontal padding of `.cm-content`
+  const cs = window.getComputedStyle(view.contentDOM);
+  const padL = parseFloat(cs.paddingLeft) || 0;
+  const padR = parseFloat(cs.paddingRight) || 0;
+  const targetLeft = contentRect.left + padL;
+  const targetWidth = Math.max(260, contentRect.width - padL - padR);
 
-class PendingSlotPlaceholderWidget extends WidgetType {
-  private readonly label: string;
-
-  constructor(label: string) {
-    super();
-    this.label = label;
-  }
-
-  override eq(other: WidgetType): boolean {
-    return other instanceof PendingSlotPlaceholderWidget && other.label === this.label;
-  }
-
-  override toDOM(): HTMLElement {
-    const el = document.createElement('span');
-    el.className = 'mathslot-slot-placeholder';
-    el.textContent = '□';
-    el.title = this.label ? `待填槽位：${this.label}（按 ; 跳入）` : '待填槽位（按 ; 跳入）';
-    el.setAttribute('aria-hidden', 'true');
-    return el;
-  }
-
-  override ignoreEvent(): boolean {
-    return true;
-  }
-}
-
-function appendHintChip(container: HTMLElement, keys: string[], label: string): void {
-  const item = document.createElement('span');
-  item.className = 'ms-bar-hint';
-  for (let i = 0; i < keys.length; i += 1) {
-    if (i > 0) {
-      const slash = document.createElement('span');
-      slash.className = 'ms-bar-sep';
-      slash.textContent = '/';
-      item.appendChild(slash);
-    }
-    const kbd = document.createElement('kbd');
-    kbd.className = 'ms-cap-key';
-    kbd.textContent = keys[i];
-    item.appendChild(kbd);
-  }
-  const text = document.createElement('span');
-  text.textContent = label;
-  item.appendChild(text);
-  container.appendChild(item);
+  const tipRect = tipParent.getBoundingClientRect();
+  panelEl.style.width = `${Math.round(targetWidth)}px`;
+  panelEl.style.transform = `translateX(${Math.round(targetLeft - tipRect.left)}px)`;
 }
 
 export function createMathSlotInlineController(
   opts: MathSlotInlineExtensionOptions,
 ): MathSlotInlineController {
-  let lastFocusedView: EditorView | null = null;
+  let activeView: EditorView | null = null;
+  let currentSpan: InlineMathSpan | null = null;
 
-  const sessionField = StateField.define<InlineSessionState>({
-    create: () => createEmptyInlineSession(),
-    update(value, tr) {
-      for (const eff of tr.effects) {
-        if (eff.is(setInlineSessionEffect)) {
-          return eff.value;
-        }
-      }
-      if (!tr.docChanged && !tr.selection) {
-        return value;
-      }
-      const settings = opts.getSettings();
-      if (!settings.enabled || !tr.state.selection.main.empty) {
-        return createEmptyInlineSession();
-      }
-      const newPos = tr.state.selection.main.head;
-      const mathSpan = getLocalMathSpan(tr.state, newPos);
-      if (!mathSpan) {
-        return createEmptyInlineSession();
-      }
+  const syncDocSpanToStore = (state: EditorState, span: InlineMathSpan): void => {
+    currentSpan = span;
+    const rawInner = state.doc.sliceString(span.contentFrom, span.contentTo);
+    const firstLine = state.doc.lineAt(span.rawFrom).text;
+    opts.store.loadFromDocumentSpan(rawInner, firstLine, span);
+  };
 
-      if (!value.active) {
-        if (settings.autoActivateOnClick) {
-          return createActiveInlineSession();
-        }
-        return value;
-      }
-
-      if (tr.docChanged) {
-        let cur = value;
-        let deltaAcc = 0;
-        tr.changes.iterChanges((fromA, toA, fromB, toB) => {
-          const insLen = toB - fromB;
-          cur = mapInlineSessionThroughChange(
-            cur,
-            fromA + deltaAcc,
-            toA + deltaAcc,
-            insLen,
-            newPos,
-            mathSpan,
-          );
-          deltaAcc += insLen - (toA - fromA);
-        });
-        return cur;
-      }
-
-      // Selection-only movement inside the same formula while session is active
-      let rawSpan = value.rawSpan;
-      if (rawSpan && (newPos < rawSpan.from || newPos > rawSpan.to)) {
-        rawSpan = null;
-      }
-      let currentSlot = value.currentSlot;
-      const queue = value.queue.filter(
-        (t) => t.from >= mathSpan.contentFrom && t.to <= mathSpan.contentTo,
-      );
-      const visited = value.visited.filter(
-        (t) => t.from >= mathSpan.contentFrom && t.to <= mathSpan.contentTo,
-      );
-      if (currentSlot && (newPos < currentSlot.from || newPos > currentSlot.to)) {
-        const hitIdx = queue.findIndex((t) => !t.isExit && newPos >= t.from && newPos <= t.to);
-        if (hitIdx >= 0) {
-          currentSlot = queue[hitIdx];
-          queue.splice(hitIdx, 1);
-        } else {
-          currentSlot = null;
-        }
-      }
-      return {
-        active: true,
-        currentSlot,
-        queue,
-        visited,
-        leader: null,
-        rawSpan,
-        ...(value.rawProtectedUpTo !== undefined
-          ? { rawProtectedUpTo: value.rawProtectedUpTo }
-          : {}),
+  opts.store.bindCallbacks({
+    writeLatexToDocument(formattedInner: string) {
+      if (!activeView || !currentSpan) return;
+      const oldSpan = currentSpan;
+      const delta = formattedInner.length - (oldSpan.contentTo - oldSpan.contentFrom);
+      const updatedSpan: InlineMathSpan = {
+        ...oldSpan,
+        contentTo: oldSpan.contentFrom + formattedInner.length,
+        rawTo: oldSpan.rawTo + delta,
       };
+      currentSpan = updatedSpan;
+      activeView.dispatch({
+        changes: {
+          from: oldSpan.contentFrom,
+          to: oldSpan.contentTo,
+          insert: formattedInner,
+        },
+        selection: EditorSelection.cursor(updatedSpan.contentTo),
+        effects: fromEngineSyncEffect.of(updatedSpan),
+        userEvent: 'input.type',
+      });
+    },
+    completeAndExitToOutside() {
+      if (!activeView || !currentSpan) return;
+      const exitPos = Math.min(activeView.state.doc.length, currentSpan.rawTo);
+      currentSpan = null;
+      activeView.dispatch({
+        selection: EditorSelection.cursor(exitPos),
+        effects: setActiveSpanEffect.of({ active: false, span: null }),
+        scrollIntoView: true,
+      });
+      activeView.focus();
+    },
+    upgradeInlineToBlock() {
+      if (!activeView || !currentSpan || currentSpan.isBlock) return;
+      const lineEnd = activeView.state.doc.lineAt(currentSpan.rawTo).to;
+      const docSlice = activeView.state.doc.sliceString(
+        0,
+        Math.min(activeView.state.doc.length, lineEnd + 2),
+      );
+      const res = handleInlineSummonOrUpgrade(
+        docSlice,
+        currentSpan.contentTo,
+        currentSpan.contentTo,
+        createActiveInlineSession(),
+        currentSpan,
+      );
+      if (res.kind === 'handled' && res.changes && res.selection !== undefined) {
+        activeView.dispatch({
+          changes: res.changes,
+          selection: EditorSelection.cursor(res.selection),
+          userEvent: 'input.type',
+          scrollIntoView: true,
+        });
+        const newSpan = getLocalMathSpan(activeView.state, activeView.state.selection.main.head);
+        if (newSpan) {
+          syncDocSpanToStore(activeView.state, newSpan);
+          activeView.dispatch({
+            effects: setActiveSpanEffect.of({ active: true, span: newSpan }),
+          });
+        }
+        requestAnimationFrame(() => opts.store.focusCanvas());
+      }
+    },
+    openFullModalWorkbench() {
+      if (!activeView || !currentSpan) return;
+      const spanToOpen = currentSpan;
+      currentSpan = null;
+      activeView.dispatch({
+        effects: setActiveSpanEffect.of({ active: false, span: null }),
+      });
+      opts.openWorkbenchAtSpan(activeView, spanToOpen);
     },
   });
 
-  const applyResult = (
-    view: EditorView,
-    res: InlineActionResult,
-    mathSpan: InlineMathSpan | null,
-  ): boolean => {
-    if (res.kind === 'noop') return false;
-    if (res.kind === 'open_workbench') {
-      view.dispatch({ effects: setInlineSessionEffect.of(createEmptyInlineSession()) });
-      if (mathSpan) {
-        opts.openWorkbenchAtSpan(view, mathSpan);
+  const spanField = StateField.define<ActiveSpanState>({
+    create: () => ({ active: false, span: null }),
+    update(value, tr) {
+      for (const eff of tr.effects) {
+        if (eff.is(setActiveSpanEffect)) {
+          currentSpan = eff.value.span;
+          return eff.value;
+        }
+        if (eff.is(fromEngineSyncEffect)) {
+          return { active: true, span: eff.value };
+        }
       }
-      return true;
-    }
-    if (res.kind === 'handled') {
-      view.dispatch({
-        ...(res.changes ? { changes: res.changes } : {}),
-        ...(res.selection !== undefined
-          ? { selection: EditorSelection.cursor(res.selection) }
-          : {}),
-        effects: setInlineSessionEffect.of(res.state),
-        userEvent: res.changes ? 'input.type' : 'select',
-        scrollIntoView: true,
-      });
-      return true;
-    }
-    return false;
+
+      if (!tr.docChanged && !tr.selection) {
+        return value;
+      }
+
+      const prefs = opts.getPrefs();
+      if (!prefs.enabled) {
+        currentSpan = null;
+        return { active: false, span: null };
+      }
+
+      const sel = tr.state.selection.main;
+      const mathSpan = getLocalMathSpan(tr.state, sel.head);
+      if (!mathSpan || sel.from < mathSpan.contentFrom || sel.to > mathSpan.contentTo) {
+        currentSpan = null;
+        return { active: false, span: null };
+      }
+
+      const nextActive = value.active || prefs.autoActivateOnClick;
+      if (!nextActive) {
+        return { active: false, span: null };
+      }
+
+      syncDocSpanToStore(tr.state, mathSpan);
+      return { active: true, span: mathSpan };
+    },
+  });
+
+  // Stable `create` functions so CodeMirror 6 keeps Svelte panels mounted across keystrokes!
+  const createTopTooltipView = (view: EditorView): TooltipView => {
+    activeView = view;
+    const dom = document.createElement('div');
+    dom.className = 'mathslot-split-host mathslot-split-host-top';
+    const instance = mount(InlineTopPanel, {
+      target: dom,
+      props: { store: opts.store },
+    });
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => alignToNoteColumn(view, dom))
+        : null;
+    ro?.observe(view.contentDOM);
+
+    return {
+      dom,
+      mount() {
+        requestAnimationFrame(() => alignToNoteColumn(view, dom));
+      },
+      update() {
+        alignToNoteColumn(view, dom);
+      },
+      positioned() {
+        alignToNoteColumn(view, dom);
+      },
+      destroy() {
+        ro?.disconnect();
+        void unmount(instance);
+      },
+    };
   };
 
+  const createBottomTooltipView = (view: EditorView): TooltipView => {
+    activeView = view;
+    const dom = document.createElement('div');
+    dom.className = 'mathslot-split-host mathslot-split-host-bottom';
+    const instance = mount(InlineBottomPanel, {
+      target: dom,
+      props: { store: opts.store },
+    });
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => alignToNoteColumn(view, dom))
+        : null;
+    ro?.observe(view.contentDOM);
+
+    return {
+      dom,
+      mount() {
+        requestAnimationFrame(() => alignToNoteColumn(view, dom));
+      },
+      update() {
+        alignToNoteColumn(view, dom);
+      },
+      positioned() {
+        alignToNoteColumn(view, dom);
+      },
+      destroy() {
+        ro?.disconnect();
+        void unmount(instance);
+      },
+    };
+  };
+
+  const topPanelExt = showTooltip.compute([spanField], (state): Tooltip | null => {
+    const st = state.field(spanField);
+    if (!st.active || !st.span) return null;
+    return {
+      pos: st.span.rawFrom,
+      above: true,
+      strictSide: true,
+      arrow: false,
+      create: createTopTooltipView,
+    };
+  });
+
+  const bottomPanelExt = showTooltip.compute([spanField], (state): Tooltip | null => {
+    const st = state.field(spanField);
+    if (!st.active || !st.span) return null;
+    return {
+      pos: st.span.rawTo,
+      above: false,
+      strictSide: true,
+      arrow: false,
+      create: createBottomTooltipView,
+    };
+  });
+
+  const editorAttrsExt = EditorView.editorAttributes.compute([spanField], (state) => {
+    const st = state.field(spanField);
+    if (!st.active || !st.span) return null;
+    return {
+      class: st.span.isBlock
+        ? 'mathslot-inline-active mathslot-inline-block-active'
+        : 'mathslot-inline-active',
+    };
+  });
+
   const summonOrUpgrade = (explicitView?: EditorView | null): boolean => {
-    const view = explicitView ?? lastFocusedView;
+    const view = explicitView ?? activeView;
     if (!view) return false;
+    activeView = view;
     const sel = view.state.selection.main;
     const mathSpan = sel.empty ? getLocalMathSpan(view.state, sel.head) : null;
-    const session = view.state.field(sessionField);
+    const st = view.state.field(spanField);
 
-    // Build local window or prefix string accurately
     if (!mathSpan) {
       const selected = view.state.doc.sliceString(sel.from, sel.to);
       const insert = `$${selected}$`;
@@ -302,399 +324,117 @@ export function createMathSlotInlineController(
       view.dispatch({
         changes: { from: sel.from, to: sel.to, insert },
         selection: EditorSelection.cursor(cursor),
-        effects: setInlineSessionEffect.of(createActiveInlineSession()),
         userEvent: 'input.type',
         scrollIntoView: true,
       });
-      view.focus();
+      const createdSpan = getLocalMathSpan(view.state, cursor);
+      if (createdSpan) {
+        syncDocSpanToStore(view.state, createdSpan);
+        view.dispatch({
+          effects: setActiveSpanEffect.of({ active: true, span: createdSpan }),
+        });
+        requestAnimationFrame(() => opts.store.focusCanvas());
+      }
       return true;
     }
 
-    const lineEnd = view.state.doc.lineAt(mathSpan.rawTo).to;
-    const docSlice = view.state.doc.sliceString(0, Math.min(view.state.doc.length, lineEnd + 2));
-    const res = handleInlineSummonOrUpgrade(docSlice, sel.from, sel.to, session, mathSpan);
-    applyResult(view, res, mathSpan);
+    if (!st.active) {
+      syncDocSpanToStore(view.state, mathSpan);
+      view.dispatch({
+        effects: setActiveSpanEffect.of({ active: true, span: mathSpan }),
+        scrollIntoView: true,
+      });
+      requestAnimationFrame(() => opts.store.focusCanvas());
+      return true;
+    }
+
+    if (!mathSpan.isBlock) {
+      const lineEnd = view.state.doc.lineAt(mathSpan.rawTo).to;
+      const docSlice = view.state.doc.sliceString(
+        0,
+        Math.min(view.state.doc.length, lineEnd + 2),
+      );
+      const res = handleInlineSummonOrUpgrade(
+        docSlice,
+        sel.from,
+        sel.to,
+        createActiveInlineSession(),
+        mathSpan,
+      );
+      if (res.kind === 'handled' && res.changes && res.selection !== undefined) {
+        view.dispatch({
+          changes: res.changes,
+          selection: EditorSelection.cursor(res.selection),
+          userEvent: 'input.type',
+          scrollIntoView: true,
+        });
+        const newSpan = getLocalMathSpan(view.state, view.state.selection.main.head);
+        if (newSpan) {
+          syncDocSpanToStore(view.state, newSpan);
+          view.dispatch({
+            effects: setActiveSpanEffect.of({ active: true, span: newSpan }),
+          });
+        }
+        requestAnimationFrame(() => opts.store.focusCanvas());
+      }
+      return true;
+    }
+
+    // Already active in block `$$...$$`: exit past closing `$$`
+    const exitPos = Math.min(view.state.doc.length, mathSpan.rawTo);
+    currentSpan = null;
+    view.dispatch({
+      selection: EditorSelection.cursor(exitPos),
+      effects: setActiveSpanEffect.of({ active: false, span: null }),
+      scrollIntoView: true,
+    });
     view.focus();
     return true;
   };
 
-  const executeCapsuleLeaderKey = (view: EditorView, key: string): void => {
-    const pos = view.state.selection.main.head;
-    const mathSpan = getLocalMathSpan(view.state, pos);
-    if (!mathSpan) return;
-    const session = view.state.field(sessionField);
-    if (!session.leader) return;
-    const docSlice = getDocThroughSpan(view.state, mathSpan);
-    const res = handleInlineLeaderKey(docSlice, pos, key, session, opts.getSettings());
-    applyResult(view, res, mathSpan);
-    view.focus();
-  };
-
-  // 1. TOP PANEL: Stationary Adaptive Live KaTeX Preview Card (anchored above active line)
-  const topPreviewTooltipExt = showTooltip.compute([sessionField], (state): Tooltip | null => {
-    const settings = opts.getSettings();
-    if (!settings.enabled || !state.selection.main.empty) return null;
-    const session = state.field(sessionField);
-    if (!session.active) return null;
-
-    const pos = state.selection.main.head;
-    const mathSpan = getLocalMathSpan(state, pos);
-    if (!mathSpan) return null;
-
-    const { topPos } = getFixedLineAnchors(state, mathSpan);
-    const docSlice = getDocThroughSpan(state, mathSpan);
-    const preview = buildInlinePreviewLatex(docSlice, mathSpan, session);
-    const renderedHtml = renderHudKatexHtml(preview.latex);
-
-    return {
-      pos: topPos,
-      above: true,
-      strictSide: true,
-      arrow: false,
-      create() {
-        const dom = document.createElement('div');
-        dom.className = 'mathslot-hud-card mathslot-hud-preview';
-        dom.setAttribute('aria-hidden', 'true');
-
-        const mathBox = document.createElement('div');
-        mathBox.className = 'ms-hud-math';
-        mathBox.innerHTML = renderedHtml;
-        dom.appendChild(mathBox);
-
-        if (preview.isEmpty) {
-          const emptyHint = document.createElement('span');
-          emptyHint.className = 'ms-hud-empty-caption';
-          emptyHint.textContent = `直接输入公式，或按 ${settings.leaderKey} 展开结构`;
-          dom.appendChild(emptyHint);
-        } else if (session.rawSpan) {
-          const rawTag = document.createElement('span');
-          rawTag.className = 'ms-hud-mode-tag is-raw';
-          rawTag.textContent = '原生 TeX';
-          dom.appendChild(rawTag);
-        } else if (mathSpan.isBlock) {
-          const blkTag = document.createElement('span');
-          blkTag.className = 'ms-hud-mode-tag';
-          blkTag.textContent = '块级 $$';
-          dom.appendChild(blkTag);
-        }
-
-        return { dom };
-      },
-    };
-  });
-
-  // 2. BOTTOM PANEL: Stationary Breathing Status / Command Bar (anchored below active line)
-  const bottomBarTooltipExt = showTooltip.compute([sessionField], (state): Tooltip | null => {
-    const settings = opts.getSettings();
-    if (!settings.enabled || !state.selection.main.empty) return null;
-    const session = state.field(sessionField);
-    if (!session.active) return null;
-
-    const pos = state.selection.main.head;
-    const mathSpan = getLocalMathSpan(state, pos);
-    if (!mathSpan) return null;
-
-    const { bottomPos } = getFixedLineAnchors(state, mathSpan);
-
-    return {
-      pos: bottomPos,
-      above: false,
-      strictSide: true,
-      arrow: false,
-      create(view) {
-        const dom = document.createElement('div');
-        dom.className = 'mathslot-hud-card mathslot-hud-bar';
-        dom.setAttribute('role', 'status');
-
-        // Mode A: Leader pressed -> Crisp Command Keycaps (NO redundant left Tab badge!)
-        if (session.leader) {
-          const prefix = session.leader.prefix;
-          const items = getLeaderCapsuleItems(prefix, settings);
-          const strip = document.createElement('div');
-          strip.className = 'ms-cap-items';
-
-          for (const item of items) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = [
-              'ms-cap-pill',
-              item.isDefault ? 'is-default' : '',
-              item.isWorkbench ? 'is-workbench' : '',
-              item.isSubmenu ? 'is-submenu' : '',
-            ]
-              .filter(Boolean)
-              .join(' ');
-            btn.addEventListener('mousedown', (ev) => {
-              ev.preventDefault();
-              ev.stopPropagation();
-              executeCapsuleLeaderKey(view, item.key);
-            });
-
-            const kbd = document.createElement('kbd');
-            kbd.className = 'ms-cap-key';
-            kbd.textContent = item.key;
-
-            const lbl = document.createElement('span');
-            lbl.className = 'ms-cap-label';
-            lbl.textContent = `${item.label}${item.isSubmenu ? '▸' : ''}`;
-
-            btn.appendChild(kbd);
-            btn.appendChild(lbl);
-            strip.appendChild(btn);
-          }
-
-          if (prefix !== '') {
-            appendHintChip(strip, ['Space'], '确认默认');
-            appendHintChip(strip, ['⌫'], '上层');
-          }
-          dom.appendChild(strip);
-          return { dom };
-        }
-
-        // Mode B: Raw LaTeX Passthrough Span (`\\`)
-        if (session.rawSpan) {
-          const status = document.createElement('div');
-          status.className = 'ms-bar-status';
-          const badge = document.createElement('span');
-          badge.className = 'ms-bar-slot-pill is-raw';
-          badge.textContent = '原生 TeX 透传';
-          status.appendChild(badge);
-          appendHintChip(status, ['Enter', settings.leaderKey], '退出透传区间');
-          dom.appendChild(status);
-          return { dom };
-        }
-
-        // Mode C: Breathing Default Status Bar (Active Slot Progress or Ready Hints)
-        const status = document.createElement('div');
-        status.className = 'ms-bar-status';
-        const pendingSlots = session.queue.filter((q) => !q.isExit);
-        const hasActiveSlot = Boolean(
-          session.currentSlot && !session.currentSlot.isExit && session.currentSlot.label !== '',
-        );
-
-        if (hasActiveSlot || pendingSlots.length > 0) {
-          const pill = document.createElement('span');
-          pill.className = 'ms-bar-slot-pill';
-          const curName = hasActiveSlot ? session.currentSlot!.label : pendingSlots[0]?.label ?? '槽位';
-          pill.textContent =
-            pendingSlots.length > 0 ? `${curName} · 余 ${pendingSlots.length}` : curName;
-          status.appendChild(pill);
-
-          appendHintChip(status, [';'], pendingSlots.length > 0 ? '下一槽' : '跳出结构');
-          if (session.visited.length > 0) {
-            appendHintChip(status, ['⇧Tab'], '上一槽');
-          }
-          appendHintChip(status, [settings.leaderKey], '结构');
-          appendHintChip(status, ['Enter'], '完成');
-        } else {
-          appendHintChip(status, [settings.leaderKey], '结构菜单');
-          appendHintChip(status, ['\\\\'], '原生TeX');
-          if (!mathSpan.isBlock) {
-            appendHintChip(status, ['Alt+M'], '转块级');
-          }
-          appendHintChip(status, ['Enter', ';'], '完成退出');
-        }
-
-        const wbBtn = document.createElement('button');
-        wbBtn.type = 'button';
-        wbBtn.className = 'ms-bar-workbench-btn';
-        wbBtn.textContent = '2D工作台';
-        wbBtn.addEventListener('mousedown', (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          view.dispatch({ effects: setInlineSessionEffect.of(createEmptyInlineSession()) });
-          opts.openWorkbenchAtSpan(view, mathSpan);
-        });
-        status.appendChild(wbBtn);
-
-        dom.appendChild(status);
-        return { dom };
-      },
-    };
-  });
-
-  // Hide Obsidian's redundant lagging native block preview while our live HUD is active on `$$...$$`
-  const editorAttrsExt = EditorView.editorAttributes.compute([sessionField], (state) => {
-    const session = state.field(sessionField);
-    if (!session.active || !state.selection.main.empty) return null;
-    const span = getLocalMathSpan(state, state.selection.main.head);
-    if (!span) return null;
-    return {
-      class: span.isBlock
-        ? 'mathslot-inline-active mathslot-inline-block-active'
-        : 'mathslot-inline-active',
-    };
-  });
-
-  const decorationsExt = EditorView.decorations.compute(
-    [sessionField],
-    (state): DecorationSet => {
-      const settings = opts.getSettings();
-      if (!settings.enabled) return Decoration.none;
-      const session = state.field(sessionField);
-      if (!session.active) return Decoration.none;
-      const docLen = state.doc.length;
-      const ranges: Range<Decoration>[] = [];
-      const clamp = (n: number): number => Math.max(0, Math.min(docLen, n));
-
-      if (session.rawSpan) {
-        const f = clamp(session.rawSpan.from);
-        const t = clamp(session.rawSpan.to);
-        if (f < t) {
-          ranges.push(Decoration.mark({ class: 'mathslot-raw-span' }).range(f, t));
-        }
-      }
-
-      if (session.currentSlot && !session.currentSlot.isExit) {
-        const f = clamp(session.currentSlot.from);
-        const t = clamp(session.currentSlot.to);
-        if (f < t) {
-          ranges.push(Decoration.mark({ class: 'mathslot-active-slot' }).range(f, t));
-        }
-      }
-
-      for (const stop of session.queue) {
-        if (stop.isExit) continue;
-        const f = clamp(stop.from);
-        const t = clamp(stop.to);
-        if (f === t) {
-          ranges.push(
-            Decoration.widget({
-              widget: new PendingSlotPlaceholderWidget(stop.label),
-              side: 1,
-            }).range(f),
-          );
-        } else if (f < t) {
-          ranges.push(Decoration.mark({ class: 'mathslot-pending-slot' }).range(f, t));
-        }
-      }
-
-      return ranges.length > 0 ? Decoration.set(ranges, true) : Decoration.none;
-    },
-  );
-
   const keyHandlerExt = Prec.highest(
     EditorView.domEventHandlers({
       focus(_event: FocusEvent, view: EditorView): boolean {
-        lastFocusedView = view;
+        activeView = view;
         return false;
       },
       keydown(event: KeyboardEvent, view: EditorView): boolean {
-        lastFocusedView = view;
+        activeView = view;
         if (event.isComposing || event.keyCode === 229) return false;
-        if (event.ctrlKey || event.metaKey || event.altKey) return false;
 
-        const settings = opts.getSettings();
-        if (!settings.enabled || !view.state.selection.main.empty) return false;
+        const st = view.state.field(spanField);
+        if (!st.active || !st.span) return false;
 
-        const session = view.state.field(sessionField);
-        if (!session.active) return false;
+        const mod = event.ctrlKey || event.metaKey;
 
-        const pos = view.state.selection.main.head;
-        const mathSpan = getLocalMathSpan(view.state, pos);
-        if (!mathSpan) {
-          view.dispatch({ effects: setInlineSessionEffect.of(createEmptyInlineSession()) });
-          return false;
-        }
-
-        const docSlice = getDocThroughSpan(view.state, mathSpan);
-
-        // 1. Active Leader command menu state
-        if (session.leader) {
-          if (event.key === settings.leaderKey && !event.shiftKey) {
-            const res = handleInlineLeaderTrigger(session);
-            if (applyResult(view, res, mathSpan)) {
-              event.preventDefault();
-              return true;
-            }
-          }
-          const res = handleInlineLeaderKey(docSlice, pos, event.key, session, settings);
-          if (res.kind === 'commit_and_fallthrough') {
-            if (event.key.length === 1) {
-              const charRes = handleInlineCharTyped(
-                docSlice,
-                pos,
-                mathSpan,
-                event.key,
-                res.state,
-                settings,
-              );
-              if (applyResult(view, charRes, mathSpan)) {
-                event.preventDefault();
-                return true;
-              }
-            }
-            view.dispatch({ effects: setInlineSessionEffect.of(res.state) });
-            return false;
-          }
-          if (applyResult(view, res, mathSpan)) {
-            event.preventDefault();
-            return true;
-          }
-          if (res.kind === 'noop') return false;
-        }
-
-        // 2. Leader trigger (`Tab` or `` ` ``)
-        if (event.key === settings.leaderKey && !event.shiftKey) {
-          const res = handleInlineLeaderTrigger(session);
-          if (applyResult(view, res, mathSpan)) {
-            event.preventDefault();
-            return true;
-          }
-        }
-
-        // 3. `Shift+Tab` backward slot jump
-        if (event.key === 'Tab' && event.shiftKey) {
-          const res = handleInlinePrevSlot(pos, session, mathSpan);
-          if (applyResult(view, res, mathSpan)) {
-            event.preventDefault();
-            return true;
-          }
-          return false;
-        }
-
-        // 4. `;` forward slot jump, or complete & exit past `$` when at outermost balanced level
-        if (event.key === ';') {
-          const semiRes = handleInlineSemicolon(docSlice, pos, session, mathSpan, settings);
-          if (applyResult(view, semiRes, mathSpan)) {
-            event.preventDefault();
-            return true;
-          }
-        }
-
-        // 5. `Enter` (without Shift), `Escape`, or `ArrowRight` (exits rawSpan or completes & exits formula!)
+        // Pressing LeaderKey (`Tab`) inside raw Markdown `$...$` line seamlessly hands over to 2D Canvas Leader Mode!
         if (
-          (event.key === 'Enter' && !event.shiftKey) ||
-          event.key === 'Escape' ||
-          (session.rawSpan && event.key === 'ArrowRight')
+          !mod &&
+          !event.altKey &&
+          !event.shiftKey &&
+          event.key === opts.store.settings.leaderKey
         ) {
-          const specRes = handleInlineSpecialKey(
-            docSlice,
-            pos,
-            event.key as 'Enter' | 'Escape' | 'ArrowRight',
-            session,
-            mathSpan,
-          );
-          if (applyResult(view, specRes, mathSpan)) {
-            event.preventDefault();
-            return true;
-          }
+          event.preventDefault();
+          opts.store.focusCanvas();
+          opts.store.engine.triggerLeader();
+          return true;
         }
 
-        // 6. Single printable character (`\\`, `/`, `^`, `_`, `->`, `pi `, ...)
-        if (event.key.length === 1) {
-          const charRes = handleInlineCharTyped(
-            docSlice,
-            pos,
-            mathSpan,
-            event.key,
-            session,
-            settings,
-          );
-          if (applyResult(view, charRes, mathSpan)) {
-            event.preventDefault();
-            return true;
-          }
+        // Pressing Ctrl+Enter, Escape, or plain Enter (on inline `$...$`) inside Markdown `$...$` completes & exits past `$`!
+        if (
+          (mod && event.key === 'Enter') ||
+          event.key === 'Escape' ||
+          (!st.span.isBlock && !mod && !event.shiftKey && event.key === 'Enter')
+        ) {
+          event.preventDefault();
+          const exitPos = Math.min(view.state.doc.length, st.span.rawTo);
+          currentSpan = null;
+          view.dispatch({
+            selection: EditorSelection.cursor(exitPos),
+            effects: setActiveSpanEffect.of({ active: false, span: null }),
+            scrollIntoView: true,
+          });
+          return true;
         }
 
         return false;
@@ -703,14 +443,7 @@ export function createMathSlotInlineController(
   );
 
   return {
-    extension: [
-      sessionField,
-      topPreviewTooltipExt,
-      bottomBarTooltipExt,
-      editorAttrsExt,
-      decorationsExt,
-      keyHandlerExt,
-    ],
+    extension: [spanField, topPanelExt, bottomPanelExt, editorAttrsExt, keyHandlerExt],
     summonOrUpgrade,
   };
 }
