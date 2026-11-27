@@ -302,12 +302,12 @@
 <style>
   .dock-menu-pane {
     width: 100%;
-    height: 112px;
-    flex: 0 0 112px;
+    height: 172px;
+    flex: 0 0 172px;
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    padding: 8px 16px;
+    padding: 6px 12px;
     box-sizing: border-box;
     background: var(--background-secondary);
     border-top: 1px solid var(--background-modifier-border);
@@ -315,9 +315,9 @@
 
   .dock-menu-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 64px);
-    grid-auto-rows: 44px;
-    gap: 6px;
+    grid-template-columns: repeat(auto-fill, 48px);
+    grid-auto-rows: 36px;
+    gap: 4px;
     justify-content: center;
     align-content: start;
     width: 100%;
@@ -325,9 +325,9 @@
 
   .dock-tile {
     position: relative;
-    width: 64px;
-    height: 44px;
-    padding: 4px 4px 3px;
+    width: 48px;
+    height: 36px;
+    padding: 2px;
     margin: 0;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-s, 4px);
@@ -339,7 +339,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    gap: 2px;
+    gap: 1px;
     overflow: hidden;
     box-sizing: border-box;
   }
@@ -357,10 +357,10 @@
   .dock-tile.is-category::after {
     content: '';
     position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 4px;
-    height: 4px;
+    top: 3px;
+    right: 3px;
+    width: 3px;
+    height: 3px;
     border-radius: 50%;
     background: var(--text-faint);
     pointer-events: none;
@@ -368,11 +368,11 @@
 
   .dock-tile-glyph {
     width: 100%;
-    height: 22px;
+    height: 19px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 12.5px;
+    font-size: 11.5px;
     line-height: 1;
     color: var(--text-normal);
     overflow: hidden;
@@ -384,28 +384,28 @@
   }
 
   .dock-tile-glyph.is-matrix :global(.katex) {
-    font-size: 11px;
-    transform: scale(0.5);
+    font-size: 10px;
+    transform: scale(0.45);
     transform-origin: center center;
   }
 
   .dock-tile-glyph :global(svg) {
-    width: 14px;
-    height: 14px;
-    stroke-width: 1.9;
+    width: 12px;
+    height: 12px;
+    stroke-width: 2;
   }
 
   .dock-tile-key {
-    min-width: 16px;
-    height: 14px;
-    padding: 0 4px;
+    min-width: 14px;
+    height: 12px;
+    padding: 0 3px;
     border-radius: 3px;
     background: var(--background-secondary);
     color: var(--text-muted);
     font-family: var(--font-monospace);
-    font-size: 10px;
+    font-size: 9.5px;
     font-weight: 600;
-    line-height: 14px;
+    line-height: 12px;
     text-align: center;
     flex-shrink: 0;
   }

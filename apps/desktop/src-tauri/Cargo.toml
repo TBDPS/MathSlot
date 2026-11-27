@@ -1,6 +1,6 @@
 [package]
 name = "mathslot"
-version = "3.1.0-beta.7"
+version = "3.1.0-beta.8"
 description = "Visual-first keyboard-flow math formula editor"
 authors = ["MathSlot Authors"]
 license = "MIT OR Apache-2.0"
