@@ -15,24 +15,27 @@ import {
   normalizeSettings,
   stripBlockquoteSelection,
   type AppSettings,
+  type CommandDef,
+  type CustomCommandDef,
   type DelimiterStyle,
-  type InlineMathSpan,
   type MathWrapperKind,
+  type Snippet,
 } from '@mathslot/core';
-import { InlineSplitWorkbenchStore } from './InlineSplitStore.svelte';
 import { MathSlotModal } from './MathSlotModal';
 import {
-  DEFAULT_OBSIDIAN_INLINE_PREFS,
+  DEFAULT_OBSIDIAN_DOCK_PREFS,
   MathSlotSettingTab,
-  type ObsidianInlinePrefs,
+  type ObsidianDockPrefs,
 } from './SettingTab';
 import {
-  createMathSlotInlineController,
-  type MathSlotInlineController,
-} from './inlineExtension';
+  createMathSlotDockController,
+  type DockSharedConfig,
+  type MathSlotDockController,
+} from './dockExtension';
+import type { DockBinding } from './dockStore.svelte';
 
 export interface ObsidianPluginData extends PersistedStore {
-  obsidianInline?: Partial<ObsidianInlinePrefs>;
+  obsidianInline?: Partial<ObsidianDockPrefs>;
 }
 
 function mergeByIdDelta<T extends { id: string }>(
@@ -86,40 +89,44 @@ function mergeStringSetDelta(
   return maxLen ? out.slice(0, maxLen) : out;
 }
 
-function normalizeInlinePrefs(raw?: Partial<ObsidianInlinePrefs> | null): ObsidianInlinePrefs {
+function normalizeDockPrefs(
+  raw?: Partial<ObsidianDockPrefs & { autoActivateOnClick?: boolean }> | null,
+): ObsidianDockPrefs {
+  const legacyAuto = raw?.autoShowOnFormulaCursor ?? raw?.autoActivateOnClick;
   return {
-    enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : DEFAULT_OBSIDIAN_INLINE_PREFS.enabled,
-    autoActivateOnClick:
-      typeof raw?.autoActivateOnClick === 'boolean'
-        ? raw.autoActivateOnClick
-        : DEFAULT_OBSIDIAN_INLINE_PREFS.autoActivateOnClick,
+    enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : DEFAULT_OBSIDIAN_DOCK_PREFS.enabled,
+    autoShowOnFormulaCursor:
+      typeof legacyAuto === 'boolean'
+        ? legacyAuto
+        : DEFAULT_OBSIDIAN_DOCK_PREFS.autoShowOnFormulaCursor,
     semicolonExitsAtRoot:
       typeof raw?.semicolonExitsAtRoot === 'boolean'
         ? raw.semicolonExitsAtRoot
-        : DEFAULT_OBSIDIAN_INLINE_PREFS.semicolonExitsAtRoot,
+        : DEFAULT_OBSIDIAN_DOCK_PREFS.semicolonExitsAtRoot,
   };
 }
 
 export default class MathSlotPlugin extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
-  private inlinePrefs: ObsidianInlinePrefs = { ...DEFAULT_OBSIDIAN_INLINE_PREFS };
+  private dockPrefs: ObsidianDockPrefs = { ...DEFAULT_OBSIDIAN_DOCK_PREFS };
   private workbenchSettings: AppSettings = { ...DEFAULT_SETTINGS };
-  private splitStore: InlineSplitWorkbenchStore | null = null;
-  private inlineController: MathSlotInlineController | null = null;
+  private effectiveCommands: readonly CommandDef[] = COMMANDS;
+  private customCommands: CustomCommandDef[] = [];
+  private snippets: Snippet[] = [];
+  private dockController: MathSlotDockController | null = null;
 
   async onload(): Promise<void> {
-    this.splitStore = new InlineSplitWorkbenchStore();
-    await this.reloadInlineCacheFromDisk();
+    await this.reloadConfigFromDisk();
 
-    this.inlineController = createMathSlotInlineController({
-      getPrefs: () => this.inlinePrefs,
-      store: this.splitStore,
-      openWorkbenchAtSpan: (view, span) => {
-        this.openEditorFromInlineSpan(view, span);
+    this.dockController = createMathSlotDockController({
+      getPrefs: () => this.dockPrefs,
+      getSharedConfig: () => this.buildSharedConfig(),
+      openModalAtSpan: (view, binding) => {
+        this.openEditorFromDockSpan(view, binding);
       },
     });
 
-    this.registerEditorExtension(this.inlineController.extension);
+    this.registerEditorExtension(this.dockController.extension);
     this.addSettingTab(new MathSlotSettingTab(this.app, this));
 
     this.addRibbonIcon('sigma', 'MathSlot 公式工作台', () => {
@@ -128,66 +135,66 @@ export default class MathSlotPlugin extends Plugin {
     });
 
     this.addCommand({
-      id: 'summon-mathslot-inline',
-      name: '进入原位分体工作台（自动包裹 $...$ / 再按升级 $$...$$）',
+      id: 'summon-mathslot-dock',
+      name: '进入底部数学工作栏（新建 $...$ 或接管当前公式）',
       hotkeys: [{ modifiers: ['Alt'], key: 'm' }],
       editorCallback: (editor: Editor) => {
         const cmView = (editor as unknown as { cm?: EditorView })?.cm ?? null;
-        if (!this.inlinePrefs.enabled) {
-          void this.updateInlinePrefs({ enabled: true }).then(() => {
-            this.inlineController?.summonOrUpgrade(cmView);
+        if (!this.dockPrefs.enabled) {
+          void this.updateDockPrefs({ enabled: true }).then(() => {
+            this.dockController?.summonOrToggle(cmView, false);
           });
           return;
         }
-        this.inlineController?.summonOrUpgrade(cmView);
+        if (!this.dockController?.summonOrToggle(cmView, false)) {
+          this.openEditor(editor);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: 'summon-mathslot-dock-block',
+      name: '在底部工作栏插入块级公式 ($$...$$)',
+      editorCallback: (editor: Editor) => {
+        const cmView = (editor as unknown as { cm?: EditorView })?.cm ?? null;
+        if (!this.dockController?.summonOrToggle(cmView, true)) {
+          this.openEditor(editor, 'block');
+        }
       },
     });
 
     this.addCommand({
       id: 'open-mathslot-editor',
-      name: '打开独立弹窗工作台（114 条公式库 / 自定义结构 / MathML 导出）',
+      name: '打开全屏公式弹窗工作台（114 公式库 / 自定义结构 / MathML 导出）',
       editorCallback: (editor: Editor) => {
         this.openEditor(editor);
       },
     });
 
     this.addCommand({
-      id: 'open-mathslot-block',
-      name: '在独立弹窗工作台中插入块级公式 ($$...$$)',
-      editorCallback: (editor: Editor) => {
-        this.openEditor(editor, 'block');
-      },
-    });
-
-    this.addCommand({
-      id: 'toggle-mathslot-inline-mode',
-      name: '切换原位分体工作台总开关',
+      id: 'toggle-mathslot-dock-mode',
+      name: '切换底部数学工作栏开关',
       callback: async () => {
-        const next = !this.inlinePrefs.enabled;
-        await this.updateInlinePrefs({ enabled: next });
-        new Notice(next ? 'MathSlot：已开启原位分体工作台' : 'MathSlot：已关闭原位分体工作台');
+        const next = !this.dockPrefs.enabled;
+        await this.updateDockPrefs({ enabled: next });
+        new Notice(next ? 'MathSlot：已开启底部数学工作栏' : 'MathSlot：已关闭底部数学工作栏');
       },
     });
   }
 
-  override onunload(): void {
-    this.splitStore?.destroy();
-    this.splitStore = null;
-  }
-
-  public getInlinePrefs(): ObsidianInlinePrefs {
-    return { ...this.inlinePrefs };
+  public getDockPrefs(): ObsidianDockPrefs {
+    return { ...this.dockPrefs };
   }
 
   public getWorkbenchSettings(): AppSettings {
     return { ...this.workbenchSettings };
   }
 
-  public async updateInlinePrefs(patch: Partial<ObsidianInlinePrefs>): Promise<void> {
+  public async updateDockPrefs(patch: Partial<ObsidianDockPrefs>): Promise<void> {
     const run = this.saveQueue.then(async () => {
       const prev = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
-      const nextPrefs = normalizeInlinePrefs({
-        ...(prev.obsidianInline ?? this.inlinePrefs),
+      const nextPrefs = normalizeDockPrefs({
+        ...(prev.obsidianInline ?? this.dockPrefs),
         ...patch,
       });
       const merged: Partial<ObsidianPluginData> = {
@@ -195,7 +202,7 @@ export default class MathSlotPlugin extends Plugin {
         obsidianInline: nextPrefs,
       };
       await this.saveData(merged);
-      this.syncStoreFromData(merged);
+      this.syncConfigFromData(merged);
       this.app.workspace.updateOptions?.();
     });
     this.saveQueue = run.catch(() => {});
@@ -213,7 +220,7 @@ export default class MathSlotPlugin extends Plugin {
         },
       };
       await this.saveData(merged);
-      this.syncStoreFromData(merged);
+      this.syncConfigFromData(merged);
       this.app.workspace.updateOptions?.();
     });
     this.saveQueue = run.catch(() => {});
@@ -224,70 +231,61 @@ export default class MathSlotPlugin extends Plugin {
     this.openEditor(editor);
   }
 
-  private async reloadInlineCacheFromDisk(): Promise<void> {
-    const data = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
-    this.syncStoreFromData(data);
+  private buildSharedConfig(): DockSharedConfig {
+    return {
+      settings: this.workbenchSettings,
+      effectiveCommands: this.effectiveCommands,
+      customCommands: this.customCommands,
+      snippets: this.snippets,
+      semicolonExitsAtRoot: this.dockPrefs.semicolonExitsAtRoot,
+    };
   }
 
-  private syncStoreFromData(data: Partial<ObsidianPluginData>): void {
-    this.inlinePrefs = normalizeInlinePrefs(data.obsidianInline);
+  private async reloadConfigFromDisk(): Promise<void> {
+    const data = ((await this.loadData()) as Partial<ObsidianPluginData> | null) ?? {};
+    this.syncConfigFromData(data);
+  }
+
+  private syncConfigFromData(data: Partial<ObsidianPluginData>): void {
+    this.dockPrefs = normalizeDockPrefs(data.obsidianInline);
     this.workbenchSettings = normalizeSettings(data.settings);
     const userCmds = Array.isArray(data.userCommands) ? data.userCommands : [];
-    const effectiveCommands = userCmds.length > 0 ? mergeCommands(COMMANDS, userCmds) : COMMANDS;
-
-    if (this.splitStore) {
-      this.splitStore.semicolonExitsAtRoot = this.inlinePrefs.semicolonExitsAtRoot;
-      this.splitStore.syncExternalConfig({
-        settings: this.workbenchSettings,
-        effectiveCommands,
-        customCommands: Array.isArray(data.customCommands) ? data.customCommands : [],
-        snippets: Array.isArray(data.snippets) ? data.snippets : [],
-      });
-    }
+    this.effectiveCommands = userCmds.length > 0 ? mergeCommands(COMMANDS, userCmds) : COMMANDS;
+    this.customCommands = Array.isArray(data.customCommands) ? data.customCommands : [];
+    this.snippets = Array.isArray(data.snippets) ? data.snippets : [];
+    this.dockController?.broadcastConfig(this.buildSharedConfig());
   }
 
-  private openEditorFromInlineSpan(view: EditorView, span: InlineMathSpan): void {
+  private openEditorFromDockSpan(view: EditorView, binding: DockBinding): void {
     const editor = this.app.workspace.activeEditor?.editor;
     const doc = view.state.doc;
-    const rawSlice = doc.sliceString(span.rawFrom, span.rawTo);
+    const rawSlice = doc.sliceString(binding.rawFrom, binding.rawTo);
     const stripped = stripBlockquoteSelection(rawSlice);
     const initialFormula = stripped.clean.trim() || undefined;
-    const wrapper: MathWrapperKind = span.isBlock ? 'dollar_block' : 'dollar_inline';
-    const delimiter: DelimiterStyle = span.isBlock ? 'block' : 'inline';
+    const isBlock =
+      binding.wrapper === 'dollar_block' || binding.wrapper === 'bracket_block';
+    const delimiter: DelimiterStyle = isBlock ? 'block' : 'inline';
 
-    const fromLine = doc.lineAt(span.rawFrom);
-    const toLine = doc.lineAt(span.rawTo);
+    const fromLine = doc.lineAt(binding.rawFrom);
+    const toLine = doc.lineAt(binding.rawTo);
     const fromPos: EditorPosition = {
       line: fromLine.number - 1,
-      ch: span.rawFrom - fromLine.from,
+      ch: binding.rawFrom - fromLine.from,
     };
     const toPos: EditorPosition = {
       line: toLine.number - 1,
-      ch: span.rawTo - toLine.from,
+      ch: binding.rawTo - toLine.from,
     };
-
-    let linePrefix = '';
-    let includeFirstLinePrefix = false;
-    if (stripped.linePrefix) {
-      linePrefix = stripped.linePrefix;
-      includeFirstLinePrefix = true;
-    } else {
-      const split = extractBlockquotePrefix(fromLine.text);
-      if (split.prefix) {
-        linePrefix = canonicalBlockquotePrefix(split.prefix);
-        includeFirstLinePrefix = false;
-      }
-    }
 
     this.mountModal({
       editor,
       initialFormula,
       replaceRange: editor ? { from: fromPos, to: toPos } : undefined,
       expectedRangeText: editor ? editor.getRange(fromPos, toPos) : undefined,
-      linePrefix,
-      includeFirstLinePrefix,
+      linePrefix: binding.linePrefix,
+      includeFirstLinePrefix: binding.includeFirstLinePrefix,
       forceDelimiter: delimiter,
-      initialWrapper: wrapper,
+      initialWrapper: binding.wrapper,
     });
   }
 
@@ -445,7 +443,7 @@ export default class MathSlotPlugin extends Plugin {
           };
           loadedBase = merged;
           await this.saveData(merged);
-          this.syncStoreFromData(merged);
+          this.syncConfigFromData(merged);
         });
         this.saveQueue = run.catch(() => {});
         await run;

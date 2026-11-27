@@ -42,7 +42,7 @@
 
 /* Shield MathSlot controls from Obsidian's global button / input / svg theme rules */
 .mathslot-obsidian-modal .ms-studio button,
-.mathslot-split-panel button {
+.mathslot-dock-panel button {
   margin-top: 0;
   margin-bottom: 0;
   box-shadow: none;
@@ -57,14 +57,14 @@
 .mathslot-obsidian-modal .ms-studio .cmd-tile,
 .mathslot-obsidian-modal .ms-studio .preset-row,
 .mathslot-obsidian-modal .ms-studio .snip-main,
-.mathslot-split-panel .cat-cell {
+.mathslot-dock-panel .cat-cell {
   height: auto !important;
   white-space: normal !important;
 }
 
 .mathslot-obsidian-modal .ms-studio .ribbon-btn,
-.mathslot-split-panel .ribbon-btn {
-  height: 46px !important;
+.mathslot-dock-panel .ribbon-btn {
+  height: 44px !important;
 }
 
 .mathslot-obsidian-modal .ms-studio .dock-tool-btn {
@@ -74,12 +74,12 @@
 }
 
 .mathslot-obsidian-modal .ms-studio .cat-popover,
-.mathslot-split-panel .cat-popover {
+.mathslot-dock-panel .cat-popover {
   max-height: min(290px, 46vh) !important;
 }
 
 .mathslot-obsidian-modal .ms-studio svg,
-.mathslot-split-panel svg {
+.mathslot-dock-panel svg {
   flex-shrink: 0;
 }
 
@@ -91,121 +91,174 @@
 }
 
 /* =========================================================================
-   In-Document Split Workbench:
-   Top Panel = VisualCanvas (2D AST Canvas)
-   Middle    = Obsidian Live $...$ Document Line
-   Bottom    = MathRibbon (Full-width Workbench Ribbon)
+   CM6 Native Bottom Dock Panel (`.cm-panels-bottom` flex split pane)
+   Automatically spans 100% of note editor pane width, NEVER obscures prose,
+   and inherits Obsidian's active Light / Dark semantic theme variables.
    ========================================================================= */
 
-.cm-editor.mathslot-inline-block-active .cm-embed-block.math {
-  display: none !important;
+.cm-line .mathslot-bound-formula {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--interactive-accent) 36%, transparent);
 }
 
-.cm-editor.mathslot-inline-active .cm-scroller {
-  scroll-padding-top: 165px;
-  scroll-padding-bottom: 95px;
+.cm-line .mathslot-bound-formula.is-owned {
+  background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--interactive-accent) 65%, transparent);
 }
 
-/* Strip Obsidian's default tooltip border/background and add generous 18px breathing gap */
-.cm-tooltip:has(> .mathslot-split-host) {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  max-width: none !important;
+.cm-panels.cm-panels-bottom:has(> .mathslot-dock-host) {
   overflow: visible !important;
-  z-index: 45;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  z-index: 32;
 }
 
-.cm-tooltip.cm-tooltip-above:has(> .mathslot-split-host-top) {
-  margin-bottom: 18px !important;
-}
-
-.cm-tooltip.cm-tooltip-below:has(> .mathslot-split-host-bottom) {
-  margin-top: 18px !important;
-}
-
-.mathslot-split-host {
-  position: relative;
+.mathslot-dock-host {
+  width: 100%;
   overflow: visible;
 }
 
-/* Soft, muted, non-glaring surface harmonized with Obsidian's note/sidebar theme (NEVER pure white!) */
-.mathslot-split-panel.ms-studio[data-theme='light'] {
-  --ms-bg: color-mix(in srgb, var(--background-secondary, #eaebe5) 82%, var(--background-primary, #f4f4ef));
-  --ms-chrome: color-mix(in srgb, var(--background-secondary, #e3e5de) 92%, var(--background-primary, #f0f0ea));
-  --ms-surface: color-mix(in srgb, var(--background-secondary, #eaebe5) 68%, var(--background-primary, #f6f6f1));
-  --ms-surface-elevated: color-mix(in srgb, var(--background-secondary, #eaebe5) 55%, var(--background-primary, #f8f8f4));
-  --ms-surface-glass: color-mix(in srgb, var(--background-secondary, #eaebe5) 85%, var(--background-primary, #f4f4ef));
-  --ms-tile: color-mix(in srgb, var(--background-secondary, #e4e5de) 75%, var(--background-primary, #f5f5f0));
-  --ms-border: rgba(15, 23, 42, 0.12);
-  --ms-border-subtle: rgba(15, 23, 42, 0.07);
-  --ms-inset-specular: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+/* Harmonized non-glaring Light / Dark design tokens inside Obsidian panel */
+.mathslot-dock-panel.ms-studio[data-theme='light'] {
+  --ms-bg: color-mix(in srgb, var(--background-primary, #f5f4ef) 42%, var(--background-secondary, #e8e7e1));
+  --ms-chrome: var(--background-secondary, #e8e7e1);
+  --ms-surface: color-mix(in srgb, var(--background-primary, #f5f4ef) 65%, var(--background-secondary, #e8e7e1));
+  --ms-surface-elevated: color-mix(in srgb, var(--background-primary, #f5f4ef) 82%, var(--background-secondary, #e8e7e1));
+  --ms-surface-glass: color-mix(in srgb, var(--background-secondary, #e8e7e1) 88%, var(--background-primary, #f5f4ef));
+  --ms-tile: color-mix(in srgb, var(--background-primary, #f5f4ef) 55%, var(--background-secondary, #e3e2dc));
+  --ms-fg: var(--text-normal, #1e293b);
+  --ms-fg-muted: var(--text-muted, #475569);
+  --ms-fg-faint: var(--text-faint, #64748b);
+  --ms-border: var(--background-modifier-border, rgba(15, 23, 42, 0.14));
+  --ms-border-subtle: var(--background-modifier-border-hover, rgba(15, 23, 42, 0.08));
+  --ms-inset-specular: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-.mathslot-split-panel.ms-studio[data-theme='dark'] {
-  --ms-bg: color-mix(in srgb, var(--background-secondary, #151922) 88%, #10141c);
-  --ms-chrome: color-mix(in srgb, var(--background-secondary, #12161f) 94%, #0d1017);
-  --ms-surface: color-mix(in srgb, var(--background-secondary, #191e2a) 85%, #1d2331);
-  --ms-surface-elevated: #202737;
-  --ms-surface-glass: color-mix(in srgb, var(--background-secondary, #161b26) 90%, #1a202e);
+.mathslot-dock-panel.ms-studio[data-theme='dark'] {
+  --ms-bg: color-mix(in srgb, var(--background-primary, #1b1e26) 40%, var(--background-secondary, #151820));
+  --ms-chrome: var(--background-secondary, #151820);
+  --ms-surface: color-mix(in srgb, var(--background-primary, #1f232e) 65%, var(--background-secondary, #151820));
+  --ms-surface-elevated: var(--background-primary-alt, #232836);
+  --ms-surface-glass: color-mix(in srgb, var(--background-secondary, #151820) 90%, var(--background-primary, #1b1e26));
+  --ms-tile: color-mix(in srgb, var(--background-primary, #202531) 70%, var(--background-secondary, #151820));
+  --ms-fg: var(--text-normal, #e5e9f0);
+  --ms-fg-muted: var(--text-muted, #94a3b8);
+  --ms-fg-faint: var(--text-faint, #64748b);
+  --ms-border: var(--background-modifier-border, rgba(255, 255, 255, 0.12));
+  --ms-border-subtle: rgba(255, 255, 255, 0.07);
 }
 
-.mathslot-split-panel {
-  box-sizing: border-box;
-  border-radius: 12px;
-  border: 1px solid var(--ms-border);
-  box-shadow: var(--ms-shadow-md), var(--ms-inset-specular);
-}
-
-/* --- TOP PANEL: Compact Adaptive 2D VisualCanvas --- */
-.mathslot-split-top {
+.mathslot-dock-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  background: var(--ms-bg);
+  width: 100%;
+  background: var(--ms-chrome);
+  overflow: visible;
 }
 
-.mathslot-split-top .split-top-head {
+.mathslot-dock-panel .dock-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 7px;
+  width: 100%;
+  cursor: ns-resize;
+  background: var(--ms-chrome);
+  user-select: none;
+}
+
+.mathslot-dock-panel .dock-resize-pill {
+  width: 34px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--ms-border);
+  transition: background-color 120ms ease, width 120ms ease;
+}
+
+.mathslot-dock-panel .dock-resize-handle:hover .dock-resize-pill,
+.mathslot-dock-panel .dock-resize-handle.is-dragging .dock-resize-pill {
+  width: 52px;
+  background: var(--ms-accent);
+}
+
+.mathslot-dock-panel .dock-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 10px;
-  background: var(--ms-chrome);
+  padding: 2px 12px 5px;
   border-bottom: 1px solid var(--ms-border-subtle);
-  min-height: 30px;
+  background: var(--ms-chrome);
+  min-height: 28px;
 }
 
-.mathslot-split-top .split-crumbs {
+.mathslot-dock-panel .dock-status-group {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
   overflow: hidden;
+}
+
+.mathslot-dock-panel .dock-mode-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ms-fg-faint);
+  flex-shrink: 0;
+}
+
+.mathslot-dock-panel .dock-mode-dot.is-owned {
+  background: var(--ms-accent);
+  box-shadow: 0 0 0 2px var(--ms-accent-soft);
+}
+
+.mathslot-dock-panel .dock-brand {
   font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ms-fg);
+  flex-shrink: 0;
 }
 
-.mathslot-split-top .mode-pill {
-  padding: 1px 6px;
+.mathslot-dock-panel .dock-wrapper-btn {
+  height: 21px !important;
+  padding: 0 7px !important;
   border-radius: 5px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--ms-accent);
+  border: 1px solid var(--ms-border);
   background: var(--ms-accent-soft);
+  color: var(--ms-accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.mathslot-split-top .raw-pill {
-  padding: 1px 6px;
+.mathslot-dock-panel .dock-wrapper-btn:hover {
+  border-color: var(--ms-accent);
+}
+
+.mathslot-dock-panel .dock-raw-badge {
+  padding: 2px 7px;
   border-radius: 5px;
   font-size: 10.5px;
   font-weight: 600;
   color: var(--ms-jump-fg);
   background: var(--ms-jump-bg);
   border: 1px solid var(--ms-jump-border);
+  flex-shrink: 0;
 }
 
-.mathslot-split-top .crumb-btn {
+.mathslot-dock-panel .dock-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mathslot-dock-panel .dock-crumb-btn {
   height: 20px !important;
   padding: 0 6px !important;
   border-radius: 4px;
@@ -216,27 +269,27 @@
   cursor: pointer;
 }
 
-.mathslot-split-top .crumb-sep {
+.mathslot-dock-panel .dock-crumb-sep {
   color: var(--ms-fg-faint);
   font-size: 11px;
 }
 
-.mathslot-split-top .crumb-idle {
-  color: var(--ms-fg-muted);
+.mathslot-dock-panel .dock-hint-text {
   font-size: 11px;
+  color: var(--ms-fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mathslot-split-top .split-actions {
+.mathslot-dock-panel .dock-actions {
   display: flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
 }
 
-.mathslot-split-top .split-act-btn {
+.mathslot-dock-panel .dock-btn {
   height: 22px !important;
   padding: 0 7px !important;
   border-radius: 6px;
@@ -248,17 +301,25 @@
   cursor: pointer;
 }
 
-.mathslot-split-top .split-act-btn:hover:not(:disabled) {
-  border-color: var(--ms-accent);
-  color: var(--ms-accent);
+.mathslot-dock-panel .dock-icon-btn {
+  width: 24px !important;
+  padding: 0 !important;
+  font-size: 13px;
 }
 
-.mathslot-split-top .split-act-btn:disabled {
-  opacity: 0.4;
+.mathslot-dock-panel .dock-btn:hover:not(:disabled),
+.mathslot-dock-panel .dock-btn.is-active {
+  border-color: var(--ms-accent);
+  color: var(--ms-accent);
+  background: var(--ms-accent-soft);
+}
+
+.mathslot-dock-panel .dock-btn:disabled {
+  opacity: 0.38;
   cursor: default;
 }
 
-.mathslot-split-top .split-done-btn {
+.mathslot-dock-panel .dock-done-btn {
   height: 22px !important;
   padding: 0 9px !important;
   border-radius: 6px;
@@ -270,46 +331,46 @@
   cursor: pointer;
 }
 
-.mathslot-split-top .split-canvas-body {
+.mathslot-dock-panel .dock-close-btn {
+  width: 22px !important;
+  padding: 0 !important;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ms-fg-muted);
+}
+
+.mathslot-dock-panel .dock-close-btn:hover {
+  background: var(--ms-surface-muted);
+  color: var(--ms-fg);
+}
+
+.mathslot-dock-panel .dock-canvas-wrap {
   display: flex;
   flex-direction: column;
-  min-height: 98px;
-  max-height: 220px;
+  width: 100%;
+  min-height: 84px;
+  background: var(--ms-bg);
+  border-bottom: 1px solid var(--ms-border-subtle);
 }
 
-.mathslot-split-top .canvas-stage {
-  min-height: 98px !important;
+.mathslot-dock-panel .canvas-inner {
+  padding: 12px 24px !important;
 }
 
-.mathslot-split-top .canvas-scroll {
-  max-height: 220px;
+.mathslot-dock-panel .formula-center {
+  min-height: 54px !important;
 }
 
-.mathslot-split-top .canvas-inner {
-  padding: 18px 28px !important;
+.mathslot-dock-panel .dock-ribbon-wrap {
+  padding-top: 6px;
+  background: var(--ms-chrome);
+  overflow: visible;
 }
 
-.mathslot-split-top .formula-center {
-  min-height: 62px !important;
+.mathslot-dock-panel .ribbon-wrap {
+  padding: 0 10px 8px !important;
 }
 
-/* --- BOTTOM PANEL: Full-Width MathRibbon --- */
-.mathslot-split-bottom {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  overflow: visible !important;
-}
-
-.mathslot-split-bottom .ribbon-wrap {
-  padding: 0 !important;
-  width: 100% !important;
-}
-
-.mathslot-split-bottom .ribbon-bar {
-  width: 100% !important;
-  box-sizing: border-box !important;
-  border-radius: 12px !important;
-  background: var(--ms-surface-glass) !important;
-  box-shadow: var(--ms-shadow-md), var(--ms-inset-specular) !important;
+.mathslot-dock-panel .cat-popover {
+  z-index: 60 !important;
 }

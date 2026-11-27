@@ -2,29 +2,44 @@ import {
   COMMANDS,
   DEFAULT_SETTINGS,
   MathSlotEngine,
-  canonicalBlockquotePrefix,
-  extractBlockquotePrefix,
-  stripBlockquoteSelection,
+  detectWrapperFromRaw,
+  formatDockedFormulaText,
+  toggleFormulaWrapperStyle,
   type AppSettings,
   type CommandDef,
   type CustomCommandDef,
   type EditorSnapshot,
-  type InlineMathSpan,
+  type MathWrapperKind,
   type Snippet,
   type TreePoint,
 } from '@mathslot/core';
 
-export interface SplitWorkbenchCallbacks {
-  writeLatexToDocument: (formattedInner: string) => void;
-  completeAndExitToOutside: () => void;
-  upgradeInlineToBlock: () => void;
+export type DockOwnershipMode = 'canvas-owned' | 'doc-follow';
+
+export interface DockBinding {
+  mode: DockOwnershipMode;
+  rawFrom: number;
+  rawTo: number;
+  wrapper: MathWrapperKind;
+  linePrefix: string;
+  includeFirstLinePrefix: boolean;
+  createdEmpty: boolean;
+}
+
+export interface DockStoreCallbacks {
+  writeEngineLatex: (latex: string, keepEmptyShell: boolean) => void;
+  promoteMode: (mode: DockOwnershipMode) => void;
+  switchWrapper: (nextWrapper: MathWrapperKind, currentLatex: string) => void;
+  completeAndExit: (deleteIfEmptyCreated: boolean) => void;
   openFullModalWorkbench: () => void;
 }
 
-export class InlineSplitWorkbenchStore {
+export class DockedMathStore {
   public readonly engine = new MathSlotEngine();
 
   public snapshot = $state<EditorSnapshot>(this.engine.getSnapshot());
+  public mode = $state<DockOwnershipMode>('doc-follow');
+  public wrapper = $state<MathWrapperKind>('dollar_inline');
   public settings = $state<AppSettings>({ ...DEFAULT_SETTINGS });
   public effectiveCommands = $state<readonly CommandDef[]>(COMMANDS);
   public customCommands = $state<CustomCommandDef[]>([]);
@@ -32,15 +47,15 @@ export class InlineSplitWorkbenchStore {
   public dark = $state<boolean>(
     typeof document !== 'undefined' && document.body.classList.contains('theme-dark'),
   );
-  public isBlock = $state<boolean>(false);
+  public panelHeight = $state<number>(118);
   public semicolonExitsAtRoot = $state<boolean>(true);
+  public ribbonPopoverOpen = $state<boolean>(false);
 
   private canvasFocusFn: (() => void) | null = null;
   private suppressEngineToDoc = false;
   private lastSyncedCleanLatex = '';
-  private quotePrefix = '';
-  private preserveBlockNewlines = false;
-  private callbacks: SplitWorkbenchCallbacks | null = null;
+  private lastLoadedRaw = '';
+  private callbacks: DockStoreCallbacks | null = null;
   private darkObserver: MutationObserver | null = null;
 
   constructor() {
@@ -48,9 +63,10 @@ export class InlineSplitWorkbenchStore {
       const snap = this.engine.getSnapshot();
       this.snapshot = snap;
       if (this.suppressEngineToDoc || !this.callbacks) return;
+      if (this.mode !== 'canvas-owned') return;
       if (snap.latex === this.lastSyncedCleanLatex) return;
       this.lastSyncedCleanLatex = snap.latex;
-      this.callbacks.writeLatexToDocument(this.formatInnerForSpan(snap.latex));
+      this.callbacks.writeEngineLatex(snap.latex, true);
     });
 
     if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
@@ -61,7 +77,7 @@ export class InlineSplitWorkbenchStore {
     }
   }
 
-  public bindCallbacks(cb: SplitWorkbenchCallbacks): void {
+  public bindCallbacks(cb: DockStoreCallbacks): void {
     this.callbacks = cb;
   }
 
@@ -74,73 +90,98 @@ export class InlineSplitWorkbenchStore {
     this.canvasFocusFn?.();
   }
 
+  public ensureCanvasOwned(): void {
+    if (this.mode !== 'canvas-owned') {
+      this.mode = 'canvas-owned';
+      this.callbacks?.promoteMode('canvas-owned');
+    }
+  }
+
   public syncExternalConfig(params: {
     settings: AppSettings;
     effectiveCommands: readonly CommandDef[];
     customCommands: CustomCommandDef[];
     snippets: Snippet[];
+    semicolonExitsAtRoot: boolean;
   }): void {
     this.settings = params.settings;
     this.effectiveCommands = params.effectiveCommands;
     this.customCommands = params.customCommands;
     this.snippets = params.snippets;
+    this.semicolonExitsAtRoot = params.semicolonExitsAtRoot;
     this.engine.updateSettings(params.settings);
     this.engine.setEffectiveCommands(params.effectiveCommands);
     this.engine.setCustomCommands(params.customCommands);
     this.engine.setSnippets(params.snippets);
   }
 
-  public loadFromDocumentSpan(
-    rawInnerSlice: string,
-    firstLineText: string,
-    span: InlineMathSpan,
-  ): void {
-    this.isBlock = span.isBlock;
-    this.preserveBlockNewlines = span.isBlock && rawInnerSlice.includes('\n');
-    const stripped = stripBlockquoteSelection(rawInnerSlice);
-    if (stripped.linePrefix) {
-      this.quotePrefix = stripped.linePrefix;
-    } else {
-      const split = extractBlockquotePrefix(firstLineText);
-      this.quotePrefix = split.prefix ? canonicalBlockquotePrefix(split.prefix) : '';
-    }
+  public loadFromDocument(rawFormula: string, binding: DockBinding): void {
+    this.mode = binding.mode;
+    this.wrapper = binding.wrapper;
 
-    const clean = stripped.clean.trim();
-    if (clean === this.lastSyncedCleanLatex && (clean !== '' || this.snapshot.isEmpty)) {
+    const cleanRaw = rawFormula.trim();
+    const detected = detectWrapperFromRaw(cleanRaw);
+    const isEmptyShell =
+      cleanRaw === '' ||
+      cleanRaw === '$$' ||
+      cleanRaw === '\\(\\)' ||
+      cleanRaw === '\\[\\]' ||
+      cleanRaw === '$$\n$$' ||
+      cleanRaw === '\\[\n\\]';
+
+    if (rawFormula === this.lastLoadedRaw && this.snapshot.latex === this.lastSyncedCleanLatex) {
       return;
     }
+
+    this.lastLoadedRaw = rawFormula;
     this.suppressEngineToDoc = true;
     try {
-      if (clean === '') {
+      this.engine.setFocused(binding.mode === 'canvas-owned');
+      if (isEmptyShell || (!detected && cleanRaw === '')) {
         this.engine.clear();
       } else {
-        this.engine.loadFormulaWithRawFallback(clean);
+        this.engine.loadFormulaWithRawFallback(rawFormula);
       }
-      this.lastSyncedCleanLatex = this.engine.getSnapshot().latex;
-      this.snapshot = this.engine.getSnapshot();
+      const nextSnap = this.engine.getSnapshot();
+      this.lastSyncedCleanLatex = nextSnap.latex;
+      this.snapshot = nextSnap;
     } finally {
       this.suppressEngineToDoc = false;
     }
   }
 
-  private formatInnerForSpan(cleanLatex: string): string {
-    if (!this.isBlock) {
-      return cleanLatex;
+  public syncBindingMeta(binding: DockBinding): void {
+    this.mode = binding.mode;
+    this.wrapper = binding.wrapper;
+    if (binding.mode === 'doc-follow') {
+      this.engine.setFocused(false);
     }
-    if (this.preserveBlockNewlines || cleanLatex.includes('\n') || cleanLatex.includes('\\\\')) {
-      const lines = cleanLatex.split('\n');
-      const prefixed = lines
-        .map((line, idx) => (idx === 0 ? `${this.quotePrefix}${line}` : `${this.quotePrefix}${line}`))
-        .join('\n');
-      return `\n${prefixed}\n${this.quotePrefix}`;
-    }
-    return cleanLatex ? ` ${cleanLatex} ` : '';
   }
+
+  public toggleWrapper = (): void => {
+    this.ensureCanvasOwned();
+    const nextWrapper = toggleFormulaWrapperStyle(this.wrapper);
+    this.wrapper = nextWrapper;
+    const currentLatex = this.engine.getSnapshot().latex;
+    this.lastSyncedCleanLatex = currentLatex;
+    this.callbacks?.switchWrapper(nextWrapper, currentLatex);
+    this.focusCanvas();
+  };
+
+  public toggleHierarchyBoxes = (): void => {
+    this.settings = {
+      ...this.settings,
+      showHierarchyBoxes: !this.settings.showHierarchyBoxes,
+    };
+    this.engine.updateSettings(this.settings);
+    this.focusCanvas();
+  };
 
   public completeAndExit = (): void => {
     this.engine.commitLeaderDefault();
     this.engine.setFocused(false);
-    this.callbacks?.completeAndExitToOutside();
+    const snap = this.engine.getSnapshot();
+    this.callbacks?.completeAndExit(snap.isEmpty);
   };
 
   public openFullWorkbench = (): void => {
@@ -149,18 +190,17 @@ export class InlineSplitWorkbenchStore {
     this.callbacks?.openFullModalWorkbench();
   };
 
-  public upgradeToBlock = (): void => {
-    this.callbacks?.upgradeInlineToBlock();
-  };
-
   public handleCanvasFocusChange = (focused: boolean): void => {
+    if (focused) {
+      this.ensureCanvasOwned();
+    }
     this.engine.setFocused(focused);
     this.snapshot = this.engine.getSnapshot();
   };
 
   public handleTextInput = (text: string): void => {
+    this.ensureCanvasOwned();
     const snap = this.engine.getSnapshot();
-    // At outermost root slot, pressing `;` completes & exits past closing `$`!
     if (
       text === ';' &&
       this.semicolonExitsAtRoot &&
@@ -180,45 +220,54 @@ export class InlineSplitWorkbenchStore {
   };
 
   public handlePaste = (text: string): void => {
+    this.ensureCanvasOwned();
     this.engine.pasteText(text);
   };
 
   public handleClickSlot = (slotId: string, offset: number): void => {
+    this.ensureCanvasOwned();
     this.engine.setCursor(slotId, offset);
     this.focusCanvas();
   };
 
   public handleDragSelect = (slotId: string, anchor: number, focus: number): void => {
+    this.ensureCanvasOwned();
     this.engine.setSelection(slotId, anchor, focus);
     this.focusCanvas();
   };
 
   public handleCrossSlotDragSelect = (anchor: TreePoint, focus: TreePoint): void => {
+    this.ensureCanvasOwned();
     this.engine.selectBetweenPoints(anchor, focus);
     this.focusCanvas();
   };
 
   public handleDoubleClickAtom = (slotId: string, offset: number): void => {
+    this.ensureCanvasOwned();
     this.engine.selectWordOrAtomAt(slotId, offset);
     this.focusCanvas();
   };
 
   public handleJumpTarget = (label: string): void => {
+    this.ensureCanvasOwned();
     this.engine.handleJumpKey(label);
     this.focusCanvas();
   };
 
   public handleInsertCommand = (cmdId: string): void => {
+    this.ensureCanvasOwned();
     this.engine.insertCommand(cmdId);
     this.focusCanvas();
   };
 
   public handleInsertSnippet = (snip: Snippet): void => {
+    this.ensureCanvasOwned();
     this.engine.insertSnippetAtCursor(snip);
     this.focusCanvas();
   };
 
   public handleSelectSubmenuKey = (key: string): void => {
+    this.ensureCanvasOwned();
     if (this.snapshot.mode.kind !== 'leader') {
       this.engine.triggerLeader();
     }
@@ -227,22 +276,31 @@ export class InlineSplitWorkbenchStore {
   };
 
   public handleLeaderBack = (): void => {
+    this.ensureCanvasOwned();
     this.engine.stepLeaderBack();
     this.focusCanvas();
   };
 
+  public handleUndo = (): void => {
+    this.ensureCanvasOwned();
+    this.engine.undo();
+    this.focusCanvas();
+  };
+
+  public handleRedo = (): void => {
+    this.ensureCanvasOwned();
+    this.engine.redo();
+    this.focusCanvas();
+  };
+
   public handleKeyEvent = (e: KeyboardEvent): void => {
+    this.ensureCanvasOwned();
     const mod = e.ctrlKey || e.metaKey;
     const snap = this.engine.getSnapshot();
 
-    // Alt+M upgrades inline `$...$` -> block `$$\n...\n$$` or exits block
     if (e.altKey && !mod && e.key.toLowerCase() === 'm') {
       e.preventDefault();
-      if (!this.isBlock) {
-        this.upgradeToBlock();
-      } else {
-        this.completeAndExit();
-      }
+      this.toggleWrapper();
       return;
     }
 
@@ -369,14 +427,17 @@ export class InlineSplitWorkbenchStore {
         if (e.shiftKey) this.engine.addGridCol();
         else this.engine.addGridRow();
       } else if (e.shiftKey) {
-        // Shift+Enter at root inserts multiline break `\\`
         if (snap.cursor.slotId === snap.doc.root.id) {
+          if (this.wrapper === 'dollar_inline' || this.wrapper === 'paren_inline') {
+            const nextW = toggleFormulaWrapperStyle(this.wrapper);
+            this.wrapper = nextW;
+            this.callbacks?.switchWrapper(nextW, snap.latex);
+          }
           this.engine.nextSlot();
         } else {
           this.engine.prevSlot();
         }
       } else if (snap.cursor.slotId === snap.doc.root.id) {
-        // At outermost root, plain Enter completes & moves cursor outside closing `$`!
         this.completeAndExit();
       } else {
         this.engine.nextSlot();
@@ -486,3 +547,5 @@ export class InlineSplitWorkbenchStore {
     this.canvasFocusFn = null;
   }
 }
+
+export { formatDockedFormulaText };

@@ -1,4 +1,4 @@
-# MathSlot v3.1.0-beta.4
+# MathSlot v3.1.0-beta.5
 
 **视觉直觉优先、键盘流全控、出版级 LaTeX 排版的数学公式工作台。**  
 桌面端（原生 Tauri 2，提供 Linux `.rpm`/`.deb`/`.AppImage`、Windows `.exe`/`.msi`、macOS `.dmg`）与 Obsidian 插件（零 WASM，纯 JS/CSS）双端同源。
@@ -41,7 +41,7 @@
 - **结构化草稿、收藏夹 & 无障碍触控**：`PersistedDraftV1` 完整保留光标与空可选槽并在关闭窗口前同步刷盘；Pointer Events 统一鼠标/触控笔/触屏交互，支持 `Ctrl+M` / `F6` 键盘焦点逃逸。
 - **分层 `Esc` 跳转导航**：按 `Esc` 呼出当前层级的字母角标（支持复合结构逐层下钻、普通文本项直接跳转、以及 `Alt+←`/`Alt+→` 跳转历史回溯）。
 - **开放外部公式库 & 命令库**：支持软件内直接增改删，也支持直接编辑配置目录中的 `presets.json` 与 `commands.json` 并一键热重载，无需改代码或重新编译。
-- **Obsidian 原位无感流式 + 2D 工作台双模集成**：在笔记原生 `$...$` 与 `$$...$$` 中直接按 `Tab` 在光标正上方浮现单行横向胶囊（零遮挡下方实时预览），支持 `;` 动态跳槽与空可选括号自洁、`\\` 原生透传区间、细粒度语法糖设置页，以及按 `Tab w` 一键将当前公式（含 Callout 引用块）升维载入 2D 画布精修写回。
+- **Obsidian CM6 原生底部停靠工作栏 + 全屏弹窗双模同源**：通过 CodeMirror 6 官方 `showPanel` 将 2D 画布与命令丝带无缝停靠在笔记窗格底部，按 `Alt+M` 一键进入（或光标点入任意 `$...$`/`$$...$$` 即刻随文档同步预览），绝不遮挡正文上下文；按 `Tab w` 可打开完整弹窗工作台（含 Callout 引用块保真读写与 MathML/PNG 导出）。
 - **多格式一键导出**：纯 LaTeX / `$…$` / `$$…$$` / ` ```latex `、**Word 公式（MathML）**、**3× 高清 PNG 图片**，以及多行推导自动对齐 `\begin{aligned}`。
 
 ---
@@ -94,9 +94,9 @@ npm run build:rpm
 
 ## 仓库结构
 
-- `packages/core` — 纯 TypeScript 同步内核（树状槽位 AST、统一 `EmitIR` 词法与间距管线、单源声明式蓝图 `commandSpecs.ts`、双向流编码器 `streamCodec.ts`、无头原位流式引擎 `inlineExpander.ts`、229 条命令、114 条预置公式、跨槽 LCA 选区与矩阵块操作、LaTeX 双向解析与多行 `aligned` 导出、Obsidian `\(...\)`/`\[...\]`/引用块保真识别）
+- `packages/core` — 纯 TypeScript 同步内核（树状槽位 AST、统一 `EmitIR` 词法与间距管线、单源声明式蓝图 `commandSpecs.ts`、双向流编码器 `streamCodec.ts`、229 条命令、114 条预置公式、跨槽 LCA 选区与矩阵块操作、LaTeX 双向解析与多行 `aligned` 导出、Obsidian `\(...\)`/`\[...\]`/引用块保真识别）
 - `packages/ui` — 共享 Svelte 5 + KaTeX 2D 公式工作台（Pointer Events 画布、左侧悬浮编辑栏、层级虚线框、快捷丝带、命令与公式库搜索面板、多行 LaTeX 栏、支持 CSS `transform` 的矢量 SVG / 高清 PNG / Word MathML 导出）
 - `apps/desktop` — Tauri 2 桌面端外壳（零 JSON 二进制 IPC 剪贴板/导出、Linux Wayland 图标集成、原子配置文件读写、跨平台打包）
-- `apps/obsidian` — Obsidian 纯 JS 插件（零 WASM、CM6 原位无感流式展开与上方紧凑胶囊、`Tab w` 一键升维 2D 画布、`\(...\)`/`\[...\]` 原样写回与引用块/Callout 替换）
+- `apps/obsidian` — Obsidian 纯 JS 插件（零 WASM、CM6 原生 `showPanel` 底部停靠工作栏与文档双向实时同步、`Tab w` 切换全屏弹窗工作台、`\(...\)`/`\[...\]` 原样写回与引用块/Callout 替换）
 - `apps/web` — 零安装离线 PWA 在线工作台（共享同源 `@mathslot/core` 与 `@mathslot/ui`）
 - `docs/` — [快速开始](docs/QUICKSTART.md)、[详细帮助手册](docs/GUIDE.md)、[源码深度审计](docs/AUDIT.md)、[演进路线图](docs/ROADMAP.md) 与 [界面截图](docs/images/)

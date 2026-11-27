@@ -8,7 +8,7 @@
 
 升级前，`packages/core/src` 的 7,562 行代码集中在三个巨石文件（`editor.ts` 3,694 行、`parser.ts` 2,227 行、`latex.ts` 1,641 行），且每加一批命令都要在多处手写 `if-else`。
 
-完成**声明式蓝图 + 微内核拆分升级**后，`packages/core/src` 共 **37 个高内聚文件（内置 229 条命令 + 114 条预置公式）**，**全目录没有任何单个文件超过 750 行**：
+完成**声明式蓝图 + 微内核拆分升级**后，`packages/core/src` 共 **34 个高内聚文件（合计 12,854 行，内置 229 条命令 + 114 条预置公式）**，**全目录没有任何单个文件超过 747 行**：
 
 ### 1. 五大分层职责总览
 
@@ -64,10 +64,7 @@
 | [engine/leaderMode.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/engine/leaderMode.ts) | 209 | `Tab` 引导态、二级分类即时默认渲染与 `leaderMorphBackup` 原地无缝变形 |
 | **六、宿主与外部库工具** | | |
 | [userLibraries.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/userLibraries.ts) | 331 | 用户自定义 `presets.json` / `commands.json` 校验序列化与热合并 |
-| [obsidianMath.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/obsidianMath.ts) | 564 | Markdown 行内/块级公式及 Callout 引用块有界扫描与写回 |
-| [inline/inlineCompile.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/inline/inlineCompile.ts) | 538 | Obsidian 无头原位公式边界定位、胶囊菜单条目与模板槽位偏移编译 |
-| [inline/inlineHandlers.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/inline/inlineHandlers.ts) | 716 | 原位动态 Tabstop 栈、空可选括号自洁、`\\` 原生透传区间与简写状态机 |
-| [inlineExpander.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/inlineExpander.ts) | 2 | 无头原位流式引擎聚合导出门面 |
+| [obsidianMath.ts](file:///home/mat/Projects/mathslot-next/packages/core/src/obsidianMath.ts) | 662 | Markdown 行内/块级公式及 Callout 引用块有界扫描、严格边界检测与无损写回 |
 
 ---
 

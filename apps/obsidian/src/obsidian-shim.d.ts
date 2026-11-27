@@ -103,6 +103,16 @@ declare module 'obsidian' {
 declare module '@codemirror/state' {
   export type Extension = { readonly __cmExt?: unknown } | readonly Extension[];
 
+  export class AnnotationType<T> {
+    of(value: T): Annotation<T>;
+  }
+
+  export class Annotation<T> {
+    readonly type: AnnotationType<T>;
+    readonly value: T;
+    static define<T>(): AnnotationType<T>;
+  }
+
   export class StateEffect<Value> {
     readonly value: Value;
     is<T>(type: StateEffectType<T>): this is StateEffect<T>;
@@ -122,6 +132,8 @@ declare module '@codemirror/state' {
 
   export interface Text {
     readonly length: number;
+    readonly lines: number;
+    line(n: number): Line;
     sliceString(from: number, to?: number, lineSep?: string): string;
     lineAt(pos: number): Line;
     toString(): string;
@@ -140,7 +152,11 @@ declare module '@codemirror/state' {
     static cursor(pos: number): EditorSelection;
   }
 
-  export interface ChangeSet {
+  export class ChangeDesc {
+    mapPos(pos: number, assoc?: number): number;
+  }
+
+  export interface ChangeSet extends ChangeDesc {
     iterChanges(
       f: (fromA: number, toA: number, fromB: number, toB: number, inserted: Text) => void,
       combine?: boolean,
@@ -159,12 +175,14 @@ declare module '@codemirror/state' {
     readonly selection?: EditorSelection;
     readonly changes: ChangeSet;
     readonly effects: readonly StateEffect<unknown>[];
+    annotation<T>(type: AnnotationType<T>): T | undefined;
   }
 
   export interface TransactionSpec {
     changes?: { from: number; to?: number; insert?: string };
     selection?: EditorSelection | { anchor: number; head?: number };
     effects?: StateEffect<unknown> | readonly StateEffect<unknown>[];
+    annotations?: Annotation<unknown> | readonly Annotation<unknown>[];
     userEvent?: string;
     scrollIntoView?: boolean;
   }
@@ -190,7 +208,15 @@ declare module '@codemirror/state' {
 }
 
 declare module '@codemirror/view' {
-  import type { EditorState, Extension, Range, StateField, TransactionSpec } from '@codemirror/state';
+  import type {
+    ChangeDesc,
+    EditorState,
+    Extension,
+    Range,
+    StateField,
+    Transaction,
+    TransactionSpec,
+  } from '@codemirror/state';
 
   export abstract class WidgetType {
     abstract toDOM(view: EditorView): HTMLElement;
@@ -208,27 +234,30 @@ declare module '@codemirror/view' {
     static readonly none: DecorationSet;
   }
 
-  export interface TooltipView {
+  export interface ViewUpdate {
+    readonly state: EditorState;
+    readonly view: EditorView;
+    readonly docChanged: boolean;
+    readonly selectionSet: boolean;
+    readonly changes: ChangeDesc;
+    readonly transactions: readonly Transaction[];
+  }
+
+  export interface Panel {
     dom: HTMLElement;
-    mount?(view: EditorView): void;
-    update?(update: unknown): void;
-    positioned?(): void;
+    top?: boolean;
+    mount?(): void;
+    update?(update: ViewUpdate): void;
     destroy?(): void;
   }
 
-  export interface Tooltip {
-    pos: number;
-    end?: number;
-    above?: boolean;
-    strictSide?: boolean;
-    arrow?: boolean;
-    create(view: EditorView): TooltipView;
-  }
+  export type PanelConstructor = (view: EditorView) => Panel;
 
-  export const showTooltip: {
+  export const showPanel: {
+    of(value: PanelConstructor | null): Extension;
     compute(
       deps: readonly StateField<unknown>[],
-      create: (state: EditorState) => Tooltip | null,
+      create: (state: EditorState) => PanelConstructor | null,
     ): Extension;
   };
 

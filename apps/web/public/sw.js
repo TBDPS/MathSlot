@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mathslot-web-v3.1.0-beta.4';
+const CACHE_NAME = 'mathslot-web-v3.1.0-beta.5';
 const CORE_ASSETS = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
