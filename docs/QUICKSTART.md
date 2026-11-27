@@ -37,12 +37,11 @@
   - `Tab f` 分数 · `Tab r` 根号（二次/N次合一） · `Tab b` 上下标
   - `Tab i` 积分（定/不定合一） · `Tab s` 求和 · `Tab l` 极限 · `Tab e` 二项式
   - `Tab v` 绝对值（圆括号直接输入 `(` 即可）
-- **二级菜单（按 `Tab` + 1 个分类字母，立即渲染默认结构）**：
-  - `Tab m` → 默认 `2×2 矩阵`（再按 `d` 变分段函数、`j` 变省略行列式；或直接打 `1` 开始填矩阵！）
-  - `Tab c` → 默认 `偏导分式` $\frac{\partial \square}{\partial \square}$（直接打 `y Enter x` 即得 $\frac{\partial y}{\partial x}$！）
-  - `Tab g` → 默认 $\alpha$（再按 `p` 变 $\pi$，`t` 变 $\theta$）
-  - `Tab a` → 默认 $\hat{x}$（再按 `c` 变 $\vec{x}$，支持自动包裹前一个字母！）
-  - `Tab o` → 默认 $\pm$ · `Tab x` → 默认 $\approx$ · `Tab q` → 默认 $\cup$
+- **二级菜单（10 大均衡分类，按 `Tab` + 1 个分类字母立即渲染默认结构，二键免 Shift 变形）**：
+  - `Tab c` 微积分（默认偏导 $\frac{\partial \square}{\partial \square}$） · `Tab m` 矩阵分段（默认 `2×2 矩阵`）
+  - `Tab z` 定界与狄拉克（默认 `[x]`，`k/l/i` 输入 $|\psi\rangle,\langle\phi|,\langle\phi|\psi\rangle$） · `Tab a` 顶底标饰（默认 $\hat{x}$，`c` 变 $\vec{x}$）
+  - `Tab h` 字体数域排版（默认 `\text{}`，`b/c/d` 粗/花/黑板体，`w/e/p` $\mathbb{R},\mathbb{E},\mathbb{P}$） · `Tab y` 箭头映射（默认 $\to$，`j–n` 长箭头）
+  - `Tab o` 运算几何（默认 $\pm$） · `Tab x` 等式不等式（默认 $\approx$） · `Tab q` 集合逻辑（默认 $\cup$） · `Tab g` 希腊字母（默认 $\alpha$）
 
 ### 4. 习惯写原生 LaTeX？照打就行！
 直接输入 **`\int_`**、**`\int `**、**`\frac{`**、**`\sqrt[`**、**`\sum_`**、**`\alpha_1`**、**`\vec `**、**`\vdots `**、**`\pmatrix `**，按空格 / 回车 / `_` / `{` / `[` 后会实时转为可交互的 2D MathSlot 结构。

@@ -31,7 +31,20 @@ describe('MathSlot catalog & presets integrity', () => {
     expect(COMMANDS_BY_KEYS.has('d')).toBe(false);
     expect(COMMANDS_BY_KEYS.has('p')).toBe(false);
     expect(COMMANDS_BY_KEYS.get('b')?.id).toBe('subsup');
-    expect(SUBMENUS.length).toBe(7);
+    expect(SUBMENUS.length).toBe(10);
+
+    // Submenu balance & ergonomics gate: every non-Greek category stays <= 26 items with 100% lowercase 2nd keys!
+    for (const sub of SUBMENUS) {
+      const subCmds = getSubmenuCommands(sub.key);
+      expect(subCmds.length, `submenu ${sub.key} too small`).toBeGreaterThanOrEqual(12);
+      if (sub.category !== 'greek') {
+        expect(subCmds.length, `submenu ${sub.key} (${sub.category}) exceeds 26 lowercase budget`).toBeLessThanOrEqual(26);
+        expect(
+          subCmds.every((c) => /^[a-z]$/.test(c.keys[1] ?? '')),
+          `submenu ${sub.key} (${sub.category}) has non-lowercase 2nd keys`,
+        ).toBe(true);
+      }
+    }
 
     // Legacy ▸px; stream code still decodes cleanly into paren struct
     const legacyParen = importFormula('▸px;');

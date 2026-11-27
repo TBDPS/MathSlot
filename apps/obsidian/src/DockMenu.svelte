@@ -75,13 +75,16 @@
     label: string;
     preview: string;
   }[] = [
-    { key: 'g', category: 'greek', label: '希腊字母', preview: '\\alpha' },
-    { key: 'c', category: 'calculus', label: '微积分', preview: '\\partial' },
-    { key: 'm', category: 'matrix', label: '矩阵与分段', preview: '[\\cdot]' },
-    { key: 'a', category: 'accent', label: '装饰与定界', preview: '\\hat{x}' },
-    { key: 'o', category: 'symbol', label: '运算符号', preview: '\\pm' },
-    { key: 'x', category: 'relation', label: '关系符号', preview: '\\approx' },
+    { key: 'c', category: 'calculus', label: '微积分与大算子', preview: '\\partial' },
+    { key: 'm', category: 'matrix', label: '矩阵与多行', preview: '[\\cdot]' },
+    { key: 'z', category: 'delimiter', label: '定界与狄拉克', preview: '\\langle\\cdot\\rangle' },
+    { key: 'a', category: 'accent', label: '顶底标饰', preview: '\\hat{x}' },
+    { key: 'h', category: 'font', label: '字体·数域·排版', preview: '\\mathbb{R}' },
+    { key: 'y', category: 'arrow', label: '箭头与映射', preview: '\\to' },
+    { key: 'o', category: 'symbol', label: '运算与几何', preview: '\\pm' },
+    { key: 'x', category: 'relation', label: '等式与不等式', preview: '\\approx' },
     { key: 'q', category: 'setlogic', label: '集合与逻辑', preview: '\\cup' },
+    { key: 'g', category: 'greek', label: '希腊字母', preview: '\\alpha' },
     { key: 'k', category: 'custom', label: '自定义结构', preview: '\\star' },
     { key: 't', category: 'snippets', label: '复用片段', preview: '\\sharp' },
   ];
@@ -183,30 +186,34 @@
     }
   }
 
-  const tiles = $derived.by<MenuTile[]>(() => {
-    if (!activeCategory || !activeGroup) {
-      const quickTiles: MenuTile[] = QUICK_ITEMS.map((item) => {
-        const cmd = COMMANDS_BY_ID.get(item.id);
-        return {
-          id: `q:${item.id}`,
-          keyLabel: item.key,
-          previewLatex: item.preview,
-          tooltip: `${cmd?.label ?? item.id}（${leaderKey} ${item.key}）`,
-          isHot: leaderActive && !leaderPrefix,
-          onClick: () => pickCommand(item.id),
-        };
-      });
-      const catTiles: MenuTile[] = CATEGORY_GROUPS.map((grp) => ({
-        id: `c:${grp.category}`,
-        keyLabel: grp.key,
-        previewLatex: grp.preview,
-        tooltip: `${grp.label}（${leaderKey} ${grp.key}）`,
-        isCategory: true,
-        isHot: leaderActive && (!leaderPrefix || leaderPrefix === grp.key),
-        onClick: () => clickCategory(grp),
-      }));
-      return [...quickTiles, ...catTiles];
-    }
+  const level1QuickTiles = $derived<MenuTile[]>(
+    QUICK_ITEMS.map((item) => {
+      const cmd = COMMANDS_BY_ID.get(item.id);
+      return {
+        id: `q:${item.id}`,
+        keyLabel: item.key,
+        previewLatex: item.preview,
+        tooltip: `${cmd?.label ?? item.id}（${leaderKey} ${item.key}）`,
+        isHot: leaderActive && !leaderPrefix,
+        onClick: () => pickCommand(item.id),
+      };
+    }),
+  );
+
+  const level1CategoryTiles = $derived<MenuTile[]>(
+    CATEGORY_GROUPS.map((grp) => ({
+      id: `c:${grp.category}`,
+      keyLabel: grp.key,
+      previewLatex: grp.preview,
+      tooltip: `${grp.label}（${leaderKey} ${grp.key}）`,
+      isCategory: true,
+      isHot: leaderActive && (!leaderPrefix || leaderPrefix === grp.key),
+      onClick: () => clickCategory(grp),
+    })),
+  );
+
+  const submenuTiles = $derived.by<MenuTile[]>(() => {
+    if (!activeCategory || !activeGroup) return [];
 
     const backTile: MenuTile = {
       id: '__back__',
@@ -273,50 +280,98 @@
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeyDown} />
 
+{#snippet renderTile(tile: MenuTile)}
+  <button
+    type="button"
+    class="dock-tile"
+    class:is-category={tile.isCategory}
+    class:is-default={tile.isDefault}
+    class:is-back={tile.isBack}
+    use:obsidianTooltip={tile.tooltip}
+    onmousedown={(e) => e.preventDefault()}
+    onclick={tile.onClick}
+  >
+    {#if tile.iconId}
+      <span class="dock-tile-glyph" use:obsidianIcon={tile.iconId}></span>
+    {:else if tile.previewLatex}
+      <span class="dock-tile-glyph" class:is-matrix={tile.isMatrix}>
+        {@html renderLatexPreview(tile.previewLatex, false)}
+      </span>
+    {/if}
+    <kbd class="dock-tile-key" class:is-hot={tile.isHot}>{tile.keyLabel}</kbd>
+  </button>
+{/snippet}
+
 <div class="dock-menu-pane" bind:this={menuEl} role="toolbar" aria-label="快捷数学符号">
-  <div class="dock-menu-grid">
-    {#each tiles as tile (tile.id)}
-      <button
-        type="button"
-        class="dock-tile"
-        class:is-category={tile.isCategory}
-        class:is-default={tile.isDefault}
-        class:is-back={tile.isBack}
-        use:obsidianTooltip={tile.tooltip}
-        onmousedown={(e) => e.preventDefault()}
-        onclick={tile.onClick}
-      >
-        {#if tile.iconId}
-          <span class="dock-tile-glyph" use:obsidianIcon={tile.iconId}></span>
-        {:else if tile.previewLatex}
-          <span class="dock-tile-glyph" class:is-matrix={tile.isMatrix}>
-            {@html renderLatexPreview(tile.previewLatex, false)}
-          </span>
-        {/if}
-        <kbd class="dock-tile-key" class:is-hot={tile.isHot}>{tile.keyLabel}</kbd>
-      </button>
-    {/each}
-  </div>
+  {#if activeCategory && activeGroup}
+    <div class="dock-menu-grid">
+      {#each submenuTiles as tile (tile.id)}
+        {@render renderTile(tile)}
+      {/each}
+    </div>
+  {:else}
+    <div class="dock-level-split">
+      <div class="dock-menu-row" aria-label="一级直出结构">
+        {#each level1QuickTiles as tile (tile.id)}
+          {@render renderTile(tile)}
+        {/each}
+      </div>
+      <div class="dock-row-sep" aria-hidden="true"></div>
+      <div class="dock-menu-row" aria-label="二级分类菜单">
+        {#each level1CategoryTiles as tile (tile.id)}
+          {@render renderTile(tile)}
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
   .dock-menu-pane {
     width: 100%;
-    height: 172px;
-    flex: 0 0 172px;
+    height: 124px;
+    flex: 0 0 124px;
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    padding: 6px 12px;
+    padding: 7px 12px;
     box-sizing: border-box;
     background: var(--background-secondary);
     border-top: 1px solid var(--background-modifier-border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dock-level-split {
+    margin: auto 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+  }
+
+  .dock-menu-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .dock-row-sep {
+    width: min(580px, 90%);
+    height: 1px;
+    background: var(--background-modifier-border);
+    flex-shrink: 0;
   }
 
   .dock-menu-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 48px);
-    grid-auto-rows: 36px;
+    grid-template-columns: repeat(auto-fill, 46px);
+    grid-auto-rows: 34px;
     gap: 4px;
     justify-content: center;
     align-content: start;
@@ -325,8 +380,8 @@
 
   .dock-tile {
     position: relative;
-    width: 48px;
-    height: 36px;
+    width: 46px;
+    height: 34px;
     padding: 2px;
     margin: 0;
     border: 1px solid var(--background-modifier-border);
@@ -342,6 +397,7 @@
     gap: 1px;
     overflow: hidden;
     box-sizing: border-box;
+    flex-shrink: 0;
   }
 
   .dock-tile:hover {
@@ -352,6 +408,10 @@
   .dock-tile.is-default {
     border-color: var(--interactive-accent);
     background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  }
+
+  .dock-tile.is-category {
+    background: color-mix(in srgb, var(--background-primary) 78%, var(--background-secondary));
   }
 
   .dock-tile.is-category::after {
@@ -368,11 +428,11 @@
 
   .dock-tile-glyph {
     width: 100%;
-    height: 19px;
+    height: 17px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 11.5px;
+    font-size: 11px;
     line-height: 1;
     color: var(--text-normal);
     overflow: hidden;
@@ -384,8 +444,8 @@
   }
 
   .dock-tile-glyph.is-matrix :global(.katex) {
-    font-size: 10px;
-    transform: scale(0.45);
+    font-size: 9.5px;
+    transform: scale(0.44);
     transform-origin: center center;
   }
 
@@ -397,15 +457,15 @@
 
   .dock-tile-key {
     min-width: 14px;
-    height: 12px;
+    height: 11px;
     padding: 0 3px;
     border-radius: 3px;
     background: var(--background-secondary);
     color: var(--text-muted);
     font-family: var(--font-monospace);
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 600;
-    line-height: 12px;
+    line-height: 11px;
     text-align: center;
     flex-shrink: 0;
   }

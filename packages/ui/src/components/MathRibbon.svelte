@@ -72,13 +72,16 @@
     label: string;
     preview: string;
   }[] = [
-    { key: 'g', category: 'greek', label: '希腊字母', preview: '\\alpha' },
-    { key: 'c', category: 'calculus', label: '微积分', preview: '\\partial' },
-    { key: 'm', category: 'matrix', label: '矩阵与分段', preview: '[\\cdot]' },
-    { key: 'a', category: 'accent', label: '装饰与定界', preview: '\\hat{x}' },
-    { key: 'o', category: 'symbol', label: '运算符号', preview: '\\pm' },
-    { key: 'x', category: 'relation', label: '关系符号', preview: '\\approx' },
+    { key: 'c', category: 'calculus', label: '微积分与大算子', preview: '\\partial' },
+    { key: 'm', category: 'matrix', label: '矩阵与多行', preview: '[\\cdot]' },
+    { key: 'z', category: 'delimiter', label: '定界与狄拉克', preview: '\\langle\\cdot\\rangle' },
+    { key: 'a', category: 'accent', label: '顶底标饰', preview: '\\hat{x}' },
+    { key: 'h', category: 'font', label: '字体·数域·排版', preview: '\\mathbb{R}' },
+    { key: 'y', category: 'arrow', label: '箭头与映射', preview: '\\to' },
+    { key: 'o', category: 'symbol', label: '运算与几何', preview: '\\pm' },
+    { key: 'x', category: 'relation', label: '等式与不等式', preview: '\\approx' },
     { key: 'q', category: 'setlogic', label: '集合与逻辑', preview: '\\cup' },
+    { key: 'g', category: 'greek', label: '希腊字母', preview: '\\alpha' },
     { key: 'k', category: 'custom', label: '自定义结构', preview: '\\star' },
     { key: 't', category: 'snippets', label: '复用片段', preview: '\\sharp' },
   ];
@@ -396,11 +399,12 @@
 
   .ribbon-bar {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     max-width: 100%;
-    padding: 6px 8px;
+    padding: 6px 10px;
     border-radius: 14px;
     background: var(--ms-surface-glass);
     backdrop-filter: blur(12px);
@@ -424,52 +428,29 @@
   }
 
   .ribbon-sep {
-    width: 1px;
-    height: 30px;
-    background: var(--ms-border);
-    margin: 0 4px;
+    width: 100%;
+    height: 1px;
+    background: var(--ms-border-subtle);
+    margin: 0;
     flex-shrink: 0;
   }
 
   @container (max-width: 860px) {
-    .ribbon-bar:not(.is-compact) {
-      flex-direction: column;
-      gap: 5px;
-      padding: 6px 8px;
-      width: 100%;
-    }
-
-    .ribbon-bar:not(.is-compact) .ribbon-sep {
-      display: none;
-    }
-
     .ribbon-bar:not(.is-compact) .ribbon-btn {
-      height: 46px;
+      height: 44px;
       min-width: 38px;
       padding: 4px 5px;
     }
 
     .ribbon-bar:not(.is-compact) .btn-glyph {
-      min-height: 20px;
-      font-size: 14.5px;
-    }
-  }
-
-  @container (max-width: 620px) {
-    .ribbon-bar.is-compact {
-      flex-direction: column;
-      gap: 4px;
-      width: 100%;
-    }
-
-    .ribbon-bar.is-compact .ribbon-sep {
-      display: none;
+      min-height: 19px;
+      font-size: 14px;
     }
   }
 
   .ribbon-bar.is-compact {
     gap: 4px;
-    padding: 4px 6px;
+    padding: 4px 8px;
     border-radius: 10px;
   }
 
@@ -478,8 +459,8 @@
   }
 
   .ribbon-bar.is-compact .ribbon-sep {
-    height: 22px;
-    margin: 0 2px;
+    height: 1px;
+    margin: 0;
   }
 
   .ribbon-bar.is-compact .ribbon-btn {

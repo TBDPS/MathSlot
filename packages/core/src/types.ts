@@ -2,11 +2,14 @@ export type CommandCategory =
   | 'structure'
   | 'calculus'
   | 'matrix'
+  | 'delimiter'
   | 'accent'
-  | 'greek'
+  | 'font'
+  | 'arrow'
   | 'symbol'
   | 'relation'
-  | 'setlogic';
+  | 'setlogic'
+  | 'greek';
 
 export interface CommandDef {
   readonly id: string;

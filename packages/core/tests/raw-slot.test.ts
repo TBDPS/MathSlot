@@ -99,7 +99,7 @@ describe('Universal \\\\ raw_latex passthrough slot (Desktop/Core)', () => {
     expect(engine.getSnapshot().latex).toBe('x + G/H;pi + 1');
 
     const stream = toStreamCode(engine.getSnapshot().doc);
-    expect(stream).toContain('▸aVG/H▸;pi;');
+    expect(stream).toContain('▸hvG/H▸;pi;');
     const parsed = parseStreamCode(stream);
     const engine2 = new MathSlotEngine();
     engine2.restoreDraftV1({

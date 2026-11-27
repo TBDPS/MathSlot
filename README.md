@@ -1,4 +1,4 @@
-# MathSlot v3.1.0-beta.8
+# MathSlot v3.1.0-beta.9
 
 **视觉直觉优先、键盘流全控、出版级 LaTeX 排版的数学公式工作台。**  
 桌面端（原生 Tauri 2，提供 Linux `.rpm`/`.deb`/`.AppImage`、Windows `.exe`/`.msi`、macOS `.dmg`）与 Obsidian 插件（零 WASM，纯 JS/CSS）双端同源。

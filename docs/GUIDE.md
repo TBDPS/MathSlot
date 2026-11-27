@@ -58,15 +58,18 @@
 
 按下 `Tab` + 二级分类字母后，画布会**立即渲染该分类最常用的默认结构**，同时弹出子菜单并标记「默认」：
 
-| 二级入口 | 分类 | 单键默认结构 | 常用第二键示例 |
+| 二级入口 | 分类 | 单键默认结构 | 常用第二键示例（除希腊大写外全小写免 Shift） |
 | :--- | :--- | :--- | :--- |
-| `Tab g` | 希腊字母 | `\alpha` | `p` $\pi$ · `t` $\theta$ · `l` $\lambda$ · `s` $\sigma$ · `o` $\omega$ · `w` $\varphi$ · `V` $\vartheta$ · 大写如 `D` $\Delta$ |
-| `Tab c` | 微积分 | `\frac{\partial \square}{\partial \square}`（偏导分式） | `a` 不定积分 · `b` 连乘 $\prod$ · `c` 二重积分 $\iint$ · `d` 环路积分 $\oint$ · `e` 三重积分 $\iiint$ · `i` 全导分式 $\frac{\mathrm{d}\square}{\mathrm{d}\square}$ |
-| `Tab m` | 矩阵与分段 | `2×2 矩阵` | `b` 3×3 矩阵 · `c` 2×2 行列式 · `d` 分段函数 · `e` 方括号矩阵 · `i`/`j` 省略矩阵/行列式 · `k` 增广矩阵 `[A\|b]` · `l` 行内小矩阵 · `m`/`n` `dcases`/`rcases` |
-| `Tab a` | 装饰与字体 | `\hat{x}`（支持自动包裹前字符） | `c` $\vec{x}$ · `f` 范数 $\|x\|$ · `q` 求值线 $F\|_a^b$ · `r` 文本注释 `\text{}`（内部按 `$` 嵌数学槽） · `v` `\boxed{}` · `z`/`A`/`B` 宽帽子/宽波浪/长向量 · `C`/`D`/`E`/`F` `\mathbf`/`\mathcal`/`\mathbb`/`\operatorname` |
-| `Tab o` | 运算符号 | `\pm` | `a` $\infty$ · `b` $\to$ · `c` $\partial$ · `d` $\nabla$ · `f` $\times$ · `g` $\cdot$ · `r`/`s`/`t` $\cdots$/$\vdots$/$\ddots$ · `u`/`v` 标注长箭头 $\xrightarrow{}$/$\xleftarrow{}$ · `w`/`x` 宽/细空格 `\quad`/`\,` |
-| `Tab x` | 关系符号 | `\approx` | `a` $\equiv$ · `c` $\sim$ · `e` $\Rightarrow$ · `f` $\Leftrightarrow$ · `n` $\le$ · `o` $\ge$ · `p` $\neq$ · `q` $\leftarrow$ · `r` $\leftrightarrow$ · `s`/`t` $\uparrow$/$\downarrow$ · `u` $\hookrightarrow$ |
-| `Tab q` | 集合与逻辑 | `\cup` | `b` $\cap$ · `c` $\varnothing$ · `d` $\subset$ · `e` $\exists$ · `i`–`n` $\mathbb{R}/\mathbb{N}/\mathbb{Z}/\mathbb{Q}/\mathbb{C}$ · `o` `\pmod{n}` · `p` 集合构造式 `\{x \mid P\}` · `q`/`r` $\bigcup$/$\bigcap$ · `s` 条件竖线 `\mid` |
+| `Tab c` | 微积分与大算子 | `\frac{\partial \square}{\partial \square}` | `a` 不定积分 · `b` $\prod$ · `c`/`d`/`e` $\iint$/$\oint$/$\iiint$ · `h` $\partial$ · `p` $\nabla$ · `m`–`r` $\bigoplus$/$\bigotimes$/$\bigwedge$/$\bigcup$/$\bigcap$ · `s` `\substack` |
+| `Tab m` | 矩阵与多行 | `2×2 矩阵` | `b` 3×3 矩阵 · `c` 2×2 行列式 · `d` 分段函数 · `i`/`j` 省略矩阵/行列式 · `k` 增广矩阵 `[A\|b]` · `m`/`n` `dcases`/`rcases` · `o` 多行对齐 `aligned` |
+| `Tab z` | 定界与狄拉克 | `\left[\square\right]` | `b` `\{x\}` · `n` 范数 $\|x\|$ · `g` $\langle x\rangle$ · `f`/`c` 取整 $\lfloor x\rfloor$/$\lceil x\rceil$ · `e` 求值线 $F\|_a^b$ · `d` `\boxed{}` · `k`/`l`/`i` 狄拉克 $\|\psi\rangle$/$\langle\phi\|$/$\langle\phi\|\psi\rangle$ |
+| `Tab a` | 顶底标饰与消去 | `\hat{x}`（自动包裹前字符） | `b` $\bar{x}$ · `c` $\vec{x}$ · `e`/`h` $\dot{x}$/$\ddot{x}$ · `f`/`l` 宽帽/宽波浪 · `j`/`k` 上下花括号 · `m`–`o` 长向量箭头 · `q`/`r`/`u` 消去线 `\bcancel`/`\xcancel`/`\cancel` |
+| `Tab h` | 字体·数域·排版 | `\text{...}`（内按 `$` 嵌数学槽） | `b` `\mathbf` · `i` `\boldsymbol` · `c` `\mathcal` · `d` `\mathbb` · `r` `\mathrm` · `o` `\operatorname` · `g` `\tag{}` · `v` 原生 TeX 槽 · `w`/`n`/`z`/`u`/`y`/`p`/`e` $\mathbb{R}/\mathbb{N}/\mathbb{Z}/\mathbb{Q}/\mathbb{C}/\mathbb{P}/\mathbb{E}$ |
+| `Tab y` | 箭头与映射 | `\to` ($\to$) | `b` $\leftarrow$ · `c` $\leftrightarrow$ · `f` $\Rightarrow$ · `g` $\Leftrightarrow$ · `h` $\mapsto$ · `i` $\hookrightarrow$ · `j`–`n` 标注长箭头 $\xrightarrow{}$/$\xRightarrow{}$/$\xmapsto{}$ · `o`–`q` 否定箭头 |
+| `Tab o` | 运算与几何 | `\pm` ($\pm$) | `a` $\infty$ · `d` $\cdot$ · `e` $\times$ · `f` $\div$ · `h`/`i`/`j` $\oplus$/$\otimes$/$\wedge$ · `l` $\dagger$ · `o`/`p`/`q` $\parallel$/$\nparallel$/$\perp$ · `r`/`s`/`t` $\cdots$/$\vdots$/$\ddots$ |
+| `Tab x` | 等式与不等式 | `\approx` ($\approx$) | `a` $\equiv$ · `c`–`e` $\sim$/$\simeq$/$\cong$ · `g` $\coloneqq$ · `h`/`i`/`j` $\le$/$\ge$/$\neq$ · `m`/`n` $\lesssim$/$\gtrsim$ · `o`/`p` $\mid$/$\nmid$ · `q`–`w` 否定关系 $\nless$/$\nleq$/$\not\equiv$ |
+| `Tab q` | 集合与逻辑 | `\cup` ($\cup$) | `b` $\cap$ · `c` $\varnothing$ · `d`/`e` $\in$/$\notin$ · `f`–`k` $\subset$/$\subseteq$/$\supset$/$\supseteq$/$\nsubseteq$ · `n` 集合构造式 `\{x \mid P\}` · `o`–`t` $\forall$/$\exists$/$\nexists$/$\neg$/$\land$/$\lor$ · `u`–`z` $\therefore$/$\because$/$\vdash$/$\models$ |
+| `Tab g` | 希腊字母 | `\alpha` | 小写 `a`–`y` 对应 $\alpha$–$\omega$（如 `p` $\pi$ · `t` $\theta$ · `l` $\lambda$ · `w` $\varphi$）；大写 `C`–`Y` 对应 $\Gamma$–$\Omega$（如 `D` $\Delta$ · `S` $\Sigma$ · `O` $\Omega$） |
 | `Tab k` | 自定义结构 | 第 1 条自定义结构 | 按绑定的单字母键插入对应自定义结构 |
 | `Tab t` | 复用片段 | 第 1 条片段 | 按绑定的单字母键在光标处插入对应片段 |
 

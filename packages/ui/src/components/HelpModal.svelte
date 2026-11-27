@@ -25,7 +25,7 @@
     <div class="modal-head">
       <div class="head-title">
         <span>MathSlot 使用手册</span>
-        <span class="ver-badge">v3.1.0-beta.8 · 229 命令 · 114 预置</span>
+        <span class="ver-badge">v3.1.0-beta.9 · 229 命令 · 114 预置</span>
       </div>
       <button type="button" class="close-btn" onclick={onClose} aria-label="关闭">✕</button>
     </div>
@@ -100,15 +100,18 @@
         </section>
 
         <section class="doc-sec">
-          <h4>二级菜单（单键即渲染默认项，再按第二键变形）</h4>
+          <h4>二级菜单（10 大均衡分类，全小写免 Shift · 单键默认 + 二键变形）</h4>
           <div class="kv-grid wide">
-            <div><kbd>Tab g</kbd> 希腊字母（默认 α，含 <code>w</code> φ / <code>V</code> ϑ）</div>
-            <div><kbd>Tab c</kbd> 微积分（默认 ∂/∂，<code>c/d/e</code> 多重/环路积分）</div>
-            <div><kbd>Tab m</kbd> 矩阵分段（默认 2×2，<code>k</code> 增广阵 / <code>l</code> 小矩阵 / <code>m,n</code> dcases,rcases）</div>
-            <div><kbd>Tab a</kbd> 装饰字体（<code>r</code> 文本可嵌 <code>$x$</code> / <code>C–F</code> 粗体,花体,黑板,算子）</div>
-            <div><kbd>Tab o</kbd> 运算符（<code>u/v</code> 标注箭头 / <code>w/x</code> 宽细空格）</div>
-            <div><kbd>Tab x</kbd> 关系符（默认 ≈，<code>q–u</code> 全向/嵌入箭头）</div>
-            <div><kbd>Tab q</kbd> 集合逻辑（<code>p</code> 集合构造式 / <code>q,r</code> 大并大交 / <code>s</code> 条件竖线）</div>
+            <div><kbd>Tab c</kbd> 微积分与大算子（默认 ∂/∂，<code>c/d/e</code> 多重/环路积分，<code>m–r</code> ⨁⨂⋀⋃⋂）</div>
+            <div><kbd>Tab m</kbd> 矩阵与多行（默认 2×2，<code>k</code> 增广阵 / <code>d,m,n</code> 分段 / <code>o</code> aligned）</div>
+            <div><kbd>Tab z</kbd> 定界与狄拉克（默认 [x]，<code>n</code> ‖x‖ / <code>f,c</code> 取整 / <code>k,l,i</code> |ψ⟩,⟨φ|,⟨φ|ψ⟩）</div>
+            <div><kbd>Tab a</kbd> 顶底标饰与消去（默认 hat，<code>c</code> vec / <code>j,k</code> 上下花括号 / <code>q,r,u</code> 消去线）</div>
+            <div><kbd>Tab h</kbd> 字体·数域·排版（默认 \text，<code>b,c,d,r</code> 粗/花/黑板/正体，<code>w,n,z,e,p</code> ℝℕℤ𝔼ℙ）</div>
+            <div><kbd>Tab y</kbd> 箭头与映射（默认 →，<code>f,g</code> ⇒⇔ / <code>j–n</code> 带上下标长箭头）</div>
+            <div><kbd>Tab o</kbd> 运算与几何（默认 ±，<code>h,i,j</code> ⊕⊗∧ / <code>r,s,t</code> ⋯⋮⋱ / <code>o–q</code> ∥∦⊥）</div>
+            <div><kbd>Tab x</kbd> 等式与不等式（默认 ≈，<code>h,i,j</code> ≤≥≠ / <code>o,p</code> 整除 ∣,∤ / <code>q–w</code> 否定关系）</div>
+            <div><kbd>Tab q</kbd> 集合与逻辑（默认 ∪，<code>d–k</code> ∈∉⊂⊆⊃⊇ / <code>n</code> {`{x|P}`} / <code>o–z</code> ∀∃¬∧∨∴∵⊢⊨）</div>
+            <div><kbd>Tab g</kbd> 希腊字母（默认 α，小写 <code>a–y</code> → α–ω，大写 <code>C–Y</code> → Γ–Ω）</div>
             <div><kbd>Tab k / t</kbd> 自定义结构 / 复用片段</div>
           </div>
         </section>

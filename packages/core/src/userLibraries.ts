@@ -34,11 +34,14 @@ const VALID_CATEGORIES = new Set<CommandCategory>([
   'structure',
   'calculus',
   'matrix',
+  'delimiter',
   'accent',
-  'greek',
+  'font',
+  'arrow',
   'symbol',
   'relation',
   'setlogic',
+  'greek',
 ]);
 
 export function parseUserPresetsJson(raw: string): {

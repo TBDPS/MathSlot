@@ -66,9 +66,9 @@
 }
 
 .mathslot-dock-panel .dock-tile {
-  width: 48px !important;
-  height: 36px !important;
-  min-width: 48px !important;
+  width: 46px !important;
+  height: 34px !important;
+  min-width: 46px !important;
   padding: 2px !important;
   margin: 0 !important;
   box-shadow: none !important;
@@ -113,12 +113,60 @@
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--interactive-accent) 65%, transparent);
 }
 
+/* Guarantee the entire Obsidian Markdown leaf flex chain shrinks `.cm-scroller` properly
+   so `.cm-panels-bottom` NEVER overflows off the bottom of `.view-content` or under `.status-bar` */
+.workspace-leaf-content[data-type='markdown']:has(.mathslot-dock-host) {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.workspace-leaf-content[data-type='markdown']:has(.mathslot-dock-host) > .view-content {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+}
+
+.markdown-source-view.mod-cm6:has(.mathslot-dock-host) {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding-bottom: 0 !important;
+}
+
+.markdown-source-view.mod-cm6 .cm-editor:has(.mathslot-dock-host) {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+
+.markdown-source-view.mod-cm6 .cm-editor:has(.mathslot-dock-host) > .cm-scroller {
+  flex: 1 1 0% !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
 .cm-panels.cm-panels-bottom:has(> .mathslot-dock-host) {
+  position: relative !important;
+  bottom: auto !important;
+  flex: 0 0 auto !important;
   padding: 0 !important;
   margin: 0 !important;
   border: none !important;
   border-top: 1px solid var(--background-modifier-border) !important;
-  background: var(--background-primary) !important;
+  background: var(--background-secondary) !important;
   box-shadow: none !important;
   overflow: hidden !important;
   z-index: 32;
@@ -127,9 +175,11 @@
 .mathslot-dock-host {
   width: 100%;
   margin: 0;
-  padding: 0;
+  padding: 0 0 10px 0;
+  box-sizing: border-box;
   border: none;
   display: block;
+  background: var(--background-secondary);
 }
 
 .mathslot-dock-panel {
@@ -158,8 +208,8 @@
 
 .mathslot-dock-preview {
   width: 100%;
-  height: 88px;
-  flex: 0 0 88px;
+  height: 76px;
+  flex: 0 0 76px;
   overflow: hidden;
   display: flex;
   flex-direction: column;

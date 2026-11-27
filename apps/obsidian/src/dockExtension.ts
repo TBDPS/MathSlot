@@ -316,6 +316,30 @@ export function createMathSlotDockController(
       const dom = document.createElement('div');
       dom.className = 'mathslot-dock-host';
       let instance: Record<string, unknown> | null = null;
+      let resizeObserver: ResizeObserver | null = null;
+
+      const syncBottomClearance = () => {
+        if (typeof window === 'undefined') return;
+        const viewRect = view.dom.getBoundingClientRect();
+        let safeBottom = window.innerHeight - 8;
+        const statusBar = document.querySelector('.status-bar') as HTMLElement | null;
+        if (statusBar && statusBar.offsetHeight > 0) {
+          const stRect = statusBar.getBoundingClientRect();
+          if (
+            viewRect.right > stRect.left &&
+            viewRect.left < stRect.right &&
+            stRect.top < window.innerHeight &&
+            stRect.top > window.innerHeight - 96
+          ) {
+            safeBottom = Math.min(safeBottom, stRect.top - 6);
+          }
+        }
+        const clippedBottom = Math.max(0, Math.ceil(viewRect.bottom - safeBottom));
+        const nextPad = `${clippedBottom + 10}px`;
+        if (dom.style.paddingBottom !== nextPad) {
+          dom.style.paddingBottom = nextPad;
+        }
+      };
 
       const syncLatestDocFollow = (state: EditorState) => {
         const binding = state.field(dockField);
@@ -339,11 +363,19 @@ export function createMathSlotDockController(
             target: dom,
             props: { store },
           });
+          syncBottomClearance();
+          requestAnimationFrame(syncBottomClearance);
+          if (typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(syncBottomClearance);
+            resizeObserver.observe(view.dom);
+          }
+          window.addEventListener('resize', syncBottomClearance);
           if (view.state.field(dockField)?.mode === 'canvas-owned') {
             requestAnimationFrame(() => store.focusCanvas());
           }
         },
         update(update: ViewUpdate) {
+          syncBottomClearance();
           const cur = update.state.field(dockField);
           if (!cur) return;
           if (update.transactions.some((t) => Boolean(t.annotation(fromMathSlotEngine)))) {
@@ -358,6 +390,9 @@ export function createMathSlotDockController(
         },
         destroy() {
           activeContexts.delete(ctx);
+          resizeObserver?.disconnect();
+          resizeObserver = null;
+          window.removeEventListener('resize', syncBottomClearance);
           if (instance) {
             void unmount(instance);
             instance = null;

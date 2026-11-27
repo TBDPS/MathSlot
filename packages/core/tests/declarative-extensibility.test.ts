@@ -61,20 +61,20 @@ describe('Zero-Code Declarative Extensibility Proof (8 new structures)', () => {
   });
 
   it('supports Tab leader chords, semicolon slot progression, and backward atom wrapping for Dirac ket/bra/braket', () => {
-    // 1. Backward atom wrap: type `0`, then `Tab a R` (`ket`) -> `|0⟩` and cursor exits right after!
+    // 1. Backward atom wrap: type `0`, then `Tab z k` (`ket`) -> `|0⟩` and cursor exits right after!
     const e1 = new MathSlotEngine();
     typeChars(e1, '0');
     e1.triggerLeader();
-    e1.handleLeaderKey('a');
-    e1.handleLeaderKey('R');
+    e1.handleLeaderKey('z');
+    e1.handleLeaderKey('k');
     typeChars(e1, '+1');
     expect(e1.getSnapshot().latex).toBe('\\left| 0 \\right\\rangle + 1');
 
-    // 2. Bra + Ket + Braket via Tab chords and `;` progression
+    // 2. Bra + Ket + Braket via Tab chords and `;` progression (`Tab z i` -> `braket`)
     const e2 = new MathSlotEngine();
     e2.triggerLeader();
-    e2.handleLeaderKey('a');
-    e2.handleLeaderKey('T');
+    e2.handleLeaderKey('z');
+    e2.handleLeaderKey('i');
     typeChars(e2, 'phi;psi;=0');
     expect(e2.getSnapshot().latex).toBe(
       '\\left\\langle \\phi \\,\\middle|\\, \\psi \\right\\rangle = 0',
