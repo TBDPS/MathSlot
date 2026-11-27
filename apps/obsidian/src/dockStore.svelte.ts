@@ -44,19 +44,13 @@ export class DockedMathStore {
   public effectiveCommands = $state<readonly CommandDef[]>(COMMANDS);
   public customCommands = $state<CustomCommandDef[]>([]);
   public snippets = $state<Snippet[]>([]);
-  public dark = $state<boolean>(
-    typeof document !== 'undefined' && document.body.classList.contains('theme-dark'),
-  );
-  public panelHeight = $state<number>(78);
   public semicolonExitsAtRoot = $state<boolean>(true);
-  public ribbonPopoverOpen = $state<boolean>(false);
 
   private canvasFocusFn: (() => void) | null = null;
   private suppressEngineToDoc = false;
   private lastSyncedCleanLatex = '';
   private lastLoadedRaw = '';
   private callbacks: DockStoreCallbacks | null = null;
-  private darkObserver: MutationObserver | null = null;
 
   constructor() {
     this.engine.subscribe(() => {
@@ -68,13 +62,6 @@ export class DockedMathStore {
       this.lastSyncedCleanLatex = snap.latex;
       this.callbacks.writeEngineLatex(snap.latex, true);
     });
-
-    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
-      this.darkObserver = new MutationObserver(() => {
-        this.dark = document.body.classList.contains('theme-dark');
-      });
-      this.darkObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-    }
   }
 
   public bindCallbacks(cb: DockStoreCallbacks): void {
@@ -165,15 +152,6 @@ export class DockedMathStore {
     const currentLatex = this.engine.getSnapshot().latex;
     this.lastSyncedCleanLatex = currentLatex;
     this.callbacks?.switchWrapper(nextWrapper, currentLatex);
-    this.focusCanvas();
-  };
-
-  public toggleHierarchyBoxes = (): void => {
-    this.settings = {
-      ...this.settings,
-      showHierarchyBoxes: !this.settings.showHierarchyBoxes,
-    };
-    this.engine.updateSettings(this.settings);
     this.focusCanvas();
   };
 
@@ -541,8 +519,6 @@ export class DockedMathStore {
   };
 
   public destroy(): void {
-    this.darkObserver?.disconnect();
-    this.darkObserver = null;
     this.callbacks = null;
     this.canvasFocusFn = null;
   }

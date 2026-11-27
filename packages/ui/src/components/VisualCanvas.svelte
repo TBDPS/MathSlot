@@ -11,6 +11,8 @@
 
   interface Props {
     snapshot: EditorSnapshot;
+    minimal?: boolean;
+    displayMode?: boolean;
     shiftedUp?: boolean;
     showHierarchyBoxes?: boolean;
     onKeyEvent: (e: KeyboardEvent) => void;
@@ -31,6 +33,8 @@
 
   let {
     snapshot,
+    minimal = false,
+    displayMode = true,
     shiftedUp = false,
     showHierarchyBoxes = true,
     onKeyEvent,
@@ -53,6 +57,7 @@
   let innerEl: HTMLDivElement | null = $state(null);
   let formulaEl: HTMLDivElement | null = $state(null);
   let inputEl: HTMLInputElement | null = $state(null);
+  let canvasFocused = $state(false);
   let isComposing = $state(false);
   let autoScale = $state(1);
   let userZoom = $state(1);
@@ -94,7 +99,7 @@
   let dragAnchor = $state<{ slotId: string; offset: number } | null>(null);
   let activePointerId = -1;
 
-  const rendered = $derived(renderLatexInteractive(snapshot.interactiveLatex));
+  const rendered = $derived(renderLatexInteractive(snapshot.interactiveLatex, displayMode));
 
   const srAnnouncement = $derived.by(() => {
     if (snapshot.isEmpty) return '空公式画布';
@@ -434,7 +439,7 @@
   }
 
   function handleStageWheel(e: WheelEvent): void {
-    if (!(e.ctrlKey || e.metaKey)) return;
+    if (minimal || !(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     adjustZoom(e.deltaY < 0 ? 0.15 : -0.15);
   }
@@ -444,7 +449,7 @@
     const stageWidth = stageEl.clientWidth - 72;
     const katexEl = formulaEl.querySelector('.katex') as HTMLElement | null;
     let nextAuto = 1;
-    if (katexEl && stageWidth > 120) {
+    if (!minimal && katexEl && stageWidth > 120) {
       // Measure unscaled width cleanly; keep a readable floor (0.72) and allow smooth horizontal scroll for huge formulas!
       const currentRatio = Math.max(0.55, scale);
       const naturalWidth = katexEl.scrollWidth / currentRatio;
@@ -603,6 +608,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="canvas-stage"
+  class:is-minimal={minimal}
   bind:this={stageEl}
   onpointerdown={handleStagePointerDown}
   onpointermove={handleStagePointerMove}
@@ -623,8 +629,14 @@
     oncompositionstart={handleCompositionStart}
     oncompositionend={handleCompositionEnd}
     onpaste={handleNativePaste}
-    onfocus={() => onFocusChange(true)}
-    onblur={() => onFocusChange(false)}
+    onfocus={() => {
+      canvasFocused = true;
+      onFocusChange(true);
+    }}
+    onblur={() => {
+      canvasFocused = false;
+      onFocusChange(false);
+    }}
   />
 
   <div class="canvas-scroll">
@@ -663,7 +675,7 @@
           ></div>
         {/each}
 
-        {#if activeSlotBox && snapshot.mode.kind !== 'jump'}
+        {#if activeSlotBox && snapshot.mode.kind !== 'jump' && (!minimal || canvasFocused || snapshot.mode.kind === 'leader')}
           <div
             class="active-slot-box"
             style:left={`${activeSlotBox.left}px`}
@@ -671,7 +683,7 @@
             style:width={`${activeSlotBox.width}px`}
             style:height={`${activeSlotBox.height}px`}
           >
-            {#if !snapshot.activeGrid}
+            {#if !minimal && !snapshot.activeGrid}
               <span class="active-slot-tag">{activeSlotBox.label}</span>
             {/if}
           </div>
@@ -690,7 +702,7 @@
         >
           {@html rendered.html}
         </div>
-        {#if snapshot.isEmpty && snapshot.mode.kind === 'edit' && !shiftedUp}
+        {#if !minimal && snapshot.isEmpty && snapshot.mode.kind === 'edit' && !shiftedUp}
           <div class="empty-hint" aria-hidden="true">
             <span>直接键入公式，或按</span>
             <kbd>Tab</kbd>
@@ -702,7 +714,7 @@
         {/if}
       </div>
 
-      {#if snapshot.activeGrid && activeGridPos && snapshot.mode.kind === 'edit' && !shiftedUp}
+      {#if !minimal && snapshot.activeGrid && activeGridPos && snapshot.mode.kind === 'edit' && !shiftedUp}
         <div
           class="grid-controls"
           style:left={`${activeGridPos.left}px`}
@@ -751,39 +763,41 @@
     </div>
   </div>
 
-  <!-- Crisp floating zoom controls (also supports Ctrl+Wheel) -->
-  <div class="zoom-controls" aria-label="画布缩放">
-    <button
-      type="button"
-      class="zoom-btn"
-      title="缩小 (Ctrl+滚轮)"
-      aria-label="缩小"
-      onmousedown={(e) => e.preventDefault()}
-      onclick={() => adjustZoom(-0.15)}
-    >
-      −
-    </button>
-    <button
-      type="button"
-      class="zoom-val"
-      title="重置缩放至 100%"
-      aria-label="重置缩放"
-      onmousedown={(e) => e.preventDefault()}
-      onclick={resetZoom}
-    >
-      {Math.round(scale * 100)}%
-    </button>
-    <button
-      type="button"
-      class="zoom-btn"
-      title="放大 (Ctrl+滚轮)"
-      aria-label="放大"
-      onmousedown={(e) => e.preventDefault()}
-      onclick={() => adjustZoom(0.15)}
-    >
-      +
-    </button>
-  </div>
+  {#if !minimal}
+    <!-- Crisp floating zoom controls (also supports Ctrl+Wheel) -->
+    <div class="zoom-controls" aria-label="画布缩放">
+      <button
+        type="button"
+        class="zoom-btn"
+        title="缩小 (Ctrl+滚轮)"
+        aria-label="缩小"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => adjustZoom(-0.15)}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        class="zoom-val"
+        title="重置缩放至 100%"
+        aria-label="重置缩放"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={resetZoom}
+      >
+        {Math.round(scale * 100)}%
+      </button>
+      <button
+        type="button"
+        class="zoom-btn"
+        title="放大 (Ctrl+滚轮)"
+        aria-label="放大"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={() => adjustZoom(0.15)}
+      >
+        +
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -801,6 +815,12 @@
     background-image: radial-gradient(circle, var(--ms-canvas-dot) 1px, transparent 1px);
     background-size: 22px 22px;
     background-position: center center;
+  }
+
+  .canvas-stage.is-minimal {
+    min-height: 0;
+    background-image: none;
+    background: transparent;
   }
 
   .grid-sel-box {

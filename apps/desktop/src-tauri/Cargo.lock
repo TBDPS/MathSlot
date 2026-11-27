@@ -2010,7 +2010,7 @@ dependencies = [
 
 [[package]]
 name = "mathslot"
-version = "3.1.0-beta.6"
+version = "3.1.0-beta.7"
 dependencies = [
  "arboard",
  "serde",

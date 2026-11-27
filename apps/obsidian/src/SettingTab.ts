@@ -109,7 +109,7 @@ export class MathSlotSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('默认显示 2D 嵌套层级虚线框')
-      .setDesc('在底部 2D 画布中标示分式、根号、积分与矩阵的嵌套层级边界（也可在画布顶栏随时一键切换）。')
+      .setDesc('在完整公式工作台中标示分式、根号、积分与矩阵的嵌套层级边界。')
       .addToggle((toggle) =>
         toggle.setValue(appSettings.showHierarchyBoxes).onChange(async (value) => {
           await this.plugin.updateWorkbenchSettings({ showHierarchyBoxes: value });

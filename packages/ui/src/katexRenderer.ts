@@ -31,10 +31,10 @@ function trustInteractiveOnly(ctx: { command: string }): boolean {
   return INTERACTIVE_TRUST_COMMANDS.has(ctx.command);
 }
 
-export function renderLatexInteractive(latex: string): RenderResult {
+export function renderLatexInteractive(latex: string, displayMode = true): RenderResult {
   try {
     const html = katex.renderToString(latex, {
-      displayMode: true,
+      displayMode,
       throwOnError: true,
       strict: false,
       trust: trustInteractiveOnly,
@@ -45,7 +45,7 @@ export function renderLatexInteractive(latex: string): RenderResult {
     // Fallback with throwOnError: false so user never sees a blank screen
     try {
       const fallback = katex.renderToString(latex, {
-        displayMode: true,
+        displayMode,
         throwOnError: false,
         strict: false,
         trust: trustInteractiveOnly,

@@ -81,6 +81,13 @@ declare module 'obsidian' {
     key: string;
   }
 
+  export function setIcon(parent: HTMLElement, iconId: string): void;
+  export function setTooltip(
+    el: HTMLElement,
+    tooltip: string,
+    options?: { placement?: 'top' | 'bottom' | 'left' | 'right'; delay?: number },
+  ): void;
+
   export class Plugin {
     app: App;
     onload(): void | Promise<void>;
