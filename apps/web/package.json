@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 4173",
     "build": "vite build",
+    "build:offline": "node scripts/build-offline.mjs",
     "preview": "vite preview --port 4173",
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },

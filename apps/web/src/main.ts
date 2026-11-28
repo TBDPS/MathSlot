@@ -3,7 +3,7 @@ import '@mathslot/ui/styles.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
 
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if ('serviceWorker' in navigator && import.meta.env.PROD && window.location.protocol !== 'file:') {
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('./sw.js').catch(() => {});
   });

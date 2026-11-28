@@ -4,14 +4,34 @@ const STORE_KEY = 'mathslot.web.v3.store';
 const PRESETS_KEY = 'mathslot.web.v3.presets.json';
 const COMMANDS_KEY = 'mathslot.web.v3.commands.json';
 
+function safeGetItem(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage quota or file:// origin SecurityError
+  }
+}
+
 export function createWebHost(): HostAdapter {
   return {
     primaryActionLabel: '复制',
 
     async copyText(text: string): Promise<void> {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        return;
+        try {
+          await navigator.clipboard.writeText(text);
+          return;
+        } catch {
+          // Fall back to execCommand on file:// or restricted contexts
+        }
       }
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -59,10 +79,11 @@ export function createWebHost(): HostAdapter {
     },
 
     async loadUserLibraries(): Promise<ExternalUserLibraries> {
-      const rawPresets = localStorage.getItem(PRESETS_KEY);
-      const rawCommands = localStorage.getItem(COMMANDS_KEY);
+      const rawPresets = safeGetItem(PRESETS_KEY);
+      const rawCommands = safeGetItem(COMMANDS_KEY);
+      const isOfflineFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
       return {
-        configDir: '浏览器本地存储 (PWA)',
+        configDir: isOfflineFile ? '浏览器本地存储 (离线单文件)' : '浏览器本地存储 (Web)',
         presetsJson: rawPresets ?? '',
         commandsJson: rawCommands ?? '',
         presetsNewlyCreated: rawPresets === null,
@@ -71,13 +92,13 @@ export function createWebHost(): HostAdapter {
     },
 
     async saveUserLibraries(presetsJson: string, commandsJson: string): Promise<void> {
-      localStorage.setItem(PRESETS_KEY, presetsJson);
-      localStorage.setItem(COMMANDS_KEY, commandsJson);
+      safeSetItem(PRESETS_KEY, presetsJson);
+      safeSetItem(COMMANDS_KEY, commandsJson);
     },
 
     async loadStore(): Promise<PersistedStore> {
       try {
-        const raw = localStorage.getItem(STORE_KEY);
+        const raw = safeGetItem(STORE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as Partial<PersistedStore>;
           return {
@@ -107,7 +128,7 @@ export function createWebHost(): HostAdapter {
     },
 
     async saveStore(store: PersistedStore): Promise<void> {
-      localStorage.setItem(STORE_KEY, JSON.stringify(store));
+      safeSetItem(STORE_KEY, JSON.stringify(store));
     },
   };
 }
