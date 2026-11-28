@@ -101,7 +101,6 @@
   let helpOpen = $state(false);
   let moreMenuOpen = $state(false);
   let moreMenuWrapEl: HTMLDivElement | null = $state(null);
-  let ribbonPopoverOpen = $state(false);
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1455,7 +1454,7 @@
     <VisualCanvas
       bind:this={canvasRef}
       {snapshot}
-      shiftedUp={ribbonPopoverOpen}
+      shiftedUp={false}
       showHierarchyBoxes={settings.showHierarchyBoxes}
       onKeyEvent={handleKeyEvent}
       onTextInput={(text) => {
@@ -1514,7 +1513,6 @@
     commands={effectiveCommands}
     {customCommands}
     {snippets}
-    onPopoverChange={(open) => (ribbonPopoverOpen = open)}
     onInsertCommand={(id) => {
       if (engine.insertCommand(id)) recordRecent(`cmd:${id}`);
       sync();

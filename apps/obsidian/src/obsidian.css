@@ -61,8 +61,23 @@
   white-space: normal !important;
 }
 
-.mathslot-obsidian-modal .ms-studio .ribbon-btn {
-  height: 44px !important;
+.mathslot-obsidian-modal .ms-studio .ribbon-tile {
+  width: 54px !important;
+  height: 46px !important;
+  padding: 3px !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
+.mathslot-obsidian-modal .ms-studio .sub-tile {
+  padding: 2px 3px !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
+.mathslot-obsidian-modal .ms-studio .sub-back {
+  height: 20px !important;
+  padding: 0 7px !important;
 }
 
 .mathslot-dock-panel .dock-tile {
@@ -78,10 +93,6 @@
   width: 30px !important;
   height: 30px !important;
   padding: 0 !important;
-}
-
-.mathslot-obsidian-modal .ms-studio .cat-popover {
-  max-height: min(290px, 46vh) !important;
 }
 
 .mathslot-obsidian-modal .ms-studio svg,
